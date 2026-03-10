@@ -187,7 +187,7 @@ export default function DashboardPage() {
                     Your recent utility payments and trades will appear here.
                   </p>
                   <Link href="/pay">
-                    <Button variant="outline">Make a Payment</Button>
+                    <Button variant="secondary">Make a Payment</Button>
                   </Link>
                 </div>
               )}
