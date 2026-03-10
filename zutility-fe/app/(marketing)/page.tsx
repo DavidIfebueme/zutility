@@ -302,7 +302,7 @@ export default function LandingPage() {
               <p className="text-text-secondary text-lg">Pay for everyday services directly with Zcash.</p>
             </div>
             <Link href="/signup">
-              <Button variant="outline" className="border-accent-zec text-accent-zec hover:bg-accent-zec hover:text-bg-void">
+              <Button variant="secondary" className="border-accent-zec text-accent-zec hover:bg-accent-zec hover:text-bg-void">
                 View All Services <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             </Link>

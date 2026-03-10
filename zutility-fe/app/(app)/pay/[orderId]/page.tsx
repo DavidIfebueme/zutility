@@ -220,7 +220,7 @@ export default function OrderPage() {
                 )}
 
                 <div className="mt-8 flex gap-4">
-                  <Button variant="outline" onClick={() => router.push('/dashboard')}>
+                  <Button variant="secondary" onClick={() => router.push('/dashboard')}>
                     Back to Dashboard
                   </Button>
                   <Button variant="primary" onClick={() => {
