@@ -1,6 +1,6 @@
 use std::{fs, path::PathBuf};
 
-use zutility_be::db::OrderStatus;
+use zutility_be::domain::order::OrderStatus;
 
 fn repo_path(parts: &[&str]) -> PathBuf {
     parts.iter().fold(
