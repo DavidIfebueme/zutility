@@ -200,3 +200,40 @@ async fn service_ref_velocity_limit_returns_too_many_requests() {
     let blocked_res = app.oneshot(blocked_req).await.expect("response");
     assert_eq!(blocked_res.status(), StatusCode::TOO_MANY_REQUESTS);
 }
+
+#[tokio::test]
+async fn ops_endpoints_respond() {
+    let app = http::router();
+
+    let live = Request::builder()
+        .method("GET")
+        .uri("/ops/health/live")
+        .body(Body::empty())
+        .expect("build request");
+    let live_res = app.clone().oneshot(live).await.expect("response");
+    assert_eq!(live_res.status(), StatusCode::OK);
+
+    let ready = Request::builder()
+        .method("GET")
+        .uri("/ops/health/ready")
+        .body(Body::empty())
+        .expect("build request");
+    let ready_res = app.clone().oneshot(ready).await.expect("response");
+    assert_eq!(ready_res.status(), StatusCode::OK);
+
+    let metrics = Request::builder()
+        .method("GET")
+        .uri("/ops/metrics")
+        .body(Body::empty())
+        .expect("build request");
+    let metrics_res = app.clone().oneshot(metrics).await.expect("response");
+    assert_eq!(metrics_res.status(), StatusCode::OK);
+
+    let alerts = Request::builder()
+        .method("GET")
+        .uri("/ops/alerts")
+        .body(Body::empty())
+        .expect("build request");
+    let alerts_res = app.oneshot(alerts).await.expect("response");
+    assert_eq!(alerts_res.status(), StatusCode::OK);
+}

@@ -20,8 +20,8 @@ pub mod types;
 use crate::config::AppConfig;
 use crate::integrations::rates::SharedRateCache;
 use handlers::{
-    HttpState, cancel_order, create_order, get_current_rate, get_order, list_utilities,
-    stream_order, validate_utility_reference,
+    HttpState, alerts, cancel_order, create_order, get_current_rate, get_order, health_live,
+    health_ready, list_utilities, metrics, stream_order, validate_utility_reference,
 };
 
 pub fn build_router(config: &AppConfig) -> Router {
@@ -40,12 +40,12 @@ fn build_router_with_rate_cache_and_limits(
     rate_cache: Option<SharedRateCache>,
     enable_rate_limits: bool,
 ) -> Router {
-
     let state = HttpState::new(
         config.order_token_hmac_secret.clone(),
         i64::from(config.order_expiry_minutes),
         i64::from(config.rate_lock_minutes),
-    );
+    )
+    .with_ops_context(config);
     let state = match rate_cache {
         Some(cache) => state.with_rate_cache(cache),
         None => state,
@@ -62,6 +62,10 @@ fn build_router_with_rate_cache_and_limits(
             "/api/v1/utilities/{slug}/validate",
             get(validate_utility_reference),
         )
+        .route("/ops/health/live", get(health_live))
+        .route("/ops/health/ready", get(health_ready))
+        .route("/ops/metrics", get(metrics))
+        .route("/ops/alerts", get(alerts))
         .with_state(state)
         .layer(
             CorsLayer::new()
