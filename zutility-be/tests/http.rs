@@ -54,6 +54,9 @@ async fn create_and_get_order_with_valid_token() {
         get_json.get("status").and_then(Value::as_str),
         Some("awaiting_payment")
     );
+    assert_eq!(get_json.get("total_received"), Some(&Value::Null));
+    assert_eq!(get_json.get("completed_at"), Some(&Value::Null));
+    assert_eq!(get_json.get("delivery_token"), Some(&Value::Null));
 }
 
 #[tokio::test]
@@ -140,6 +143,71 @@ async fn cancel_order_changes_status() {
     assert_eq!(
         get_json.get("status").and_then(Value::as_str),
         Some("cancelled")
+    );
+}
+
+#[tokio::test]
+async fn create_order_response_matches_frontend_contract_shape() {
+    let app = http::router();
+
+    let create_req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/orders/create")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            r#"{"utility_type":"airtime","utility_slug":"mtn","service_ref":"08011110000","amount_ngn":5000,"zec_address_type":"shielded"}"#,
+        ))
+        .expect("build request");
+
+    let create_res = app.oneshot(create_req).await.expect("response");
+    assert_eq!(create_res.status(), StatusCode::OK);
+
+    let create_body = to_bytes(create_res.into_body(), 1024 * 1024)
+        .await
+        .expect("read body");
+    let create_json: Value = serde_json::from_slice(&create_body).expect("json parse");
+
+    assert!(
+        create_json
+            .get("order_id")
+            .and_then(Value::as_str)
+            .is_some()
+    );
+    assert!(
+        create_json
+            .get("order_access_token")
+            .and_then(Value::as_str)
+            .is_some()
+    );
+    assert!(
+        create_json
+            .get("deposit_address")
+            .and_then(Value::as_str)
+            .is_some()
+    );
+    assert!(
+        create_json
+            .get("zec_amount")
+            .and_then(Value::as_str)
+            .is_some()
+    );
+    assert!(
+        create_json
+            .get("expires_at")
+            .and_then(Value::as_str)
+            .is_some()
+    );
+    let qr_data = create_json
+        .get("qr_data")
+        .and_then(Value::as_str)
+        .expect("qr_data");
+    assert!(qr_data.starts_with("zcash:"));
+    assert!(qr_data.contains("?amount="));
+    assert!(
+        create_json
+            .get("required_confirmations")
+            .and_then(Value::as_u64)
+            .is_some()
     );
 }
 
