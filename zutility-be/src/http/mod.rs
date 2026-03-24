@@ -5,6 +5,7 @@ use axum::{
     Router,
     routing::{get, post},
 };
+use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
 use tower_http::{
     cors::{Any, CorsLayer},
     request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer},
@@ -24,13 +25,22 @@ use handlers::{
 };
 
 pub fn build_router(config: &AppConfig) -> Router {
-    build_router_with_rate_cache(config, None)
+    build_router_with_rate_cache_and_limits(config, None, true)
 }
 
 pub fn build_router_with_rate_cache(
     config: &AppConfig,
     rate_cache: Option<SharedRateCache>,
 ) -> Router {
+    build_router_with_rate_cache_and_limits(config, rate_cache, true)
+}
+
+fn build_router_with_rate_cache_and_limits(
+    config: &AppConfig,
+    rate_cache: Option<SharedRateCache>,
+    enable_rate_limits: bool,
+) -> Router {
+
     let state = HttpState::new(
         config.order_token_hmac_secret.clone(),
         i64::from(config.order_expiry_minutes),
@@ -41,7 +51,7 @@ pub fn build_router_with_rate_cache(
         None => state,
     };
 
-    Router::new()
+    let router = Router::new()
         .route("/api/v1/orders/create", post(create_order))
         .route("/api/v1/orders/{order_id}", get(get_order))
         .route("/api/v1/orders/{order_id}/stream", get(stream_order))
@@ -67,7 +77,19 @@ pub fn build_router_with_rate_cache(
             HeaderName::from_static("x-request-id"),
             MakeRequestUuid,
         ))
-        .layer(TraceLayer::new_for_http())
+        .layer(TraceLayer::new_for_http());
+
+    if enable_rate_limits {
+        let governor_config = GovernorConfigBuilder::default()
+            .per_second(15)
+            .burst_size(30)
+            .use_headers()
+            .finish()
+            .expect("valid governor config");
+        return router.layer(GovernorLayer::new(governor_config));
+    }
+
+    router
 }
 
 pub fn router() -> Router {
@@ -97,5 +119,5 @@ pub fn router() -> Router {
         signing_service_hmac_secret: secrecy::SecretString::from(String::from("hmac_secret")),
         rate_source_timeout_ms: 3000,
     };
-    build_router(&config)
+    build_router_with_rate_cache_and_limits(&config, None, false)
 }

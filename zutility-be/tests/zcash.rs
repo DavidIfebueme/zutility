@@ -10,7 +10,7 @@ use zutility_be::{
     },
     integrations::zcash::{
         RpcRetryPolicy, ZcashNetwork, ZcashRpcClient, ZcashRpcConfig, ZcashRpcMode,
-        validate_runtime_network_policy,
+        validate_rpc_socket_policy, validate_runtime_network_policy,
     },
 };
 
@@ -275,5 +275,38 @@ fn runtime_network_policy_enforces_testnet_for_dev_and_staging() {
     };
 
     let result = validate_runtime_network_policy(&dev_mainnet);
+    assert!(result.is_err());
+}
+
+#[test]
+fn rpc_socket_policy_requires_unix_in_production() {
+    let prod_tcp = AppConfig {
+        app_env: AppEnv::Prod,
+        http_bind_addr: "127.0.0.1:8080"
+            .parse()
+            .unwrap_or_else(|error| panic!("failed to parse bind addr: {error}")),
+        database_url: String::from("postgres://postgres:postgres@localhost/zutility"),
+        order_token_hmac_secret: SecretString::from(String::from("order-secret")),
+        ip_hash_secret: SecretString::from(String::from("ip-secret")),
+        vtpass_base_url: String::from("https://sandbox.vtpass.com"),
+        vtpass_api_key: SecretString::from(String::from("key")),
+        vtpass_secret_key: SecretString::from(String::from("secret")),
+        zcash_rpc_mode: ConfigZcashRpcMode::Tcp,
+        zcash_rpc_socket_path: String::new(),
+        zcash_rpc_url: String::from("http://127.0.0.1:8232"),
+        zcash_rpc_user: SecretString::from(String::from("rpcuser")),
+        zcash_rpc_password: SecretString::from(String::from("rpcpass")),
+        zcash_network: ConfigZcashNetwork::Mainnet,
+        required_confs_transparent: 3,
+        required_confs_shielded: 10,
+        order_expiry_minutes: 15,
+        rate_lock_minutes: 5,
+        sweep_threshold_zec: rust_decimal::Decimal::new(1, 1),
+        signing_service_url: String::from("http://localhost:9000"),
+        signing_service_hmac_secret: SecretString::from(String::from("signing-secret")),
+        rate_source_timeout_ms: 1500,
+    };
+
+    let result = validate_rpc_socket_policy(&prod_tcp);
     assert!(result.is_err());
 }
