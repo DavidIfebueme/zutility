@@ -37,3 +37,9 @@ Thumbs.db
 !.vscode/settings.json
 
 DIGITALOCEAN_FRONTEND_SETUP_PRIVATE.md
+fe-checklist.md
+
+# private markdown docs (keep readmes tracked)
+**/*.md
+!README.md
+!**/README.md
