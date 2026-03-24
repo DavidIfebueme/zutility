@@ -8,6 +8,7 @@ async fn main() -> Result<()> {
     let config = AppConfig::from_env()?;
     config.validate()?;
     zcash::validate_runtime_network_policy(&config)?;
+    zcash::validate_rpc_socket_policy(&config)?;
 
     let app = http::build_router(&config);
     let listener = tokio::net::TcpListener::bind(config.http_bind_addr).await?;

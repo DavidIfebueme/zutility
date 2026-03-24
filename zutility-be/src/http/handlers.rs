@@ -37,6 +37,7 @@ pub struct HttpState {
     pub orders: Arc<RwLock<HashMap<Uuid, OrderRecord>>>,
     pub ws_hub: WsHub,
     pub rate_cache: SharedRateCache,
+    pub service_ref_velocity: Arc<RwLock<HashMap<String, Vec<chrono::DateTime<Utc>>>>>,
 }
 
 impl HttpState {
@@ -52,6 +53,7 @@ impl HttpState {
             orders: Arc::new(RwLock::new(HashMap::new())),
             ws_hub: WsHub::new(),
             rate_cache: new_shared_rate_cache(default_current_rate()),
+            service_ref_velocity: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -66,6 +68,7 @@ pub async fn create_order(
     Json(payload): Json<CreateOrderRequest>,
 ) -> Result<Json<CreateOrderResponse>, ApiError> {
     validate_create_order_payload(&payload)?;
+    enforce_service_ref_velocity(&state, &payload).await?;
 
     let order_id = Uuid::new_v4();
     let order_access_token = generate_token(48);
@@ -113,6 +116,39 @@ pub async fn create_order(
         qr_data: format!("zcash:{deposit_address}?amount={}", zec_amount.round_dp(8)),
         required_confirmations,
     }))
+}
+
+async fn enforce_service_ref_velocity(
+    state: &HttpState,
+    payload: &CreateOrderRequest,
+) -> Result<(), ApiError> {
+    let now = Utc::now();
+    let (window_minutes, max_requests) = match payload.utility_type.as_str() {
+        "airtime" | "data" => (10_i64, 8_usize),
+        "dstv" | "gotv" | "electricity" => (30_i64, 4_usize),
+        _ => (10_i64, 5_usize),
+    };
+
+    let key = format!(
+        "{}:{}:{}",
+        payload.utility_type.trim().to_ascii_lowercase(),
+        payload.utility_slug.trim().to_ascii_lowercase(),
+        payload.service_ref.trim().to_ascii_lowercase()
+    );
+
+    let mut tracker = state.service_ref_velocity.write().await;
+    let entries = tracker.entry(key).or_default();
+    let cutoff = now - Duration::minutes(window_minutes);
+    entries.retain(|timestamp| *timestamp >= cutoff);
+
+    if entries.len() >= max_requests {
+        return Err(ApiError::too_many_requests(
+            "service_ref velocity limit exceeded",
+        ));
+    }
+
+    entries.push(now);
+    Ok(())
 }
 
 pub async fn get_order(

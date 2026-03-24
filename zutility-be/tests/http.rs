@@ -171,3 +171,32 @@ async fn rates_utilities_and_validate_endpoints_respond() {
     let validate_res = app.oneshot(validate_req).await.expect("response");
     assert_eq!(validate_res.status(), StatusCode::OK);
 }
+
+#[tokio::test]
+async fn service_ref_velocity_limit_returns_too_many_requests() {
+    let app = http::router();
+
+    for _ in 0..8 {
+        let create_req = Request::builder()
+            .method("POST")
+            .uri("/api/v1/orders/create")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"utility_type":"airtime","utility_slug":"mtn","service_ref":"08099999999","amount_ngn":5000,"zec_address_type":"transparent"}"#,
+            ))
+            .expect("build request");
+        let create_res = app.clone().oneshot(create_req).await.expect("response");
+        assert_eq!(create_res.status(), StatusCode::OK);
+    }
+
+    let blocked_req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/orders/create")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            r#"{"utility_type":"airtime","utility_slug":"mtn","service_ref":"08099999999","amount_ngn":5000,"zec_address_type":"transparent"}"#,
+        ))
+        .expect("build request");
+    let blocked_res = app.oneshot(blocked_req).await.expect("response");
+    assert_eq!(blocked_res.status(), StatusCode::TOO_MANY_REQUESTS);
+}

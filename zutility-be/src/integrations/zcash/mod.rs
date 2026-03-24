@@ -342,6 +342,15 @@ pub fn validate_runtime_network_policy(config: &AppConfig) -> Result<()> {
     Ok(())
 }
 
+pub fn validate_rpc_socket_policy(config: &AppConfig) -> Result<()> {
+    if matches!(config.app_env, AppEnv::Prod)
+        && !matches!(config.zcash_rpc_mode, ConfigRpcMode::Unix)
+    {
+        anyhow::bail!("production must use ZCASH_RPC_MODE=unix where possible");
+    }
+    Ok(())
+}
+
 pub fn evaluate_received_notes(notes: &[ReceivedNote], expected: Decimal) -> PaymentMatch {
     let total_received = notes
         .iter()
