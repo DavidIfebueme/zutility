@@ -17,17 +17,29 @@ pub mod handlers;
 pub mod types;
 
 use crate::config::AppConfig;
+use crate::integrations::rates::SharedRateCache;
 use handlers::{
     HttpState, cancel_order, create_order, get_current_rate, get_order, list_utilities,
     stream_order, validate_utility_reference,
 };
 
 pub fn build_router(config: &AppConfig) -> Router {
+    build_router_with_rate_cache(config, None)
+}
+
+pub fn build_router_with_rate_cache(
+    config: &AppConfig,
+    rate_cache: Option<SharedRateCache>,
+) -> Router {
     let state = HttpState::new(
         config.order_token_hmac_secret.clone(),
         i64::from(config.order_expiry_minutes),
         i64::from(config.rate_lock_minutes),
     );
+    let state = match rate_cache {
+        Some(cache) => state.with_rate_cache(cache),
+        None => state,
+    };
 
     Router::new()
         .route("/api/v1/orders/create", post(create_order))

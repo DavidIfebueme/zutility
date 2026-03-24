@@ -40,6 +40,19 @@ pub struct AddressPoolDepth {
     pub unused_count: i64,
 }
 
+#[derive(Debug, Clone)]
+pub struct PersistRateSnapshotInput {
+    pub zec_ngn: Decimal,
+    pub zec_usd: Decimal,
+    pub usd_ngn: Decimal,
+    pub coingecko_zec_ngn: Option<Decimal>,
+    pub binance_zec_usd: Option<Decimal>,
+    pub kraken_zec_usd: Option<Decimal>,
+    pub coinbase_zec_usd: Option<Decimal>,
+    pub sources_used: Vec<String>,
+    pub fetched_at: chrono::DateTime<chrono::Utc>,
+}
+
 pub async fn begin_tx(pool: &PgPool) -> Result<Transaction<'_, Postgres>> {
     pool.begin().await.map_err(Into::into)
 }
@@ -126,6 +139,52 @@ pub async fn insert_deposit_addresses(
     }
 
     Ok(inserted)
+}
+
+pub async fn persist_rate_snapshot(
+    pool: &PgPool,
+    input: &PersistRateSnapshotInput,
+) -> Result<Uuid> {
+    let snapshot_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO rate_snapshots (
+            id,
+            zec_ngn,
+            zec_usd,
+            usd_ngn,
+            coingecko_zec_ngn,
+            binance_zec_usd,
+            kraken_zec_usd,
+            coinbase_zec_usd,
+            sources_used,
+            fetched_at
+        ) VALUES (
+            $1,
+            $2,
+            $3,
+            $4,
+            $5,
+            $6,
+            $7,
+            $8,
+            $9,
+            $10
+        )",
+    )
+    .bind(snapshot_id)
+    .bind(input.zec_ngn)
+    .bind(input.zec_usd)
+    .bind(input.usd_ngn)
+    .bind(input.coingecko_zec_ngn)
+    .bind(input.binance_zec_usd)
+    .bind(input.kraken_zec_usd)
+    .bind(input.coinbase_zec_usd)
+    .bind(&input.sources_used)
+    .bind(input.fetched_at)
+    .execute(pool)
+    .await?;
+
+    Ok(snapshot_id)
 }
 
 pub async fn insert_order_with_claimed_address(
