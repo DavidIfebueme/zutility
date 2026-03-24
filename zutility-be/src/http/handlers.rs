@@ -2,7 +2,8 @@ use std::{collections::HashMap, sync::Arc};
 
 use axum::{
     Json,
-    extract::{Path, Query, State},
+    extract::{Path, Query, State, ws::WebSocketUpgrade},
+    response::Response,
 };
 use chrono::{Duration, Utc};
 use rand::{RngExt, distr::Alphanumeric};
@@ -10,7 +11,11 @@ use rust_decimal::Decimal;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
-use crate::{domain::order::OrderStatus, http::auth};
+use crate::{
+    domain::order::OrderStatus,
+    http::auth,
+    ws::{self, WsHub, WsOrderEvent},
+};
 
 use super::{
     error::ApiError,
@@ -27,6 +32,7 @@ pub struct HttpState {
     pub order_expiry_minutes: i64,
     pub rate_lock_minutes: i64,
     pub orders: Arc<RwLock<HashMap<Uuid, OrderRecord>>>,
+    pub ws_hub: WsHub,
 }
 
 impl HttpState {
@@ -40,6 +46,7 @@ impl HttpState {
             order_expiry_minutes,
             rate_lock_minutes,
             orders: Arc::new(RwLock::new(HashMap::new())),
+            ws_hub: WsHub::new(),
         }
     }
 }
@@ -102,21 +109,7 @@ pub async fn get_order(
     Query(query): Query<OrderTokenQuery>,
     State(state): State<HttpState>,
 ) -> Result<Json<OrderStatusResponse>, ApiError> {
-    let order = state
-        .orders
-        .read()
-        .await
-        .get(&order_id)
-        .cloned()
-        .ok_or_else(|| ApiError::not_found("order not found"))?;
-
-    if !auth::verify_order_token_hash(
-        &state.order_token_hmac_secret,
-        &query.token,
-        &order.access_token_hash,
-    ) {
-        return Err(ApiError::forbidden("invalid order token"));
-    }
+    let order = authorize_order_access(&state, order_id, &query.token).await?;
 
     Ok(Json(OrderStatusResponse {
         order_id: order.order_id,
@@ -158,6 +151,19 @@ pub async fn cancel_order(
 
     order.status = OrderStatus::Cancelled;
     Ok(Json(CancelOrderResponse { success: true }))
+}
+
+pub async fn stream_order(
+    Path(order_id): Path<Uuid>,
+    Query(query): Query<OrderTokenQuery>,
+    State(state): State<HttpState>,
+    ws: WebSocketUpgrade,
+) -> Result<Response, ApiError> {
+    let order = authorize_order_access(&state, order_id, &query.token).await?;
+    let hub = state.ws_hub.clone();
+    let initial_event = map_status_to_event(&order);
+
+    Ok(ws.on_upgrade(move |socket| ws::serve_connection(hub, order_id, socket, initial_event)))
 }
 
 pub async fn get_current_rate(
@@ -267,4 +273,52 @@ fn generate_token(length: usize) -> String {
         .take(length)
         .map(char::from)
         .collect()
+}
+
+async fn authorize_order_access(
+    state: &HttpState,
+    order_id: Uuid,
+    token: &str,
+) -> Result<OrderRecord, ApiError> {
+    let order = state
+        .orders
+        .read()
+        .await
+        .get(&order_id)
+        .cloned()
+        .ok_or_else(|| ApiError::not_found("order not found"))?;
+
+    if !auth::verify_order_token_hash(
+        &state.order_token_hmac_secret,
+        token,
+        &order.access_token_hash,
+    ) {
+        return Err(ApiError::forbidden("invalid order token"));
+    }
+
+    Ok(order)
+}
+
+fn map_status_to_event(order: &OrderRecord) -> Option<WsOrderEvent> {
+    match order.status {
+        OrderStatus::PaymentDetected => Some(WsOrderEvent::PaymentDetected {
+            confirmations: order.confirmations,
+            required: order.required_confirmations,
+        }),
+        OrderStatus::PaymentConfirmed => Some(WsOrderEvent::PaymentConfirmed {
+            confirmations: order.confirmations,
+        }),
+        OrderStatus::UtilityDispatching => Some(WsOrderEvent::Dispatching),
+        OrderStatus::Completed => Some(WsOrderEvent::Completed {
+            token: None,
+            reference: order.order_id.to_string(),
+        }),
+        OrderStatus::Expired => Some(WsOrderEvent::Expired),
+        OrderStatus::Failed => Some(WsOrderEvent::Failed {
+            reason: String::from("order_failed"),
+        }),
+        OrderStatus::AwaitingPayment | OrderStatus::FlaggedForReview | OrderStatus::Cancelled => {
+            None
+        }
+    }
 }

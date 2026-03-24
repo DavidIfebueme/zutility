@@ -8,6 +8,6 @@ fn module_tree_is_accessible() {
     let _ = http::router();
     let _ = std::mem::size_of::<jobs::WorkerKind>();
     let _ = std::mem::size_of::<integrations::zcash::ZcashNetwork>();
-    let _ = std::mem::size_of::<ws::WsEvent>();
+    let _ = std::mem::size_of::<ws::WsOrderEvent>();
     let _ = observability::init_tracing as fn();
 }

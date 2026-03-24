@@ -19,7 +19,7 @@ pub mod types;
 use crate::config::AppConfig;
 use handlers::{
     HttpState, cancel_order, create_order, get_current_rate, get_order, list_utilities,
-    validate_utility_reference,
+    stream_order, validate_utility_reference,
 };
 
 pub fn build_router(config: &AppConfig) -> Router {
@@ -32,6 +32,7 @@ pub fn build_router(config: &AppConfig) -> Router {
     Router::new()
         .route("/api/v1/orders/create", post(create_order))
         .route("/api/v1/orders/{order_id}", get(get_order))
+        .route("/api/v1/orders/{order_id}/stream", get(stream_order))
         .route("/api/v1/orders/{order_id}/cancel", post(cancel_order))
         .route("/api/v1/rates/current", get(get_current_rate))
         .route("/api/v1/utilities", get(list_utilities))
