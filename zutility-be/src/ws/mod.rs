@@ -295,4 +295,49 @@ mod tests {
 
         assert_eq!(hub.active_connections(order_id).await, 0);
     }
+
+    #[tokio::test]
+    async fn broadcast_preserves_event_order_per_subscriber() {
+        let hub = WsHub::new();
+        let order_id = Uuid::new_v4();
+        let mut receiver = hub.subscribe(order_id).await.receiver;
+
+        let first = WsOrderEvent::PaymentDetected {
+            confirmations: 1,
+            required: 3,
+        };
+        let second = WsOrderEvent::PaymentConfirmed { confirmations: 3 };
+
+        let _ = hub.broadcast_event(order_id, &first).await;
+        let _ = hub.broadcast_event(order_id, &second).await;
+
+        let first_msg = receiver.recv().await;
+        let second_msg = receiver.recv().await;
+
+        let first_event = match first_msg {
+            Some(Message::Text(payload)) => serde_json::from_str::<serde_json::Value>(&payload)
+                .ok()
+                .and_then(|value| {
+                    value
+                        .get("event")
+                        .and_then(serde_json::Value::as_str)
+                        .map(ToOwned::to_owned)
+                }),
+            _ => None,
+        };
+        let second_event = match second_msg {
+            Some(Message::Text(payload)) => serde_json::from_str::<serde_json::Value>(&payload)
+                .ok()
+                .and_then(|value| {
+                    value
+                        .get("event")
+                        .and_then(serde_json::Value::as_str)
+                        .map(ToOwned::to_owned)
+                }),
+            _ => None,
+        };
+
+        assert_eq!(first_event.as_deref(), Some("payment_detected"));
+        assert_eq!(second_event.as_deref(), Some("payment_confirmed"));
+    }
 }
