@@ -44,4 +44,5 @@ futures-util = "0.3.31"
 hex = "0.4.3"
 
 [dev-dependencies]
+proptest = "1.6.0"
 tokio-tungstenite = { version = "0.28.0", default-features = false, features = ["rustls-tls-native-roots"] }

@@ -163,6 +163,94 @@ struct MockProvider {
     error_kind: Option<ProviderErrorKind>,
 }
 
+#[derive(Clone, Default)]
+struct RetryTrackingProvider {
+    seen_request_ids: Arc<Mutex<Vec<String>>>,
+    calls: Arc<Mutex<u8>>,
+}
+
+#[async_trait]
+impl UtilityProvider for RetryTrackingProvider {
+    fn kind(&self) -> ProviderKind {
+        ProviderKind::Vtpass
+    }
+
+    async fn service_variations(
+        &self,
+        _service_id: &str,
+    ) -> std::result::Result<Vec<UtilityVariation>, ProviderError> {
+        Ok(Vec::new())
+    }
+
+    async fn validate_reference(
+        &self,
+        _request: &ValidateRefRequest,
+    ) -> std::result::Result<ValidateRefResponse, ProviderError> {
+        Ok(ValidateRefResponse {
+            is_valid: true,
+            customer_name: None,
+            raw: serde_json::json!({}),
+        })
+    }
+
+    async fn pay(
+        &self,
+        request: &UtilityPurchaseRequest,
+    ) -> std::result::Result<UtilityPurchaseResponse, ProviderError> {
+        self.seen_request_ids
+            .lock()
+            .await
+            .push(request.request_id.clone());
+
+        let mut calls = self.calls.lock().await;
+        *calls = calls.saturating_add(1);
+        if *calls == 1 {
+            return Err(ProviderError::transient("temporary provider failure"));
+        }
+
+        Ok(UtilityPurchaseResponse {
+            provider_reference: request.order_id.to_string(),
+            provider_request_id: request.request_id.clone(),
+            status: ProviderTxnStatus::Delivered,
+            token: None,
+            raw: serde_json::json!({}),
+        })
+    }
+
+    async fn requery(
+        &self,
+        request_id: &str,
+    ) -> std::result::Result<RequeryResponse, ProviderError> {
+        Ok(RequeryResponse {
+            provider_request_id: request_id.to_owned(),
+            status: ProviderTxnStatus::Pending,
+            token: None,
+            raw: serde_json::json!({}),
+        })
+    }
+
+    fn verify_webhook_signature(&self, _payload: &[u8], _signature: &str) -> bool {
+        true
+    }
+
+    fn parse_webhook_event(
+        &self,
+        _payload: &[u8],
+    ) -> std::result::Result<
+        zutility_be::integrations::utility_provider::ProviderWebhookEvent,
+        ProviderError,
+    > {
+        Ok(
+            zutility_be::integrations::utility_provider::ProviderWebhookEvent {
+                provider_request_id: String::from("req"),
+                status: ProviderTxnStatus::Pending,
+                token: None,
+                raw: serde_json::json!({}),
+            },
+        )
+    }
+}
+
 #[async_trait]
 impl UtilityProvider for MockProvider {
     fn kind(&self) -> ProviderKind {
@@ -408,4 +496,34 @@ async fn sweeper_runs_only_above_threshold() {
         .await;
     assert!(matches!(high, Ok(Some(_))));
     assert_eq!(repo.state.lock().await.sweeps.len(), 1);
+}
+
+#[tokio::test]
+async fn utility_dispatcher_retries_with_same_idempotency_request_id() {
+    let order = DispatchOrder {
+        order_id: Uuid::new_v4(),
+        utility_slug: String::from("mtn"),
+        service_ref: String::from("08000000000"),
+        amount_ngn: 1500,
+        zec_amount: Decimal::new(12, 1),
+        metadata: serde_json::json!({}),
+    };
+
+    let provider = Arc::new(RetryTrackingProvider::default());
+    let router = UtilityProviderRouter::new(provider.clone());
+    let dispatcher = UtilityDispatcher::new(router);
+    let repo = MockRepo::default();
+
+    let first = dispatcher.dispatch_order(&repo, &order, 0).await;
+    assert!(matches!(first, Ok(DispatchExecution::RetryScheduled(_))));
+
+    let second = dispatcher.dispatch_order(&repo, &order, 1).await;
+    assert!(matches!(second, Ok(DispatchExecution::Completed)));
+
+    let seen = provider.seen_request_ids.lock().await.clone();
+    assert_eq!(seen.len(), 2);
+    assert!(
+        seen.iter()
+            .all(|request_id| request_id == &order.order_id.to_string())
+    );
 }
