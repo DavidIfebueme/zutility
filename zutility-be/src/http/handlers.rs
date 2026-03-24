@@ -187,12 +187,15 @@ pub async fn get_order(
         status: order.status,
         confirmations: order.confirmations,
         required_confirmations: order.required_confirmations,
+        total_received: None,
         utility_type: order.utility_type,
         utility_slug: order.utility_slug,
         service_ref: order.service_ref,
         amount_ngn: order.amount_ngn,
         zec_amount: order.zec_amount.round_dp(8).to_string(),
         expires_at: order.expires_at,
+        completed_at: None,
+        delivery_token: None,
     }))
 }
 
@@ -502,7 +505,7 @@ fn map_status_to_event(order: &OrderRecord) -> Option<WsOrderEvent> {
         }),
         OrderStatus::UtilityDispatching => Some(WsOrderEvent::Dispatching),
         OrderStatus::Completed => Some(WsOrderEvent::Completed {
-            token: None,
+            delivery_token: None,
             reference: order.order_id.to_string(),
         }),
         OrderStatus::Expired => Some(WsOrderEvent::Expired),

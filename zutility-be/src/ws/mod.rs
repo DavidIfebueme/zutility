@@ -30,7 +30,7 @@ pub enum WsOrderEvent {
     },
     Dispatching,
     Completed {
-        token: Option<String>,
+        delivery_token: Option<String>,
         reference: String,
     },
     Expired,
@@ -339,5 +339,17 @@ mod tests {
 
         assert_eq!(first_event.as_deref(), Some("payment_detected"));
         assert_eq!(second_event.as_deref(), Some("payment_confirmed"));
+    }
+
+    #[test]
+    fn completed_event_uses_delivery_token_field_name() {
+        let payload = serde_json::to_value(WsOrderEvent::Completed {
+            delivery_token: None,
+            reference: String::from("ref-1"),
+        })
+        .expect("serialize completed event");
+
+        assert!(payload.get("delivery_token").is_some());
+        assert!(payload.get("token").is_none());
     }
 }

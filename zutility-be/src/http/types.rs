@@ -31,12 +31,15 @@ pub struct OrderStatusResponse {
     pub status: OrderStatus,
     pub confirmations: u16,
     pub required_confirmations: u16,
+    pub total_received: Option<String>,
     pub utility_type: String,
     pub utility_slug: String,
     pub service_ref: String,
     pub amount_ngn: i64,
     pub zec_amount: String,
     pub expires_at: DateTime<Utc>,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub delivery_token: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
