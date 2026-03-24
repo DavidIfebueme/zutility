@@ -46,6 +46,8 @@ pub struct HttpState {
     pub database_url: String,
     pub zcash_rpc_client: Option<ZcashRpcClient>,
     pub zcash_expected_chain: String,
+    pub required_confs_transparent: u16,
+    pub required_confs_shielded: u16,
 }
 
 impl HttpState {
@@ -66,6 +68,8 @@ impl HttpState {
             database_url: String::new(),
             zcash_rpc_client: None,
             zcash_expected_chain: String::from("test"),
+            required_confs_transparent: 3,
+            required_confs_shielded: 10,
         }
     }
 
@@ -81,6 +85,8 @@ impl HttpState {
             crate::config::ZcashNetwork::Mainnet => String::from("main"),
         };
         self.zcash_rpc_client = ZcashRpcClient::from_app_config(config).ok();
+        self.required_confs_transparent = config.required_confs_transparent;
+        self.required_confs_shielded = config.required_confs_shielded;
         self.observability.jobs().mark_alive("http_server");
         self
     }
@@ -102,17 +108,13 @@ pub async fn create_order(
 
     let rate = state.rate_cache.read().await.clone();
     let required_confirmations = if payload.zec_address_type == "shielded" {
-        10
+        state.required_confs_shielded
     } else {
-        3
+        state.required_confs_transparent
     };
     let zec_amount = Decimal::new(payload.amount_ngn, 0) / rate.zec_ngn;
     let expires_at = Utc::now() + Duration::minutes(state.order_expiry_minutes);
-    let deposit_address = if payload.zec_address_type == "shielded" {
-        String::from("ztestsapling1q3f4v8k6e4q7s9x2a5w6d8j9m3k2t7y8u6i5o4p3l2k1j0h9g8f7d6")
-    } else {
-        String::from("tmQ1Y8xQx5G4h5w6nJ4D31oQmRVVbYkA4W")
-    };
+    let deposit_address = resolve_deposit_address(&state, &payload.zec_address_type).await;
 
     let record = OrderRecord {
         order_id,
@@ -126,7 +128,10 @@ pub async fn create_order(
         status: OrderStatus::AwaitingPayment,
         confirmations: 0,
         required_confirmations,
+        total_received: None,
         expires_at,
+        completed_at: None,
+        delivery_token: None,
     };
 
     state.orders.write().await.insert(order_id, record);
@@ -187,15 +192,17 @@ pub async fn get_order(
         status: order.status,
         confirmations: order.confirmations,
         required_confirmations: order.required_confirmations,
-        total_received: None,
+        total_received: order
+            .total_received
+            .map(|value| value.round_dp(8).to_string()),
         utility_type: order.utility_type,
         utility_slug: order.utility_slug,
         service_ref: order.service_ref,
         amount_ngn: order.amount_ngn,
         zec_amount: order.zec_amount.round_dp(8).to_string(),
         expires_at: order.expires_at,
-        completed_at: None,
-        delivery_token: None,
+        completed_at: order.completed_at,
+        delivery_token: order.delivery_token,
     }))
 }
 
@@ -505,7 +512,7 @@ fn map_status_to_event(order: &OrderRecord) -> Option<WsOrderEvent> {
         }),
         OrderStatus::UtilityDispatching => Some(WsOrderEvent::Dispatching),
         OrderStatus::Completed => Some(WsOrderEvent::Completed {
-            delivery_token: None,
+            delivery_token: order.delivery_token.clone(),
             reference: order.order_id.to_string(),
         }),
         OrderStatus::Expired => Some(WsOrderEvent::Expired),
@@ -515,5 +522,31 @@ fn map_status_to_event(order: &OrderRecord) -> Option<WsOrderEvent> {
         OrderStatus::AwaitingPayment | OrderStatus::FlaggedForReview | OrderStatus::Cancelled => {
             None
         }
+    }
+}
+
+async fn resolve_deposit_address(state: &HttpState, address_type: &str) -> String {
+    let client = match &state.zcash_rpc_client {
+        Some(client) => client,
+        None => return fallback_deposit_address(address_type),
+    };
+
+    let address = if address_type == "shielded" {
+        client.allocate_shielded_address(true).await
+    } else {
+        client.z_getnewaddress_deprecated().await
+    };
+
+    match address {
+        Ok(value) if !value.trim().is_empty() => value,
+        _ => fallback_deposit_address(address_type),
+    }
+}
+
+fn fallback_deposit_address(address_type: &str) -> String {
+    if address_type == "shielded" {
+        String::from("ztestsapling1q3f4v8k6e4q7s9x2a5w6d8j9m3k2t7y8u6i5o4p3l2k1j0h9g8f7d6")
+    } else {
+        String::from("tmQ1Y8xQx5G4h5w6nJ4D31oQmRVVbYkA4W")
     }
 }

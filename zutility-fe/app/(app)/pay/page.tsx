@@ -14,6 +14,8 @@ import { Badge } from "@/components/ui/badge"
 import { UTILITIES } from "@/lib/constants"
 import { useOrderStore } from "@/store/order"
 import { useRate } from "@/lib/hooks/useRate"
+import { apiPost } from "@/lib/api"
+import { CreateOrderResponse } from "@/lib/types"
 import { formatNGN } from "@/lib/utils"
 import { toast } from "sonner"
 
@@ -65,26 +67,18 @@ export default function PayPage() {
     
     setIsLoading(true)
     try {
-      // Mock API call to create order
-      // const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/orders`, { ... })
-      await new Promise(resolve => setTimeout(resolve, 1500))
-      
-      const mockOrder = {
-        order_id: `ORD-${Math.floor(Math.random() * 10000)}`,
-        order_access_token: "mock-access-token",
-        deposit_address: data.addressType === 'shielded' 
-          ? "zs1mockshieldedaddress1234567890abcdefghijklmnopqrstuvwxyz"
-          : "t1mocktransparentaddress1234567890",
-        zec_amount: estimatedZec,
-        expires_at: new Date(Date.now() + 15 * 60000).toISOString(),
-        qr_data: `zcash:${data.addressType === 'shielded' ? 'zs1mock' : 't1mock'}?amount=${estimatedZec}`,
-        required_confirmations: data.addressType === 'shielded' ? 10 : 2,
-      }
+      const order = await apiPost<CreateOrderResponse>("/api/v1/orders/create", {
+        utility_type: selectedUtility.type,
+        utility_slug: selectedUtility.slug,
+        service_ref: data.serviceRef,
+        amount_ngn: data.amountNgn,
+        zec_address_type: data.addressType,
+      })
 
-      setActiveOrder(mockOrder)
+      setActiveOrder(order)
       toast.success("Order created successfully")
-      router.push(`/pay/${mockOrder.order_id}`)
-    } catch (error) {
+      router.push(`/pay/${order.order_id}`)
+    } catch {
       toast.error("Failed to create order. Please try again.")
     } finally {
       setIsLoading(false)
@@ -253,7 +247,7 @@ export default function PayPage() {
                         {addressType === "transparent" && <div className="h-2 w-2 rounded-full bg-accent-zec" />}
                       </div>
                     </div>
-                    <p className="text-xs text-text-secondary">Public transaction. Takes ~4 mins to confirm (2 confs).</p>
+                    <p className="text-xs text-text-secondary">Public transaction. Takes ~4 mins to confirm (3 confs).</p>
                   </div>
                 </div>
               </div>

@@ -92,5 +92,8 @@ pub struct OrderRecord {
     pub status: OrderStatus,
     pub confirmations: u16,
     pub required_confirmations: u16,
+    pub total_received: Option<Decimal>,
     pub expires_at: DateTime<Utc>,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub delivery_token: Option<String>,
 }
