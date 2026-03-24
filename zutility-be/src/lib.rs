@@ -5,4 +5,5 @@ pub mod http;
 pub mod integrations;
 pub mod jobs;
 pub mod observability;
+pub mod runtime;
 pub mod ws;

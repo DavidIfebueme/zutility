@@ -25,32 +25,37 @@ use handlers::{
 };
 
 pub fn build_router(config: &AppConfig) -> Router {
-    build_router_with_rate_cache_and_limits(config, None, true)
+    let state = build_state(config, None);
+    build_router_from_state(state, true)
 }
 
 pub fn build_router_with_rate_cache(
     config: &AppConfig,
     rate_cache: Option<SharedRateCache>,
 ) -> Router {
-    build_router_with_rate_cache_and_limits(config, rate_cache, true)
+    let state = build_state(config, rate_cache);
+    build_router_from_state(state, true)
 }
 
-fn build_router_with_rate_cache_and_limits(
-    config: &AppConfig,
-    rate_cache: Option<SharedRateCache>,
-    enable_rate_limits: bool,
-) -> Router {
+pub fn build_state(config: &AppConfig, rate_cache: Option<SharedRateCache>) -> HttpState {
     let state = HttpState::new(
         config.order_token_hmac_secret.clone(),
         i64::from(config.order_expiry_minutes),
         i64::from(config.rate_lock_minutes),
     )
     .with_ops_context(config);
-    let state = match rate_cache {
+
+    match rate_cache {
         Some(cache) => state.with_rate_cache(cache),
         None => state,
-    };
+    }
+}
 
+pub fn build_router_from_state(state: HttpState, enable_rate_limits: bool) -> Router {
+    build_router_with_state_and_limits(state, enable_rate_limits)
+}
+
+fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool) -> Router {
     let router = Router::new()
         .route("/api/v1/orders/create", post(create_order))
         .route("/api/v1/orders/{order_id}", get(get_order))
@@ -123,5 +128,6 @@ pub fn router() -> Router {
         signing_service_hmac_secret: secrecy::SecretString::from(String::from("hmac_secret")),
         rate_source_timeout_ms: 3000,
     };
-    build_router_with_rate_cache_and_limits(&config, None, false)
+    let state = build_state(&config, None);
+    build_router_from_state(state, false)
 }

@@ -1,15 +1,8 @@
 "use client"
 
 import { useState, useEffect } from 'react'
+import { apiGet } from '../api'
 import { RateResponse } from '../types'
-
-// Mock rate for now
-const MOCK_RATE: RateResponse = {
-  zec_ngn: "150000.00",
-  zec_usd: "100.00",
-  updated_at: new Date().toISOString(),
-  valid_until: new Date(Date.now() + 15 * 60000).toISOString()
-}
 
 export function useRate() {
   const [rate, setRate] = useState<RateResponse | null>(null)
@@ -22,19 +15,14 @@ export function useRate() {
 
     const fetchRate = async () => {
       try {
-        // In a real app, fetch from NEXT_PUBLIC_API_URL
-        // const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/rates/current`)
-        // const data = await res.json()
-        
-        // Mock delay
-        await new Promise(resolve => setTimeout(resolve, 500))
+        const data = await apiGet<RateResponse>('/api/v1/rates/current')
         
         if (isMounted) {
-          setRate(MOCK_RATE)
-          setLastUpdated(new Date().toISOString())
+          setRate(data)
+          setLastUpdated(data.updated_at)
           setIsError(false)
         }
-      } catch (err) {
+      } catch {
         if (isMounted) setIsError(true)
       } finally {
         if (isMounted) setIsLoading(false)
