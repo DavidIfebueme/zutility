@@ -149,6 +149,14 @@ impl ZcashRpcClient {
         Self::new(ZcashRpcConfig::from_app_config(config), retry_policy)
     }
 
+    pub fn mode(&self) -> ZcashRpcMode {
+        self.config.mode
+    }
+
+    pub fn socket_path(&self) -> &str {
+        &self.config.socket_path
+    }
+
     pub async fn get_blockchain_info(&self) -> Result<BlockchainInfo> {
         let value = self.call("getblockchaininfo", json!([])).await?;
         serde_json::from_value::<BlockchainInfo>(value)
