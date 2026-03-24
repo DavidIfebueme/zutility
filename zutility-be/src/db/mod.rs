@@ -1,6 +1,6 @@
+use crate::domain::order::{OrderStatus, OrderStatusTransition};
 use anyhow::{Result, anyhow};
 use rust_decimal::Decimal;
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
@@ -10,56 +10,10 @@ pub enum DbProvider {
     Postgres,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum OrderStatus {
-    AwaitingPayment,
-    PaymentDetected,
-    PaymentConfirmed,
-    UtilityDispatching,
-    Completed,
-    Expired,
-    Failed,
-    FlaggedForReview,
-    Cancelled,
-}
-
-impl OrderStatus {
-    pub fn as_db(&self) -> &'static str {
-        match self {
-            Self::AwaitingPayment => "awaiting_payment",
-            Self::PaymentDetected => "payment_detected",
-            Self::PaymentConfirmed => "payment_confirmed",
-            Self::UtilityDispatching => "utility_dispatching",
-            Self::Completed => "completed",
-            Self::Expired => "expired",
-            Self::Failed => "failed",
-            Self::FlaggedForReview => "flagged_for_review",
-            Self::Cancelled => "cancelled",
-        }
-    }
-
-    pub fn can_transition_to(self, next: Self) -> bool {
-        matches!(
-            (self, next),
-            (Self::AwaitingPayment, Self::PaymentDetected)
-                | (Self::AwaitingPayment, Self::Expired)
-                | (Self::AwaitingPayment, Self::Cancelled)
-                | (Self::PaymentDetected, Self::PaymentConfirmed)
-                | (Self::PaymentDetected, Self::Expired)
-                | (Self::PaymentDetected, Self::FlaggedForReview)
-                | (Self::PaymentConfirmed, Self::UtilityDispatching)
-                | (Self::UtilityDispatching, Self::Completed)
-                | (Self::UtilityDispatching, Self::Failed)
-        )
-    }
-}
-
 #[derive(Debug, Clone)]
-pub struct OrderStatusTransition {
+pub struct OrderStatusTransitionRecord {
     pub order_id: Uuid,
-    pub from_status: OrderStatus,
-    pub to_status: OrderStatus,
+    pub transition: OrderStatusTransition,
     pub event: String,
     pub detail: Value,
 }
@@ -175,28 +129,17 @@ pub async fn insert_order_with_claimed_address(
 
 pub async fn apply_order_status_transition(
     tx: &mut Transaction<'_, Postgres>,
-    transition: &OrderStatusTransition,
+    transition: &OrderStatusTransitionRecord,
 ) -> Result<()> {
-    if !transition
-        .from_status
-        .can_transition_to(transition.to_status)
-    {
-        return Err(anyhow!(
-            "invalid status transition {} -> {}",
-            transition.from_status.as_db(),
-            transition.to_status.as_db()
-        ));
-    }
-
     let rows_affected = sqlx::query(
         "UPDATE orders
          SET status = $1
          WHERE id = $2
            AND status = $3",
     )
-    .bind(transition.to_status.as_db())
+    .bind(transition.transition.to.as_db())
     .bind(transition.order_id)
-    .bind(transition.from_status.as_db())
+    .bind(transition.transition.from.as_db())
     .execute(tx.as_mut())
     .await?
     .rows_affected();
@@ -214,8 +157,8 @@ pub async fn apply_order_status_transition(
     )
     .bind(transition.order_id)
     .bind(&transition.event)
-    .bind(transition.from_status.as_db())
-    .bind(transition.to_status.as_db())
+    .bind(transition.transition.from.as_db())
+    .bind(transition.transition.to.as_db())
     .bind(&transition.detail)
     .execute(tx.as_mut())
     .await?;
