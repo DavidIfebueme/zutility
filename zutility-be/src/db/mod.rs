@@ -34,6 +34,12 @@ pub struct CreateOrderInput {
     pub metadata: Value,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AddressPoolDepth {
+    pub address_type: String,
+    pub unused_count: i64,
+}
+
 pub async fn begin_tx(pool: &PgPool) -> Result<Transaction<'_, Postgres>> {
     pool.begin().await.map_err(Into::into)
 }
@@ -62,6 +68,64 @@ pub async fn claim_unused_deposit_address(
     .await?;
 
     claimed.ok_or_else(|| anyhow!("no unused deposit address available for {address_type}"))
+}
+
+pub async fn count_unused_deposit_addresses(pool: &PgPool, address_type: &str) -> Result<i64> {
+    let count = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*)
+         FROM deposit_addresses
+         WHERE used = false AND address_type = $1",
+    )
+    .bind(address_type)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(count)
+}
+
+pub async fn load_address_pool_depths(pool: &PgPool) -> Result<Vec<AddressPoolDepth>> {
+    let rows = sqlx::query_as::<_, (String, i64)>(
+        "SELECT address_type, COUNT(*) FILTER (WHERE used = false) AS unused_count
+         FROM deposit_addresses
+         GROUP BY address_type",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|(address_type, unused_count)| AddressPoolDepth {
+            address_type,
+            unused_count,
+        })
+        .collect())
+}
+
+pub async fn insert_deposit_addresses(
+    pool: &PgPool,
+    address_type: &str,
+    addresses: &[String],
+) -> Result<u64> {
+    if addresses.is_empty() {
+        return Ok(0);
+    }
+
+    let mut inserted = 0_u64;
+    for address in addresses {
+        let affected = sqlx::query(
+            "INSERT INTO deposit_addresses (address, address_type, used)
+             VALUES ($1, $2, false)
+             ON CONFLICT (address) DO NOTHING",
+        )
+        .bind(address)
+        .bind(address_type)
+        .execute(pool)
+        .await?
+        .rows_affected();
+        inserted += affected;
+    }
+
+    Ok(inserted)
 }
 
 pub async fn insert_order_with_claimed_address(
