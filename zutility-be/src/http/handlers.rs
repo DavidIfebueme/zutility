@@ -3,6 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 use axum::{
     Json,
     extract::{Path, Query, State, ws::WebSocketUpgrade},
+    http::StatusCode,
     response::Response,
 };
 use chrono::{Duration, Utc};
@@ -12,11 +13,14 @@ use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use crate::{
+    config::AppConfig,
     domain::order::OrderStatus,
     http::auth,
     integrations::rates::{
         CurrentRate, SharedRateCache, default_current_rate, new_shared_rate_cache,
     },
+    integrations::zcash::ZcashRpcClient,
+    observability::{AlertState, ObservabilityState, ProbeStatus, ReadinessReport},
     ws::{self, WsHub, WsOrderEvent},
 };
 
@@ -38,6 +42,10 @@ pub struct HttpState {
     pub ws_hub: WsHub,
     pub rate_cache: SharedRateCache,
     pub service_ref_velocity: Arc<RwLock<HashMap<String, Vec<chrono::DateTime<Utc>>>>>,
+    pub observability: ObservabilityState,
+    pub database_url: String,
+    pub zcash_rpc_client: Option<ZcashRpcClient>,
+    pub zcash_expected_chain: String,
 }
 
 impl HttpState {
@@ -54,11 +62,26 @@ impl HttpState {
             ws_hub: WsHub::new(),
             rate_cache: new_shared_rate_cache(default_current_rate()),
             service_ref_velocity: Arc::new(RwLock::new(HashMap::new())),
+            observability: ObservabilityState::new(),
+            database_url: String::new(),
+            zcash_rpc_client: None,
+            zcash_expected_chain: String::from("test"),
         }
     }
 
     pub fn with_rate_cache(mut self, rate_cache: SharedRateCache) -> Self {
         self.rate_cache = rate_cache;
+        self
+    }
+
+    pub fn with_ops_context(mut self, config: &AppConfig) -> Self {
+        self.database_url = config.database_url.clone();
+        self.zcash_expected_chain = match config.zcash_network {
+            crate::config::ZcashNetwork::Testnet => String::from("test"),
+            crate::config::ZcashNetwork::Mainnet => String::from("main"),
+        };
+        self.zcash_rpc_client = ZcashRpcClient::from_app_config(config).ok();
+        self.observability.jobs().mark_alive("http_server");
         self
     }
 }
@@ -71,6 +94,7 @@ pub async fn create_order(
     enforce_service_ref_velocity(&state, &payload).await?;
 
     let order_id = Uuid::new_v4();
+    state.observability.metrics().increment_order_creations();
     let order_access_token = generate_token(48);
     let access_token_hash =
         auth::hash_order_token(&state.order_token_hmac_secret, &order_access_token)
@@ -232,6 +256,28 @@ pub async fn get_current_rate(
     }))
 }
 
+pub async fn health_live() -> StatusCode {
+    StatusCode::OK
+}
+
+pub async fn health_ready(State(state): State<HttpState>) -> Json<ReadinessReport> {
+    Json(build_readiness_report(&state).await)
+}
+
+pub async fn metrics(State(state): State<HttpState>) -> Result<String, ApiError> {
+    Ok(state.observability.metrics().render_prometheus().await)
+}
+
+pub async fn alerts(State(state): State<HttpState>) -> Json<Vec<AlertState>> {
+    let readiness = build_readiness_report(&state).await;
+    let rate_last_updated = state.rate_cache.read().await.updated_at;
+    let alerts = state
+        .observability
+        .evaluate_alerts(&readiness, rate_last_updated)
+        .await;
+    Json(alerts)
+}
+
 pub async fn list_utilities() -> Result<Json<Vec<UtilityItem>>, ApiError> {
     Ok(Json(vec![
         UtilityItem {
@@ -325,6 +371,100 @@ fn generate_token(length: usize) -> String {
         .take(length)
         .map(char::from)
         .collect()
+}
+
+async fn build_readiness_report(state: &HttpState) -> ReadinessReport {
+    let db_probe = match probe_db_connectivity(&state.database_url).await {
+        Ok(true) => ProbeStatus {
+            healthy: true,
+            detail: String::from("database connectivity ok"),
+        },
+        Ok(false) => ProbeStatus {
+            healthy: false,
+            detail: String::from("database connectivity unavailable"),
+        },
+        Err(error) => ProbeStatus {
+            healthy: false,
+            detail: format!("database probe failed: {error}"),
+        },
+    };
+
+    let zcash_probe = match &state.zcash_rpc_client {
+        Some(client) => match client.get_blockchain_info().await {
+            Ok(info) => {
+                state
+                    .observability
+                    .metrics()
+                    .set_zcash_sync_lag_blocks(info.headers.saturating_sub(info.blocks));
+                ProbeStatus {
+                    healthy: info.chain == state.zcash_expected_chain,
+                    detail: format!(
+                        "chain={} verification_progress={:.4}",
+                        info.chain, info.verification_progress
+                    ),
+                }
+            }
+            Err(error) => ProbeStatus {
+                healthy: false,
+                detail: format!("zcash rpc probe failed: {error}"),
+            },
+        },
+        None => ProbeStatus {
+            healthy: false,
+            detail: String::from("zcash rpc client unavailable"),
+        },
+    };
+
+    let rate_updated_at = state.rate_cache.read().await.updated_at;
+    let rate_age_seconds = (Utc::now() - rate_updated_at).num_seconds();
+    let rate_probe = ProbeStatus {
+        healthy: rate_age_seconds <= 300,
+        detail: format!("rate age seconds={rate_age_seconds}"),
+    };
+
+    let jobs_registry = state.observability.jobs();
+    let stale_jobs = jobs_registry.stale_jobs(180);
+    let jobs_probe = ProbeStatus {
+        healthy: jobs_registry.has_any_heartbeat() && stale_jobs.is_empty(),
+        detail: if stale_jobs.is_empty() {
+            String::from("job heartbeats healthy")
+        } else {
+            format!("stale jobs: {}", stale_jobs.join(","))
+        },
+    };
+
+    let ready = db_probe.healthy && zcash_probe.healthy && rate_probe.healthy && jobs_probe.healthy;
+
+    ReadinessReport {
+        db: db_probe,
+        zcash: zcash_probe,
+        rate_cache: rate_probe,
+        jobs: jobs_probe,
+        ready,
+    }
+}
+
+async fn probe_db_connectivity(database_url: &str) -> anyhow::Result<bool> {
+    if database_url.trim().is_empty() {
+        return Ok(false);
+    }
+
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .acquire_timeout(std::time::Duration::from_secs(2))
+        .connect(database_url)
+        .await;
+
+    match pool {
+        Ok(pool) => {
+            let ping = sqlx::query_scalar::<_, i64>("SELECT 1")
+                .fetch_one(&pool)
+                .await;
+            pool.close().await;
+            Ok(ping.is_ok())
+        }
+        Err(_) => Ok(false),
+    }
 }
 
 async fn authorize_order_access(
