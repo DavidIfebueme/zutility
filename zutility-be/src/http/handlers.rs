@@ -14,6 +14,9 @@ use uuid::Uuid;
 use crate::{
     domain::order::OrderStatus,
     http::auth,
+    integrations::rates::{
+        CurrentRate, SharedRateCache, default_current_rate, new_shared_rate_cache,
+    },
     ws::{self, WsHub, WsOrderEvent},
 };
 
@@ -33,6 +36,7 @@ pub struct HttpState {
     pub rate_lock_minutes: i64,
     pub orders: Arc<RwLock<HashMap<Uuid, OrderRecord>>>,
     pub ws_hub: WsHub,
+    pub rate_cache: SharedRateCache,
 }
 
 impl HttpState {
@@ -47,7 +51,13 @@ impl HttpState {
             rate_lock_minutes,
             orders: Arc::new(RwLock::new(HashMap::new())),
             ws_hub: WsHub::new(),
+            rate_cache: new_shared_rate_cache(default_current_rate()),
         }
+    }
+
+    pub fn with_rate_cache(mut self, rate_cache: SharedRateCache) -> Self {
+        self.rate_cache = rate_cache;
+        self
     }
 }
 
@@ -63,12 +73,13 @@ pub async fn create_order(
         auth::hash_order_token(&state.order_token_hmac_secret, &order_access_token)
             .map_err(ApiError::internal)?;
 
+    let rate = state.rate_cache.read().await.clone();
     let required_confirmations = if payload.zec_address_type == "shielded" {
         10
     } else {
         3
     };
-    let zec_amount = Decimal::new(payload.amount_ngn, 0) / Decimal::new(150_000, 0);
+    let zec_amount = Decimal::new(payload.amount_ngn, 0) / rate.zec_ngn;
     let expires_at = Utc::now() + Duration::minutes(state.order_expiry_minutes);
     let deposit_address = if payload.zec_address_type == "shielded" {
         String::from("ztestsapling1q3f4v8k6e4q7s9x2a5w6d8j9m3k2t7y8u6i5o4p3l2k1j0h9g8f7d6")
@@ -169,12 +180,17 @@ pub async fn stream_order(
 pub async fn get_current_rate(
     State(state): State<HttpState>,
 ) -> Result<Json<RateResponse>, ApiError> {
-    let updated_at = Utc::now();
+    let CurrentRate {
+        zec_ngn,
+        zec_usd,
+        updated_at,
+        ..
+    } = state.rate_cache.read().await.clone();
     let valid_until = updated_at + Duration::minutes(state.rate_lock_minutes);
 
     Ok(Json(RateResponse {
-        zec_ngn: String::from("150000.0000"),
-        zec_usd: String::from("100.0000"),
+        zec_ngn: zec_ngn.round_dp(4).to_string(),
+        zec_usd: zec_usd.round_dp(4).to_string(),
         updated_at,
         valid_until,
     }))
