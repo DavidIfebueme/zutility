@@ -10,7 +10,6 @@ use chrono::{Duration, Utc};
 use rand::{RngExt, distr::Alphanumeric};
 use rust_decimal::Decimal;
 use tokio::sync::RwLock;
-use utoipa::path;
 use uuid::Uuid;
 
 use crate::{
@@ -93,7 +92,7 @@ impl HttpState {
     }
 }
 
-#[path(
+#[utoipa::path(
     post,
     path = "/api/v1/orders/create",
     request_body = CreateOrderRequest,
@@ -192,7 +191,7 @@ async fn enforce_service_ref_velocity(
     Ok(())
 }
 
-#[path(
+#[utoipa::path(
     get,
     path = "/api/v1/orders/{order_id}",
     params(
@@ -232,7 +231,7 @@ pub async fn get_order(
     }))
 }
 
-#[path(
+#[utoipa::path(
     post,
     path = "/api/v1/orders/{order_id}/cancel",
     params(
@@ -288,7 +287,7 @@ pub async fn stream_order(
     Ok(ws.on_upgrade(move |socket| ws::serve_connection(hub, order_id, socket, initial_event)))
 }
 
-#[path(
+#[utoipa::path(
     get,
     path = "/api/v1/rates/current",
     responses(
@@ -315,7 +314,7 @@ pub async fn get_current_rate(
     }))
 }
 
-#[path(
+#[utoipa::path(
     get,
     path = "/ops/health/live",
     responses((status = 200, description = "Liveness probe"))
@@ -342,7 +341,7 @@ pub async fn alerts(State(state): State<HttpState>) -> Json<Vec<AlertState>> {
     Json(alerts)
 }
 
-#[path(
+#[utoipa::path(
     get,
     path = "/api/v1/utilities",
     responses(
@@ -390,7 +389,7 @@ pub async fn list_utilities() -> Result<Json<Vec<UtilityItem>>, ApiError> {
     ]))
 }
 
-#[path(
+#[utoipa::path(
     get,
     path = "/api/v1/utilities/{slug}/validate",
     params(
