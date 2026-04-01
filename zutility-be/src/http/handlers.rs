@@ -10,6 +10,7 @@ use chrono::{Duration, Utc};
 use rand::{RngExt, distr::Alphanumeric};
 use rust_decimal::Decimal;
 use tokio::sync::RwLock;
+use utoipa::path;
 use uuid::Uuid;
 
 use crate::{
@@ -92,6 +93,17 @@ impl HttpState {
     }
 }
 
+#[path(
+    post,
+    path = "/api/v1/orders/create",
+    request_body = CreateOrderRequest,
+    responses(
+        (status = 200, description = "Order created", body = CreateOrderResponse),
+        (status = 400, description = "Validation error", body = super::error::ErrorEnvelope),
+        (status = 429, description = "Rate limit exceeded", body = super::error::ErrorEnvelope),
+        (status = 500, description = "Internal error", body = super::error::ErrorEnvelope)
+    )
+)]
 pub async fn create_order(
     State(state): State<HttpState>,
     Json(payload): Json<CreateOrderRequest>,
@@ -180,6 +192,20 @@ async fn enforce_service_ref_velocity(
     Ok(())
 }
 
+#[path(
+    get,
+    path = "/api/v1/orders/{order_id}",
+    params(
+        ("order_id" = Uuid, Path, description = "Order id"),
+        ("token" = String, Query, description = "Order access token")
+    ),
+    responses(
+        (status = 200, description = "Order status", body = OrderStatusResponse),
+        (status = 403, description = "Invalid order token", body = super::error::ErrorEnvelope),
+        (status = 404, description = "Order not found", body = super::error::ErrorEnvelope),
+        (status = 500, description = "Internal error", body = super::error::ErrorEnvelope)
+    )
+)]
 pub async fn get_order(
     Path(order_id): Path<Uuid>,
     Query(query): Query<OrderTokenQuery>,
@@ -206,6 +232,21 @@ pub async fn get_order(
     }))
 }
 
+#[path(
+    post,
+    path = "/api/v1/orders/{order_id}/cancel",
+    params(
+        ("order_id" = Uuid, Path, description = "Order id"),
+        ("token" = String, Query, description = "Order access token")
+    ),
+    responses(
+        (status = 200, description = "Order cancelled", body = CancelOrderResponse),
+        (status = 403, description = "Invalid order token", body = super::error::ErrorEnvelope),
+        (status = 404, description = "Order not found", body = super::error::ErrorEnvelope),
+        (status = 409, description = "Invalid status for cancel", body = super::error::ErrorEnvelope),
+        (status = 500, description = "Internal error", body = super::error::ErrorEnvelope)
+    )
+)]
 pub async fn cancel_order(
     Path(order_id): Path<Uuid>,
     Query(query): Query<OrderTokenQuery>,
@@ -247,6 +288,14 @@ pub async fn stream_order(
     Ok(ws.on_upgrade(move |socket| ws::serve_connection(hub, order_id, socket, initial_event)))
 }
 
+#[path(
+    get,
+    path = "/api/v1/rates/current",
+    responses(
+        (status = 200, description = "Current rate", body = RateResponse),
+        (status = 500, description = "Internal error", body = super::error::ErrorEnvelope)
+    )
+)]
 pub async fn get_current_rate(
     State(state): State<HttpState>,
 ) -> Result<Json<RateResponse>, ApiError> {
@@ -266,6 +315,11 @@ pub async fn get_current_rate(
     }))
 }
 
+#[path(
+    get,
+    path = "/ops/health/live",
+    responses((status = 200, description = "Liveness probe"))
+)]
 pub async fn health_live() -> StatusCode {
     StatusCode::OK
 }
@@ -288,6 +342,14 @@ pub async fn alerts(State(state): State<HttpState>) -> Json<Vec<AlertState>> {
     Json(alerts)
 }
 
+#[path(
+    get,
+    path = "/api/v1/utilities",
+    responses(
+        (status = 200, description = "List supported utilities", body = [UtilityItem]),
+        (status = 500, description = "Internal error", body = super::error::ErrorEnvelope)
+    )
+)]
 pub async fn list_utilities() -> Result<Json<Vec<UtilityItem>>, ApiError> {
     Ok(Json(vec![
         UtilityItem {
@@ -328,6 +390,19 @@ pub async fn list_utilities() -> Result<Json<Vec<UtilityItem>>, ApiError> {
     ]))
 }
 
+#[path(
+    get,
+    path = "/api/v1/utilities/{slug}/validate",
+    params(
+        ("slug" = String, Path, description = "Utility provider slug"),
+        ("ref" = String, Query, description = "Customer reference / meter / decoder number")
+    ),
+    responses(
+        (status = 200, description = "Validation result", body = UtilityValidateResponse),
+        (status = 400, description = "Missing reference", body = super::error::ErrorEnvelope),
+        (status = 500, description = "Internal error", body = super::error::ErrorEnvelope)
+    )
+)]
 pub async fn validate_utility_reference(
     Path(slug): Path<String>,
     Query(query): Query<UtilityValidateQuery>,

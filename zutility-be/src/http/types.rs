@@ -1,11 +1,12 @@
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::domain::order::OrderStatus;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct CreateOrderRequest {
     pub utility_type: String,
     pub utility_slug: String,
@@ -14,7 +15,7 @@ pub struct CreateOrderRequest {
     pub zec_address_type: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct CreateOrderResponse {
     pub order_id: Uuid,
     pub order_access_token: String,
@@ -25,7 +26,7 @@ pub struct CreateOrderResponse {
     pub required_confirmations: u16,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct OrderStatusResponse {
     pub order_id: Uuid,
     pub status: OrderStatus,
@@ -42,12 +43,12 @@ pub struct OrderStatusResponse {
     pub delivery_token: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct CancelOrderResponse {
     pub success: bool,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct RateResponse {
     pub zec_ngn: String,
     pub zec_usd: String,
@@ -55,14 +56,14 @@ pub struct RateResponse {
     pub valid_until: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct UtilityItem {
     pub slug: String,
     pub utility_type: String,
     pub name: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct UtilityValidateResponse {
     pub valid: bool,
     pub customer_name: Option<String>,
