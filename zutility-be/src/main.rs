@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::net::SocketAddr;
 
 use zutility_be::{config::AppConfig, http, integrations::zcash, observability, runtime};
 
@@ -15,7 +16,7 @@ async fn main() -> Result<()> {
     let app = http::build_router_from_state(state, true);
     let listener = tokio::net::TcpListener::bind(config.http_bind_addr).await?;
     tracing::info!(bind = %config.http_bind_addr, env = ?config.app_env, "backend http server started");
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
 
     Ok(())
 }

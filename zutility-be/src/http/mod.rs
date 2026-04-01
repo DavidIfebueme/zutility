@@ -13,12 +13,14 @@ use tower_http::{
 };
 
 pub mod auth;
+pub mod docs;
 pub mod error;
 pub mod handlers;
 pub mod types;
 
 use crate::config::AppConfig;
 use crate::integrations::rates::SharedRateCache;
+use docs::{docs_ui, openapi_json};
 use handlers::{
     HttpState, alerts, cancel_order, create_order, get_current_rate, get_order, health_live,
     health_ready, list_utilities, metrics, stream_order, validate_utility_reference,
@@ -69,6 +71,8 @@ fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool
         )
         .route("/ops/health/live", get(health_live))
         .route("/ops/health/ready", get(health_ready))
+        .route("/ops/openapi.json", get(openapi_json))
+        .route("/ops/docs", get(docs_ui))
         .route("/ops/metrics", get(metrics))
         .route("/ops/alerts", get(alerts))
         .with_state(state)
