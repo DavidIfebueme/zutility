@@ -7,7 +7,7 @@ use zutility_be::{config::AppConfig, http, integrations::zcash, observability, r
 async fn main() -> Result<()> {
     observability::init_tracing();
     let config = AppConfig::from_env()?;
-    config.validate()?;
+    let config = config.validate()?;
     zcash::validate_runtime_network_policy(&config)?;
     zcash::validate_rpc_socket_policy(&config)?;
 

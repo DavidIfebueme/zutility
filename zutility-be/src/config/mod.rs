@@ -74,13 +74,29 @@ impl AppConfig {
             .context("failed to deserialize environment config")
     }
 
-    pub fn validate(&self) -> Result<()> {
+    pub fn validate(mut self) -> Result<Self> {
         ensure_non_empty("DATABASE_URL", &self.database_url)?;
         ensure_non_empty_secret("ORDER_TOKEN_HMAC_SECRET", &self.order_token_hmac_secret)?;
         ensure_non_empty_secret("IP_HASH_SECRET", &self.ip_hash_secret)?;
         ensure_non_empty("VTPASS_BASE_URL", &self.vtpass_base_url)?;
         ensure_non_empty_secret("VTPASS_API_KEY", &self.vtpass_api_key)?;
         ensure_non_empty_secret("VTPASS_SECRET_KEY", &self.vtpass_secret_key)?;
+        if let Some(ref v) = self.remita_merchant_id {
+            if v.trim().is_empty() { self.remita_merchant_id = None; }
+        }
+        if let Some(ref v) = self.remita_api_key {
+            if v.expose_secret().trim().is_empty() { self.remita_api_key = None; }
+        }
+        if let Some(ref v) = self.remita_service_type_id {
+            if v.trim().is_empty() { self.remita_service_type_id = None; }
+        }
+        if let Some(ref v) = self.remita_base_url {
+            if v.trim().is_empty() { self.remita_base_url = None; }
+        }
+        if let Some(ref v) = self.remita_webhook_secret {
+            if v.expose_secret().trim().is_empty() { self.remita_webhook_secret = None; }
+        }
+
         if let Some(ref v) = self.remita_merchant_id {
             ensure_non_empty("REMITA_MERCHANT_ID", v)?;
         }
@@ -133,7 +149,7 @@ impl AppConfig {
             anyhow::bail!("RATE_SOURCE_TIMEOUT_MS must be greater than 0");
         }
 
-        Ok(())
+        Ok(self)
     }
 }
 
