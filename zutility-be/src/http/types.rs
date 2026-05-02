@@ -13,6 +13,7 @@ pub struct CreateOrderRequest {
     pub service_ref: String,
     pub amount_ngn: i64,
     pub zec_address_type: String,
+    pub variation_code: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -24,6 +25,7 @@ pub struct CreateOrderResponse {
     pub expires_at: DateTime<Utc>,
     pub qr_data: String,
     pub required_confirmations: u16,
+    pub utility_slug: String,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -61,6 +63,14 @@ pub struct UtilityItem {
     pub slug: String,
     pub utility_type: String,
     pub name: String,
+    pub field_config: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct UtilityVariationItem {
+    pub variation_code: String,
+    pub name: String,
+    pub amount: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -97,4 +107,7 @@ pub struct OrderRecord {
     pub expires_at: DateTime<Utc>,
     pub completed_at: Option<DateTime<Utc>>,
     pub delivery_token: Option<String>,
+    pub variation_code: Option<String>,
+    pub provider: Option<String>,
+    pub customer_name: Option<String>,
 }

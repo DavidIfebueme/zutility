@@ -12,8 +12,10 @@ use crate::{
     domain::order::OrderStatus,
     http::handlers::HttpState,
     integrations::{
+        provider_dispatcher::ProviderDispatcher,
         rates::RateOracle,
-        utility_provider::{ProviderTxnStatus, UtilityProvider, UtilityPurchaseRequest},
+        remita::RemitaClient,
+        utility_provider::{ProviderTxnStatus, UtilityPurchaseRequest},
         vtpass::VtpassClient,
     },
     jobs::rate_refresher::RateRefresher,
@@ -87,6 +89,16 @@ fn start_order_orchestrator(state: HttpState, config: AppConfig) {
             }
         };
 
+        let remita = match RemitaClient::from_config(&config) {
+            Ok(client) => client,
+            Err(error) => {
+                tracing::error!(error = %error, "failed to initialize remita client");
+                return;
+            }
+        };
+
+        let dispatcher = ProviderDispatcher::new(vtpass, remita);
+
         let mut ticker = interval(Duration::from_secs(15));
         loop {
             ticker.tick().await;
@@ -100,7 +112,7 @@ fn start_order_orchestrator(state: HttpState, config: AppConfig) {
             };
 
             for order_id in order_ids {
-                if let Err(error) = process_order(&state, &vtpass, order_id).await {
+                if let Err(error) = process_order(&state, &dispatcher, order_id).await {
                     tracing::warn!(order_id = %order_id, error = %error, "order processing iteration failed");
                 }
             }
@@ -108,7 +120,7 @@ fn start_order_orchestrator(state: HttpState, config: AppConfig) {
     });
 }
 
-async fn process_order(state: &HttpState, vtpass: &VtpassClient, order_id: Uuid) -> Result<()> {
+async fn process_order(state: &HttpState, dispatcher: &ProviderDispatcher, order_id: Uuid) -> Result<()> {
     let now = Utc::now();
 
     let snapshot = {
@@ -158,9 +170,9 @@ async fn process_order(state: &HttpState, vtpass: &VtpassClient, order_id: Uuid)
     };
 
     if status_after_detection == Some(OrderStatus::PaymentConfirmed) {
-        dispatch_utility(state, vtpass, order_id).await?;
+        dispatch_utility(state, dispatcher, order_id).await?;
     } else if status_after_detection == Some(OrderStatus::UtilityDispatching) {
-        requery_utility_dispatch(state, vtpass, order_id).await?;
+        requery_utility_dispatch(state, dispatcher, order_id).await?;
     }
 
     Ok(())
@@ -236,7 +248,7 @@ async fn detect_payment_and_progress(
     Ok(())
 }
 
-async fn dispatch_utility(state: &HttpState, vtpass: &VtpassClient, order_id: Uuid) -> Result<()> {
+async fn dispatch_utility(state: &HttpState, dispatcher: &ProviderDispatcher, order_id: Uuid) -> Result<()> {
     let order = {
         let mut orders = state.orders.write().await;
         let Some(order) = orders.get_mut(&order_id) else {
@@ -246,6 +258,8 @@ async fn dispatch_utility(state: &HttpState, vtpass: &VtpassClient, order_id: Uu
             return Ok(());
         }
         order.status = OrderStatus::UtilityDispatching;
+        let provider_kind = dispatcher.provider_kind_for(&order.utility_type);
+        order.provider = Some(format!("{provider_kind:?}").to_lowercase());
         order.clone()
     };
 
@@ -254,18 +268,21 @@ async fn dispatch_utility(state: &HttpState, vtpass: &VtpassClient, order_id: Uu
         .broadcast_event(order_id, &WsOrderEvent::Dispatching)
         .await;
 
-    let response = vtpass
-        .pay(&UtilityPurchaseRequest {
-            order_id,
-            request_id: order_id.to_string(),
-            service_id: order.utility_slug.clone(),
-            billers_code: order.service_ref.clone(),
-            variation_code: None,
-            amount_ngn: order.amount_ngn,
-            phone: Some(order.service_ref.clone()),
-            metadata: serde_json::json!({"utility_type": order.utility_type}),
-            zec_amount: order.zec_amount,
-        })
+    let response = dispatcher
+        .pay(
+            &order.utility_type,
+            &UtilityPurchaseRequest {
+                order_id,
+                request_id: order_id.to_string(),
+                service_id: order.utility_slug.clone(),
+                billers_code: order.service_ref.clone(),
+                variation_code: order.variation_code.clone(),
+                amount_ngn: order.amount_ngn,
+                phone: Some(order.service_ref.clone()),
+                metadata: serde_json::json!({"utility_type": order.utility_type, "customer_name": order.customer_name}),
+                zec_amount: order.zec_amount,
+            },
+        )
         .await;
 
     match response {
@@ -286,10 +303,19 @@ async fn dispatch_utility(state: &HttpState, vtpass: &VtpassClient, order_id: Uu
 
 async fn requery_utility_dispatch(
     state: &HttpState,
-    vtpass: &VtpassClient,
+    dispatcher: &ProviderDispatcher,
     order_id: Uuid,
 ) -> Result<()> {
-    let response = vtpass.requery(&order_id.to_string()).await;
+    let utility_type = {
+        let orders = state.orders.read().await;
+        orders.get(&order_id).map(|o| o.utility_type.clone())
+    };
+
+    let Some(utility_type) = utility_type else {
+        return Ok(());
+    };
+
+    let response = dispatcher.requery(&utility_type, &order_id.to_string()).await;
 
     match response {
         Ok(result) if result.status == ProviderTxnStatus::Delivered => {

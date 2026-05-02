@@ -4,7 +4,7 @@ import * as React from "react"
 import { useParams, useRouter } from "next/navigation"
 import { motion, AnimatePresence } from "motion/react"
 import { QRCodeSVG } from "qrcode.react"
-import { Copy, CheckCircle2, AlertCircle, Clock, ArrowLeft, ExternalLink, Zap } from "lucide-react"
+import { Copy, CheckCircle2, AlertCircle, Clock, ArrowLeft, ExternalLink, Zap, Smartphone, Tv, Lightbulb, GraduationCap, School } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -16,6 +16,29 @@ import { ConfirmationProgress } from "@/components/ui/confirmation-progress"
 import { useOrderStore } from "@/store/order"
 import { useOrderStream } from "@/lib/hooks/useOrderStream"
 import { formatNGN, formatZEC } from "@/lib/utils"
+import { UTILITIES } from "@/lib/constants"
+
+function getCompletionInfo(slug: string): { title: string; description: string; tokenLabel: string } {
+  const u = UTILITIES.find(u => u.slug === slug)
+  if (!u) return { title: 'Order Complete!', description: 'Your utility has been successfully delivered.', tokenLabel: 'Token / PIN' }
+  
+  switch (u.type) {
+    case 'airtime':
+      return { title: 'Airtime Delivered!', description: 'Your phone has been topped up successfully.', tokenLabel: 'Reference' }
+    case 'data':
+      return { title: 'Data Bundle Activated!', description: 'Your data bundle has been activated on the number provided.', tokenLabel: 'Reference' }
+    case 'tv':
+      return { title: 'TV Subscription Renewed!', description: 'Your TV subscription has been renewed successfully.', tokenLabel: 'Reference' }
+    case 'electricity':
+      return { title: 'Electricity Token Delivered!', description: 'Your prepaid electricity token is ready. Enter it on your meter to load units.', tokenLabel: 'Meter Token' }
+    case 'education':
+      return { title: 'PIN Delivered!', description: u.name.includes('JAMB') ? 'Your JAMB registration PIN has been delivered.' : 'Your exam PIN has been delivered. Use it on the official portal.', tokenLabel: 'PIN' }
+    case 'school':
+      return { title: 'School Fees Paid!', description: 'Your school fees payment has been confirmed.', tokenLabel: 'Payment Reference' }
+    default:
+      return { title: 'Order Complete!', description: 'Your utility has been successfully delivered.', tokenLabel: 'Token / PIN' }
+  }
+}
 
 export default function OrderPage() {
   const params = useParams()
@@ -194,7 +217,9 @@ export default function OrderPage() {
               </motion.div>
             )}
 
-            {status === 'completed' && (
+            {status === 'completed' && (() => {
+                const info = getCompletionInfo(activeOrder.utility_slug || '')
+                return (
               <motion.div
                 key="completed"
                 initial={{ opacity: 0, scale: 0.95 }}
@@ -204,14 +229,14 @@ export default function OrderPage() {
                 <div className="flex h-24 w-24 items-center justify-center rounded-full bg-accent-green/10 mb-6">
                   <CheckCircle2 className="h-12 w-12 text-accent-green" />
                 </div>
-                <h3 className="text-3xl font-dela text-accent-green mb-2">Order Complete!</h3>
+                <h3 className="text-3xl font-dela text-accent-green mb-2">{info.title}</h3>
                 <p className="text-text-secondary text-center max-w-md mb-8">
-                  Your utility has been successfully delivered.
+                  {info.description}
                 </p>
 
                 {latestEvent?.event === 'completed' && latestEvent.delivery_token && (
                   <div className="w-full max-w-md bg-bg-surface border border-border-subtle rounded-xl p-6 text-center">
-                    <p className="text-sm text-text-secondary uppercase tracking-wider mb-2">Token / PIN</p>
+                    <p className="text-sm text-text-secondary uppercase tracking-wider mb-2">{info.tokenLabel}</p>
                     <p className="text-3xl font-mono font-bold tracking-widest text-text-primary mb-4">
                       {latestEvent.delivery_token}
                     </p>
@@ -231,7 +256,8 @@ export default function OrderPage() {
                   </Button>
                 </div>
               </motion.div>
-            )}
+                )
+            })()}
           </AnimatePresence>
         </CardContent>
       </Card>

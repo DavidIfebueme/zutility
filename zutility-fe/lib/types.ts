@@ -6,18 +6,20 @@ export interface CreateOrderRequest {
   utility_type: string
   utility_slug: string
   service_ref: string
-  amount_ngn: number            // kobo (NGN × 100)
+  amount_ngn: number
   zec_address_type: 'shielded' | 'transparent'
+  variation_code?: string
 }
 
 export interface CreateOrderResponse {
   order_id: string
-  order_access_token: string    // store in localStorage immediately — shown once
+  order_access_token: string
   deposit_address: string
-  zec_amount: string            // always string — never parseFloat ZEC amounts
+  zec_amount: string
   expires_at: string
-  qr_data: string               // ZEC URI: zcash:ADDRESS?amount=X
+  qr_data: string
   required_confirmations: number
+  utility_slug: string
 }
 
 export interface OrderStatusResponse {
@@ -41,6 +43,17 @@ export interface RateResponse {
   zec_usd: string
   updated_at: string
   valid_until: string
+}
+
+export interface UtilityVariationResponse {
+  variation_code: string
+  name: string
+  amount: number | null
+}
+
+export interface UtilityValidateResponse {
+  valid: boolean
+  customer_name: string | null
 }
 
 export type OrderStreamEvent =

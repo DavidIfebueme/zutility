@@ -23,7 +23,7 @@ use crate::integrations::rates::SharedRateCache;
 use docs::{docs_ui, openapi_json};
 use handlers::{
     HttpState, alerts, cancel_order, create_order, get_current_rate, get_order, health_live,
-    health_ready, list_utilities, metrics, stream_order, validate_utility_reference,
+    health_ready, list_utilities, list_utility_variations, metrics, stream_order, validate_utility_reference,
 };
 
 pub fn build_router(config: &AppConfig) -> Router {
@@ -68,6 +68,10 @@ fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool
         .route(
             "/api/v1/utilities/{slug}/validate",
             get(validate_utility_reference),
+        )
+        .route(
+            "/api/v1/utilities/{slug}/variations",
+            get(list_utility_variations),
         )
         .route("/ops/health/live", get(health_live))
         .route("/ops/health/ready", get(health_ready))
@@ -117,6 +121,11 @@ pub fn router() -> Router {
         vtpass_base_url: String::from("https://sandbox.vtpass.com/api"),
         vtpass_api_key: secrecy::SecretString::from(String::from("key")),
         vtpass_secret_key: secrecy::SecretString::from(String::from("secret")),
+        remita_merchant_id: String::from("demo_merchant"),
+        remita_api_key: secrecy::SecretString::from(String::from("remita_key")),
+        remita_service_type_id: String::from("demo_service_type"),
+        remita_base_url: String::from("https://remitademo.net/remita/exapp/api/v1"),
+        remita_webhook_secret: secrecy::SecretString::from(String::from("remita_webhook")),
         zcash_rpc_mode: crate::config::ZcashRpcMode::Unix,
         zcash_rpc_socket_path: String::from("/var/run/zcashd/zcashd.sock"),
         zcash_rpc_url: String::from("http://127.0.0.1:18232"),

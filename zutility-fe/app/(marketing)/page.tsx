@@ -183,7 +183,7 @@ export default function LandingPage() {
                   </div>
                   <CardTitle className="text-xl">Utility Payments</CardTitle>
                   <CardDescription className="text-base mt-2">
-                    Pay for MTN, Airtel, DSTV, and Electricity directly with ZEC. Instant delivery upon confirmation.
+                    Pay for airtime, data, DSTV, GOtv, electricity, WAEC, JAMB, and school fees directly with ZEC. Instant delivery upon confirmation.
                   </CardDescription>
                 </CardHeader>
               </Card>
@@ -270,7 +270,7 @@ export default function LandingPage() {
 
           <div className="grid gap-12 md:grid-cols-3">
             {[
-              { step: "01", title: "Choose Utility", desc: "Select what you want to pay for (Airtime, DSTV, Electricity) and enter your details." },
+              { step: "01", title: "Choose Utility", desc: "Select what you want to pay for (Airtime, Data, TV, Electricity, Education, School Fees) and enter your details." },
               { step: "02", title: "Send ZEC", desc: "Send the exact ZEC amount to the unique deposit address provided. Shielded or transparent." },
               { step: "03", title: "Service Delivered", desc: "Our system detects the payment on-chain and instantly delivers your utility or token." }
             ].map((item, i) => (
@@ -309,7 +309,7 @@ export default function LandingPage() {
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {UTILITIES.map((u, i) => (
+            {UTILITIES.filter((_, i) => [0, 4, 8, 12, 26, 28].includes(i)).map((u, i) => (
               <motion.div
                 key={u.id}
                 initial={{ opacity: 0, scale: 0.95 }}
