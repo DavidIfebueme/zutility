@@ -129,12 +129,22 @@ impl RemitaClient {
     }
 
     pub fn from_config(config: &AppConfig) -> Result<Self> {
+        let base_url = config.remita_base_url.clone()
+            .ok_or_else(|| anyhow::anyhow!("REMITA_BASE_URL not set"))?;
+        let merchant_id = config.remita_merchant_id.clone()
+            .ok_or_else(|| anyhow::anyhow!("REMITA_MERCHANT_ID not set"))?;
+        let api_key = config.remita_api_key.clone()
+            .ok_or_else(|| anyhow::anyhow!("REMITA_API_KEY not set"))?;
+        let service_type_id = config.remita_service_type_id.clone()
+            .ok_or_else(|| anyhow::anyhow!("REMITA_SERVICE_TYPE_ID not set"))?;
+        let webhook_secret = config.remita_webhook_secret.clone()
+            .ok_or_else(|| anyhow::anyhow!("REMITA_WEBHOOK_SECRET not set"))?;
         Self::new(
-            config.remita_base_url.clone(),
-            config.remita_merchant_id.clone(),
-            config.remita_api_key.clone(),
-            config.remita_service_type_id.clone(),
-            config.remita_webhook_secret.clone(),
+            base_url,
+            merchant_id,
+            api_key,
+            service_type_id,
+            webhook_secret,
             Duration::from_millis(config.rate_source_timeout_ms),
         )
     }

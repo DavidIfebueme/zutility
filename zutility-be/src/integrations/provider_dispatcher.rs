@@ -15,21 +15,29 @@ use crate::integrations::{
 #[derive(Clone)]
 pub struct ProviderDispatcher {
     vtpass: Arc<VtpassClient>,
-    remita: Arc<RemitaClient>,
+    remita: Option<Arc<RemitaClient>>,
 }
 
 impl ProviderDispatcher {
-    pub fn new(vtpass: VtpassClient, remita: RemitaClient) -> Self {
+    pub fn new(vtpass: VtpassClient, remita: Option<RemitaClient>) -> Self {
         Self {
             vtpass: Arc::new(vtpass),
-            remita: Arc::new(remita),
+            remita: remita.map(Arc::new),
         }
     }
 
-    pub fn provider_for(&self, utility_type: &str) -> Arc<dyn UtilityProvider> {
+    pub fn provider_for(&self, utility_type: &str) -> Result<Arc<dyn UtilityProvider>, ProviderError> {
         match utility_type {
-            "school_fees" => self.remita.clone(),
-            _ => self.vtpass.clone(),
+            "school_fees" => {
+                match self.remita.clone() {
+                    Some(r) => Ok(r as Arc<dyn UtilityProvider>),
+                    None => Err(ProviderError::new(
+                        crate::integrations::utility_provider::ProviderErrorKind::Outage,
+                        "Remita is not configured. Set REMITA_* environment variables to enable school fees payments.",
+                    )),
+                }
+            }
+            _ => Ok(self.vtpass.clone() as Arc<dyn UtilityProvider>),
         }
     }
 
@@ -38,7 +46,7 @@ impl ProviderDispatcher {
         utility_type: &str,
         service_id: &str,
     ) -> Result<Vec<UtilityVariation>, ProviderError> {
-        self.provider_for(utility_type)
+        self.provider_for(utility_type)?
             .service_variations(service_id)
             .await
     }
@@ -48,7 +56,7 @@ impl ProviderDispatcher {
         utility_type: &str,
         request: &ValidateRefRequest,
     ) -> Result<ValidateRefResponse, ProviderError> {
-        self.provider_for(utility_type)
+        self.provider_for(utility_type)?
             .validate_reference(request)
             .await
     }
@@ -58,7 +66,7 @@ impl ProviderDispatcher {
         utility_type: &str,
         request: &UtilityPurchaseRequest,
     ) -> Result<UtilityPurchaseResponse, ProviderError> {
-        let provider = self.provider_for(utility_type);
+        let provider = self.provider_for(utility_type)?;
         let result = provider.pay(request).await;
 
         if utility_type == "electricity" {
@@ -68,7 +76,9 @@ impl ProviderDispatcher {
                     crate::integrations::utility_provider::ProviderErrorKind::Outage
                         | crate::integrations::utility_provider::ProviderErrorKind::Transient
                 ) {
-                    return self.remita.pay(request).await;
+                    if let Some(ref remita) = self.remita {
+                        return remita.pay(request).await;
+                    }
                 }
             }
         }
@@ -81,7 +91,7 @@ impl ProviderDispatcher {
         utility_type: &str,
         request_id: &str,
     ) -> Result<RequeryResponse, ProviderError> {
-        self.provider_for(utility_type).requery(request_id).await
+        self.provider_for(utility_type)?.requery(request_id).await
     }
 
     pub fn verify_webhook_signature(
@@ -90,13 +100,15 @@ impl ProviderDispatcher {
         payload: &[u8],
         signature: &str,
     ) -> bool {
-        self.provider_for(utility_type)
-            .verify_webhook_signature(payload, signature)
+        match self.provider_for(utility_type) {
+            Ok(p) => p.verify_webhook_signature(payload, signature),
+            Err(_) => false,
+        }
     }
 
     pub fn provider_kind_for(&self, utility_type: &str) -> ProviderKind {
         match utility_type {
-            "school_fees" => ProviderKind::Remita,
+            "school_fees" if self.remita.is_some() => ProviderKind::Remita,
             _ => ProviderKind::Vtpass,
         }
     }

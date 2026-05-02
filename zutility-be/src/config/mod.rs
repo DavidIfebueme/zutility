@@ -37,11 +37,11 @@ pub struct AppConfig {
     pub vtpass_base_url: String,
     pub vtpass_api_key: SecretString,
     pub vtpass_secret_key: SecretString,
-    pub remita_merchant_id: String,
-    pub remita_api_key: SecretString,
-    pub remita_service_type_id: String,
-    pub remita_base_url: String,
-    pub remita_webhook_secret: SecretString,
+    pub remita_merchant_id: Option<String>,
+    pub remita_api_key: Option<SecretString>,
+    pub remita_service_type_id: Option<String>,
+    pub remita_base_url: Option<String>,
+    pub remita_webhook_secret: Option<SecretString>,
     pub zcash_rpc_mode: ZcashRpcMode,
     pub zcash_rpc_socket_path: String,
     pub zcash_rpc_url: String,
@@ -81,11 +81,21 @@ impl AppConfig {
         ensure_non_empty("VTPASS_BASE_URL", &self.vtpass_base_url)?;
         ensure_non_empty_secret("VTPASS_API_KEY", &self.vtpass_api_key)?;
         ensure_non_empty_secret("VTPASS_SECRET_KEY", &self.vtpass_secret_key)?;
-        ensure_non_empty("REMITA_MERCHANT_ID", &self.remita_merchant_id)?;
-        ensure_non_empty_secret("REMITA_API_KEY", &self.remita_api_key)?;
-        ensure_non_empty("REMITA_SERVICE_TYPE_ID", &self.remita_service_type_id)?;
-        ensure_non_empty("REMITA_BASE_URL", &self.remita_base_url)?;
-        ensure_non_empty_secret("REMITA_WEBHOOK_SECRET", &self.remita_webhook_secret)?;
+        if let Some(ref v) = self.remita_merchant_id {
+            ensure_non_empty("REMITA_MERCHANT_ID", v)?;
+        }
+        if let Some(ref v) = self.remita_api_key {
+            ensure_non_empty_secret("REMITA_API_KEY", v)?;
+        }
+        if let Some(ref v) = self.remita_service_type_id {
+            ensure_non_empty("REMITA_SERVICE_TYPE_ID", v)?;
+        }
+        if let Some(ref v) = self.remita_base_url {
+            ensure_non_empty("REMITA_BASE_URL", v)?;
+        }
+        if let Some(ref v) = self.remita_webhook_secret {
+            ensure_non_empty_secret("REMITA_WEBHOOK_SECRET", v)?;
+        }
         ensure_non_empty_secret("ZCASH_RPC_USER", &self.zcash_rpc_user)?;
         ensure_non_empty_secret("ZCASH_RPC_PASSWORD", &self.zcash_rpc_password)?;
         ensure_non_empty("SIGNING_SERVICE_URL", &self.signing_service_url)?;

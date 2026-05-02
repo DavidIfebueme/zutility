@@ -90,10 +90,13 @@ fn start_order_orchestrator(state: HttpState, config: AppConfig) {
         };
 
         let remita = match RemitaClient::from_config(&config) {
-            Ok(client) => client,
+            Ok(client) => {
+                tracing::info!("remita client initialized successfully");
+                Some(client)
+            }
             Err(error) => {
-                tracing::error!(error = %error, "failed to initialize remita client");
-                return;
+                tracing::warn!(error = %error, "remita client not configured — school fees and electricity fallback will be unavailable");
+                None
             }
         };
 
