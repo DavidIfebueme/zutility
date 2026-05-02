@@ -141,6 +141,16 @@ pub fn router() -> Router {
         signing_service_hmac_secret: secrecy::SecretString::from(String::from("hmac_secret")),
         rate_source_timeout_ms: 3000,
     };
-    let state = build_state(&config, None);
+
+    let rate_cache = crate::integrations::rates::new_shared_rate_cache(
+        crate::integrations::rates::CurrentRate {
+            zec_ngn: rust_decimal::Decimal::new(150_000_0000, 4),
+            zec_usd: rust_decimal::Decimal::new(100_0000, 4),
+            usd_ngn: rust_decimal::Decimal::new(1500_0000, 4),
+            updated_at: chrono::Utc::now(),
+        },
+    );
+
+    let state = build_state(&config, Some(rate_cache));
     build_router_from_state(state, false)
 }

@@ -304,11 +304,12 @@ pub fn new_shared_rate_cache(initial: CurrentRate) -> SharedRateCache {
 }
 
 pub fn default_current_rate() -> CurrentRate {
+    let now = Utc::now();
     CurrentRate {
-        zec_ngn: Decimal::new(150_000_0000, 4),
-        zec_usd: Decimal::new(100_0000, 4),
-        usd_ngn: Decimal::new(1500_0000, 4),
-        updated_at: Utc::now(),
+        zec_ngn: Decimal::ZERO,
+        zec_usd: Decimal::ZERO,
+        usd_ngn: Decimal::ZERO,
+        updated_at: now - chrono::Duration::hours(1),
     }
 }
 
@@ -353,6 +354,9 @@ fn compute_drift_alert(
 ) -> RateAlertLevel {
     if previous_zec_ngn <= Decimal::ZERO {
         return RateAlertLevel::Normal;
+    }
+    if new_zec_ngn <= Decimal::ZERO {
+        return RateAlertLevel::DriftHeld;
     }
 
     let delta = (new_zec_ngn - previous_zec_ngn).abs();

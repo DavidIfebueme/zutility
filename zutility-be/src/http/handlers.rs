@@ -126,6 +126,9 @@ pub async fn create_order(
     } else {
         state.required_confs_transparent
     };
+    if rate.zec_ngn <= Decimal::ZERO {
+        return Err(ApiError::internal("rate data unavailable — please try again in a moment"));
+    }
     let zec_amount = Decimal::new(payload.amount_ngn, 0) / rate.zec_ngn;
     let expires_at = Utc::now() + Duration::minutes(state.order_expiry_minutes);
     let deposit_address = resolve_deposit_address(&state, &payload.zec_address_type).await;
