@@ -20,8 +20,8 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'zutility | ZK Tokens to Naira',
-  description: 'Nigerian platform bridging ZK privacy tokens to Naira and utility payments.',
+  title: 'zutility | Privacy Tokens to Utilities',
+  description: 'African platform bridging privacy tokens to local currency and utility payments. No KYC required.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

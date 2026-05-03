@@ -41,6 +41,11 @@ export interface OrderStatusResponse {
 export interface RateResponse {
   zec_ngn: string
   zec_usd: string
+  usd_ngn: string
+  usd_kes: string
+  usd_ghs: string
+  usd_zar: string
+  usd_egp: string
   updated_at: string
   valid_until: string
 }

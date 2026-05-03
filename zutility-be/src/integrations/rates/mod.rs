@@ -12,6 +12,10 @@ pub struct CurrentRate {
     pub zec_ngn: Decimal,
     pub zec_usd: Decimal,
     pub usd_ngn: Decimal,
+    pub usd_kes: Decimal,
+    pub usd_ghs: Decimal,
+    pub usd_zar: Decimal,
+    pub usd_egp: Decimal,
     pub updated_at: DateTime<Utc>,
 }
 
@@ -20,6 +24,10 @@ pub struct RateSnapshot {
     pub zec_ngn: Decimal,
     pub zec_usd: Decimal,
     pub usd_ngn: Decimal,
+    pub usd_kes: Decimal,
+    pub usd_ghs: Decimal,
+    pub usd_zar: Decimal,
+    pub usd_egp: Decimal,
     pub coingecko_zec_ngn: Option<Decimal>,
     pub binance_zec_usd: Option<Decimal>,
     pub kraken_zec_usd: Option<Decimal>,
@@ -58,6 +66,10 @@ struct SourceSamples {
     coingecko_zec_ngn: Option<Decimal>,
     zec_usd_samples: Vec<(String, Decimal)>,
     usd_ngn: Option<Decimal>,
+    usd_kes: Option<Decimal>,
+    usd_ghs: Option<Decimal>,
+    usd_zar: Option<Decimal>,
+    usd_egp: Option<Decimal>,
 }
 
 impl RateOracle {
@@ -83,6 +95,10 @@ impl RateOracle {
         self.refresh_from_samples(
             samples.zec_usd_samples,
             usd_ngn,
+            samples.usd_kes,
+            samples.usd_ghs,
+            samples.usd_zar,
+            samples.usd_egp,
             samples.coingecko_zec_ngn,
             previous,
         )
@@ -92,6 +108,10 @@ impl RateOracle {
         &self,
         samples: Vec<(String, Decimal)>,
         usd_ngn: Decimal,
+        usd_kes: Option<Decimal>,
+        usd_ghs: Option<Decimal>,
+        usd_zar: Option<Decimal>,
+        usd_egp: Option<Decimal>,
         coingecko_zec_ngn: Option<Decimal>,
         previous: Option<&CurrentRate>,
     ) -> Result<RateRefreshResult> {
@@ -105,10 +125,19 @@ impl RateOracle {
         let zec_ngn = (zec_usd * usd_ngn).round_dp(4);
         let fetched_at = Utc::now();
 
+        let fx_kes = usd_kes.unwrap_or(Decimal::ZERO);
+        let fx_ghs = usd_ghs.unwrap_or(Decimal::ZERO);
+        let fx_zar = usd_zar.unwrap_or(Decimal::ZERO);
+        let fx_egp = usd_egp.unwrap_or(Decimal::ZERO);
+
         let current = CurrentRate {
             zec_ngn,
             zec_usd: zec_usd.round_dp(4),
             usd_ngn: usd_ngn.round_dp(4),
+            usd_kes: fx_kes.round_dp(4),
+            usd_ghs: fx_ghs.round_dp(4),
+            usd_zar: fx_zar.round_dp(4),
+            usd_egp: fx_egp.round_dp(4),
             updated_at: fetched_at,
         };
 
@@ -133,6 +162,18 @@ impl RateOracle {
                 usd_ngn: previous
                     .map(|value| value.usd_ngn)
                     .unwrap_or(current.usd_ngn),
+                usd_kes: previous
+                    .map(|value| value.usd_kes)
+                    .unwrap_or(current.usd_kes),
+                usd_ghs: previous
+                    .map(|value| value.usd_ghs)
+                    .unwrap_or(current.usd_ghs),
+                usd_zar: previous
+                    .map(|value| value.usd_zar)
+                    .unwrap_or(current.usd_zar),
+                usd_egp: previous
+                    .map(|value| value.usd_egp)
+                    .unwrap_or(current.usd_egp),
                 updated_at: fetched_at,
             }
         } else {
@@ -143,6 +184,10 @@ impl RateOracle {
             zec_ngn,
             zec_usd: zec_usd.round_dp(4),
             usd_ngn: usd_ngn.round_dp(4),
+            usd_kes: fx_kes.round_dp(4),
+            usd_ghs: fx_ghs.round_dp(4),
+            usd_zar: fx_zar.round_dp(4),
+            usd_egp: fx_egp.round_dp(4),
             coingecko_zec_ngn,
             binance_zec_usd: sample_value(&samples, "binance"),
             kraken_zec_usd: sample_value(&samples, "kraken"),
@@ -163,7 +208,7 @@ impl RateOracle {
         let binance = self.fetch_binance_zec_usd().await;
         let kraken = self.fetch_kraken_zec_usd().await;
         let coinbase = self.fetch_coinbase_zec_usd().await;
-        let usd_ngn = self.fetch_usd_ngn().await;
+        let fx_rates = self.fetch_african_fx().await;
 
         let mut samples = SourceSamples::default();
 
@@ -188,8 +233,12 @@ impl RateOracle {
                 .zec_usd_samples
                 .push((String::from("coinbase"), value));
         }
-        if let Ok(value) = usd_ngn {
-            samples.usd_ngn = Some(value);
+        if let Ok(rates) = fx_rates {
+            samples.usd_ngn = rates.get("NGN").copied();
+            samples.usd_kes = rates.get("KES").copied();
+            samples.usd_ghs = rates.get("GHS").copied();
+            samples.usd_zar = rates.get("ZAR").copied();
+            samples.usd_egp = rates.get("EGP").copied();
         }
 
         Ok(samples)
@@ -278,24 +327,32 @@ impl RateOracle {
         )
     }
 
-    async fn fetch_usd_ngn(&self) -> Result<Decimal> {
+    async fn fetch_african_fx(&self) -> Result<std::collections::HashMap<String, Decimal>> {
         let response = self
             .client
             .get("https://open.er-api.com/v6/latest/USD")
             .timeout(self.timeout)
             .send()
             .await
-            .context("usd/ngn request failed")?
+            .context("african fx request failed")?
             .json::<Value>()
             .await
-            .context("usd/ngn response decode failed")?;
+            .context("african fx response decode failed")?;
 
-        parse_decimal(
-            response
-                .get("rates")
-                .and_then(|rates| rates.get("NGN"))
-                .context("usd/ngn rate missing")?,
-        )
+        let rates_obj = response
+            .get("rates")
+            .and_then(Value::as_object)
+            .context("african fx rates object missing")?;
+
+        let mut result = std::collections::HashMap::new();
+        for code in &["NGN", "KES", "GHS", "ZAR", "EGP"] {
+            if let Some(val) = rates_obj.get(*code) {
+                if let Ok(parsed) = parse_decimal(val) {
+                    result.insert(String::from(*code), parsed);
+                }
+            }
+        }
+        Ok(result)
     }
 }
 
@@ -309,6 +366,10 @@ pub fn default_current_rate() -> CurrentRate {
         zec_ngn: Decimal::ZERO,
         zec_usd: Decimal::ZERO,
         usd_ngn: Decimal::ZERO,
+        usd_kes: Decimal::ZERO,
+        usd_ghs: Decimal::ZERO,
+        usd_zar: Decimal::ZERO,
+        usd_egp: Decimal::ZERO,
         updated_at: now - chrono::Duration::hours(1),
     }
 }
@@ -402,6 +463,10 @@ mod tests {
             zec_ngn: Decimal::new(100_000_0000, 4),
             zec_usd: Decimal::new(100_0000, 4),
             usd_ngn: Decimal::new(1000_0000, 4),
+            usd_kes: Decimal::ZERO,
+            usd_ghs: Decimal::ZERO,
+            usd_zar: Decimal::ZERO,
+            usd_egp: Decimal::ZERO,
             updated_at: chrono::Utc::now(),
         };
 
@@ -413,6 +478,10 @@ mod tests {
                     (String::from("kraken"), Decimal::new(105, 0)),
                 ],
                 Decimal::new(1000, 0),
+                None,
+                None,
+                None,
+                None,
                 None,
                 Some(&previous),
             )
@@ -427,6 +496,10 @@ mod tests {
                     (String::from("kraken"), Decimal::new(121, 0)),
                 ],
                 Decimal::new(1000, 0),
+                None,
+                None,
+                None,
+                None,
                 None,
                 Some(&previous),
             )

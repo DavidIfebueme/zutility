@@ -17,12 +17,16 @@ import { useRate } from "@/lib/hooks/useRate"
 import { apiGet, apiPost } from "@/lib/api"
 import { CreateOrderResponse, UtilityVariationResponse, UtilityValidateResponse } from "@/lib/types"
 import { formatNGN } from "@/lib/utils"
+import { detectCurrency, formatCurrency, formatLocalAmount, convertFromNGN, CURRENCIES, type CurrencyCode, type FxRates } from "@/lib/currency"
 import { toast } from "sonner"
+
+const LOCAL_CURRENCY = typeof window !== 'undefined' ? detectCurrency() : 'NGN'
+const LOCAL_SYMBOL = CURRENCIES[LOCAL_CURRENCY]?.symbol || '₦'
 
 const orderSchema = z.object({
   utilityId: z.string().min(1, "Please select a utility"),
   serviceRef: z.string().min(1, "Please enter a reference number"),
-  amountNgn: z.number().min(100, "Minimum amount is ₦100").max(5000000, "Maximum amount is ₦50,000,000"),
+  amountNgn: z.number().min(100, "Minimum amount is 100").max(5000000, "Maximum amount is 50,000,000"),
   addressType: z.enum(["shielded", "transparent"]),
   variationCode: z.string().optional(),
 })
@@ -305,7 +309,7 @@ export default function PayPage() {
                               {v.name}
                             </p>
                             {v.amount && (
-                              <p className="text-xs text-text-muted mt-0.5">{formatNGN(v.amount / 100)}</p>
+                              <p className="text-xs text-text-muted mt-0.5">{formatCurrency(v.amount / 100, LOCAL_CURRENCY)}</p>
                             )}
                           </div>
                         )
@@ -319,9 +323,9 @@ export default function PayPage() {
 
               {selectedUtility?.hasAmountPicker && !selectedUtility.fixedAmountKobo && (
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-text-secondary">Amount (NGN)</label>
+                  <label className="text-sm font-medium text-text-secondary">Amount</label>
                   <div className="relative">
-                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted font-medium">₦</span>
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted font-medium">{LOCAL_SYMBOL}</span>
                     <Input
                       type="number"
                       {...register("amountNgn", { valueAsNumber: true })}
@@ -342,7 +346,7 @@ export default function PayPage() {
                               : "border-border-subtle bg-bg-surface text-text-secondary hover:text-text-primary"
                           }`}
                         >
-                          {formatNGN(amt)}
+                          {formatCurrency(amt, LOCAL_CURRENCY)}
                         </button>
                       ))}
                     </div>
@@ -354,7 +358,7 @@ export default function PayPage() {
                 <div className="rounded-lg bg-bg-surface border border-border-subtle p-4">
                   <p className="text-sm text-text-secondary">Fixed Amount</p>
                   <p className="text-2xl font-dela text-text-primary mt-1">
-                    {formatNGN(selectedUtility.fixedAmountKobo / 100)}
+                    {formatCurrency(selectedUtility.fixedAmountKobo / 100, LOCAL_CURRENCY)}
                   </p>
                 </div>
               )}

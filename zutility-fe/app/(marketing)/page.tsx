@@ -33,7 +33,7 @@ export default function LandingPage() {
     { q: "Shielded vs Transparent?", a: "Shielded (z-addresses) offer full privacy but take ~13 minutes to confirm. Transparent (t-addresses) are standard public transactions and confirm in ~4 minutes." },
     { q: "How long does payment take?", a: "Once we detect your transaction on the blockchain (usually within seconds), we wait for the required confirmations. Then your utility is delivered instantly." },
     { q: "What if I send the wrong amount?", a: "Our system expects the exact ZEC amount shown. If you send a different amount, the order will be flagged for manual review and may take up to 24 hours to resolve." },
-    { q: "Is this available everywhere in Nigeria?", a: "Yes, as long as you are paying for a supported Nigerian utility (MTN, DSTV, PHCN, etc.), you can use zutility from anywhere." },
+    { q: "Is this available in my country?", a: "zutility supports utility payments across Africa — Nigeria, Kenya, Ghana, South Africa, Egypt and more. As long as the utility is in our supported list, you can pay from anywhere." },
     { q: "Are other tokens coming?", a: "Yes. We are starting with Zcash (ZEC) to establish the privacy-first foundation, but will be adding other ZK and privacy-preserving tokens soon." },
   ]
 
@@ -111,17 +111,17 @@ export default function LandingPage() {
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent-zec opacity-75"></span>
                   <span className="relative inline-flex h-2 w-2 rounded-full bg-accent-zec"></span>
                 </span>
-                ZK Tokens → Naira & Utilities
+                ZK Tokens → Local Currency & Utilities
               </div>
               
               <h1 className="font-dela text-5xl leading-[1.1] tracking-tight sm:text-6xl lg:text-7xl">
                 Privacy Crypto.<br />
                 Real Life.<br />
-                <span className="text-text-muted">Nigeria.</span>
+                <span className="text-text-muted">Africa.</span>
               </h1>
               
               <p className="mt-6 max-w-lg text-lg text-text-secondary sm:text-xl">
-                Pay airtime, DSTV, electricity with Zcash. No KYC. No middlemen. The bridge between shielded tokens and everyday utility.
+                Pay airtime, data, TV, electricity with Zcash. No KYC. No middlemen. The bridge between shielded tokens and everyday utility across Africa.
               </p>
               
               <div className="mt-10 flex flex-col gap-4 sm:flex-row sm:items-center">
@@ -205,7 +205,7 @@ export default function LandingPage() {
                   </div>
                   <CardTitle className="text-xl">OTC Off-ramp</CardTitle>
                   <CardDescription className="text-base mt-2">
-                    Directly swap ZEC for Naira at our system rate. Fast settlement directly to your Nigerian bank account.
+                    Directly swap ZEC for local currency at our system rate. Fast settlement directly to your bank account.
                   </CardDescription>
                 </CardHeader>
               </Card>
@@ -227,7 +227,7 @@ export default function LandingPage() {
                   </div>
                   <CardTitle className="text-xl">P2P Marketplace</CardTitle>
                   <CardDescription className="text-base mt-2">
-                    Peer-to-peer ZEC/NGN escrow trading. Set your own rates and trade securely with other users.
+                    Peer-to-peer ZEC escrow trading. Set your own rates and trade securely with other users.
                   </CardDescription>
                 </CardHeader>
               </Card>
@@ -248,7 +248,7 @@ export default function LandingPage() {
           </div>
 
           <p className="text-lg text-text-secondary max-w-2xl mx-auto">
-            We believe financial privacy is a fundamental right. By bridging shielded ZK tokens to real-world utility, we enable Nigerians to transact freely without surveillance.
+            We believe financial privacy is a fundamental right. By bridging shielded ZK tokens to real-world utility, we enable Africans to transact freely without surveillance.
           </p>
         </div>
       </section>
@@ -384,7 +384,7 @@ export default function LandingPage() {
             <Link href="/" className="font-dela text-2xl tracking-tight">
               <span className="text-accent-zec">z</span>utility
             </Link>
-            <p className="text-sm text-text-muted">ZK tokens. Nigerian utilities. No compromise.</p>
+            <p className="text-sm text-text-muted">ZK tokens. African utilities. No compromise.</p>
           </div>
           
           <div className="flex gap-6 text-sm font-medium text-text-secondary">

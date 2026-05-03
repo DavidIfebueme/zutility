@@ -312,14 +312,23 @@ pub async fn get_current_rate(
     let CurrentRate {
         zec_ngn,
         zec_usd,
+        usd_ngn,
+        usd_kes,
+        usd_ghs,
+        usd_zar,
+        usd_egp,
         updated_at,
-        ..
     } = state.rate_cache.read().await.clone();
     let valid_until = updated_at + Duration::minutes(state.rate_lock_minutes);
 
     Ok(Json(RateResponse {
         zec_ngn: zec_ngn.round_dp(4).to_string(),
         zec_usd: zec_usd.round_dp(4).to_string(),
+        usd_ngn: usd_ngn.round_dp(4).to_string(),
+        usd_kes: usd_kes.round_dp(4).to_string(),
+        usd_ghs: usd_ghs.round_dp(4).to_string(),
+        usd_zar: usd_zar.round_dp(4).to_string(),
+        usd_egp: usd_egp.round_dp(4).to_string(),
         updated_at,
         valid_until,
     }))

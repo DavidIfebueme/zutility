@@ -147,6 +147,10 @@ pub fn router() -> Router {
             zec_ngn: rust_decimal::Decimal::new(150_000_0000, 4),
             zec_usd: rust_decimal::Decimal::new(100_0000, 4),
             usd_ngn: rust_decimal::Decimal::new(1500_0000, 4),
+            usd_kes: rust_decimal::Decimal::new(129_0000, 4),
+            usd_ghs: rust_decimal::Decimal::new(12_0000, 4),
+            usd_zar: rust_decimal::Decimal::new(18_0000, 4),
+            usd_egp: rust_decimal::Decimal::new(30_0000, 4),
             updated_at: chrono::Utc::now(),
         },
     );

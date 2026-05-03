@@ -45,6 +45,10 @@ pub struct PersistRateSnapshotInput {
     pub zec_ngn: Decimal,
     pub zec_usd: Decimal,
     pub usd_ngn: Decimal,
+    pub usd_kes: Decimal,
+    pub usd_ghs: Decimal,
+    pub usd_zar: Decimal,
+    pub usd_egp: Decimal,
     pub coingecko_zec_ngn: Option<Decimal>,
     pub binance_zec_usd: Option<Decimal>,
     pub kraken_zec_usd: Option<Decimal>,
@@ -152,6 +156,10 @@ pub async fn persist_rate_snapshot(
             zec_ngn,
             zec_usd,
             usd_ngn,
+            usd_kes,
+            usd_ghs,
+            usd_zar,
+            usd_egp,
             coingecko_zec_ngn,
             binance_zec_usd,
             kraken_zec_usd,
@@ -168,13 +176,21 @@ pub async fn persist_rate_snapshot(
             $7,
             $8,
             $9,
-            $10
+            $10,
+            $11,
+            $12,
+            $13,
+            $14
         )",
     )
     .bind(snapshot_id)
     .bind(input.zec_ngn)
     .bind(input.zec_usd)
     .bind(input.usd_ngn)
+    .bind(input.usd_kes)
+    .bind(input.usd_ghs)
+    .bind(input.usd_zar)
+    .bind(input.usd_egp)
     .bind(input.coingecko_zec_ngn)
     .bind(input.binance_zec_usd)
     .bind(input.kraken_zec_usd)

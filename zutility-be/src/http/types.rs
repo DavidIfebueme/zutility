@@ -54,6 +54,11 @@ pub struct CancelOrderResponse {
 pub struct RateResponse {
     pub zec_ngn: String,
     pub zec_usd: String,
+    pub usd_ngn: String,
+    pub usd_kes: String,
+    pub usd_ghs: String,
+    pub usd_zar: String,
+    pub usd_egp: String,
     pub updated_at: DateTime<Utc>,
     pub valid_until: DateTime<Utc>,
 }

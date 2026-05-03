@@ -11,6 +11,7 @@ import { useAuthStore } from "@/store/auth"
 import { useOrderStore } from "@/store/order"
 import { useRate } from "@/lib/hooks/useRate"
 import { formatNGN, formatZEC } from "@/lib/utils"
+import { detectCurrency, formatCurrency, convertFromNGN, CURRENCIES, type CurrencyCode, type FxRates } from "@/lib/currency"
 
 export default function DashboardPage() {
   const { user } = useAuthStore()
@@ -114,7 +115,7 @@ export default function DashboardPage() {
               </div>
               <div>
                 <h4 className="font-semibold text-text-secondary">OTC Swap</h4>
-                <p className="text-xs text-text-muted mt-1">Direct ZEC to Naira</p>
+                    <p className="text-xs text-text-muted mt-1">Direct ZEC to local currency</p>
               </div>
             </CardContent>
           </Card>
@@ -200,13 +201,20 @@ export default function DashboardPage() {
           <Card className="h-full bg-bg-elevated border-border-subtle">
             <CardHeader>
               <CardTitle className="text-xl">Market Rate</CardTitle>
-              <CardDescription>ZEC to NGN</CardDescription>
+              <CardDescription>ZEC to local currency</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="flex flex-col gap-6">
                 <div>
                   <div className="text-3xl font-dela text-text-primary mb-2">
-                    {rate ? formatNGN(rate.zec_ngn) : "₦---"}
+                    {rate ? formatCurrency(
+                      (() => {
+                        const c = detectCurrency()
+                        const fx: FxRates = { usd_ngn: parseFloat(rate.usd_ngn) || 1, usd_kes: parseFloat(rate.usd_kes) || 0, usd_ghs: parseFloat(rate.usd_ghs) || 0, usd_zar: parseFloat(rate.usd_zar) || 0, usd_egp: parseFloat(rate.usd_egp) || 0 }
+                        return c === 'NGN' ? parseFloat(rate.zec_ngn) : c === 'USD' ? parseFloat(rate.zec_usd) : convertFromNGN(parseFloat(rate.zec_ngn), c, fx)
+                      })(),
+                      detectCurrency()
+                    ) : `${CURRENCIES[detectCurrency()].symbol}---`}
                   </div>
                   <div className="flex items-center gap-2 text-sm">
                     <span className="text-accent-green flex items-center gap-1 bg-accent-green/10 px-2 py-0.5 rounded">

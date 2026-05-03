@@ -3,7 +3,7 @@
 import * as React from "react"
 import { cn } from "@/lib/utils"
 import { useRate } from "@/lib/hooks/useRate"
-import { formatNGN } from "@/lib/utils"
+import { detectCurrency, formatCurrency, convertFromNGN, CURRENCIES, type CurrencyCode, type FxRates } from "@/lib/currency"
 
 interface RateTickerProps extends React.HTMLAttributes<HTMLDivElement> {
   showChange?: boolean
@@ -12,6 +12,7 @@ interface RateTickerProps extends React.HTMLAttributes<HTMLDivElement> {
 export function RateTicker({ showChange = false, className, ...props }: RateTickerProps) {
   const { rate, isLoading, isError, lastUpdated } = useRate()
   const [isFresh, setIsFresh] = React.useState(false)
+  const [currency] = React.useState<CurrencyCode>(() => detectCurrency())
 
   React.useEffect(() => {
     if (lastUpdated) {
@@ -35,11 +36,27 @@ export function RateTicker({ showChange = false, className, ...props }: RateTick
     )
   }
 
+  const fxRates: FxRates = {
+    usd_ngn: parseFloat(rate.usd_ngn) || 1,
+    usd_kes: parseFloat(rate.usd_kes) || 0,
+    usd_ghs: parseFloat(rate.usd_ghs) || 0,
+    usd_zar: parseFloat(rate.usd_zar) || 0,
+    usd_egp: parseFloat(rate.usd_egp) || 0,
+  }
+
+  const zecLocal = currency === 'NGN'
+    ? parseFloat(rate.zec_ngn)
+    : currency === 'USD'
+      ? parseFloat(rate.zec_usd)
+      : convertFromNGN(parseFloat(rate.zec_ngn), currency, fxRates)
+
+  const label = currency === 'NGN' ? 'ZEC/NGN' : `ZEC/${currency}`
+
   return (
     <div className={cn("flex items-center gap-3 text-sm font-medium", className)} {...props}>
       <div className="flex items-center gap-1.5">
-        <span className="text-text-secondary">ZEC/NGN:</span>
-        <span className="text-text-primary">{formatNGN(rate.zec_ngn)}</span>
+        <span className="text-text-secondary">{label}:</span>
+        <span className="text-text-primary">{formatCurrency(zecLocal, currency)}</span>
       </div>
       
       {showChange && (

@@ -16,6 +16,10 @@ fn refresh_from_samples_computes_median_and_ngn_conversion() {
                 (String::from("coinbase"), Decimal::new(9900, 2)),
             ],
             Decimal::new(150000, 2),
+            Some(Decimal::new(129000, 2)),
+            Some(Decimal::new(12000, 2)),
+            Some(Decimal::new(18000, 2)),
+            Some(Decimal::new(30000, 2)),
             Some(Decimal::new(15000000, 2)),
             None,
         )
@@ -37,6 +41,10 @@ fn refresh_holds_previous_rate_when_drift_exceeds_10_percent() {
         zec_ngn: Decimal::new(15000000, 2),
         zec_usd: Decimal::new(10000, 2),
         usd_ngn: Decimal::new(150000, 2),
+        usd_kes: Decimal::new(129000, 2),
+        usd_ghs: Decimal::new(12000, 2),
+        usd_zar: Decimal::new(18000, 2),
+        usd_egp: Decimal::new(30000, 2),
         updated_at: chrono::Utc::now(),
     };
 
@@ -48,6 +56,10 @@ fn refresh_holds_previous_rate_when_drift_exceeds_10_percent() {
                 (String::from("coinbase"), Decimal::new(12100, 2)),
             ],
             Decimal::new(150000, 2),
+            None,
+            None,
+            None,
+            None,
             None,
             Some(&previous),
         )
