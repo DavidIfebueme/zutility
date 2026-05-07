@@ -5,6 +5,7 @@ use axum::{
     Router,
     routing::{get, post},
 };
+use sqlx::PgPool;
 use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
 use tower_http::{
     cors::{Any, CorsLayer},
@@ -23,27 +24,31 @@ use crate::integrations::rates::SharedRateCache;
 use docs::{docs_ui, openapi_json};
 use handlers::{
     HttpState, alerts, cancel_order, create_order, get_current_rate, get_order, health_live,
-    health_ready, list_utilities, list_utility_variations, metrics, stream_order, validate_utility_reference,
+    health_ready, list_utilities, list_utility_variations, metrics, stream_order,
+    validate_utility_reference, webhook_remita, webhook_vtpass,
 };
 
-pub fn build_router(config: &AppConfig) -> Router {
-    let state = build_state(config, None);
-    build_router_from_state(state, true)
+pub async fn build_router(config: &AppConfig) -> Result<Router, anyhow::Error> {
+    let pool = PgPool::connect(&config.database_url).await?;
+    let state = build_state(config, None, pool);
+    Ok(build_router_from_state(state, true))
 }
 
-pub fn build_router_with_rate_cache(
+pub async fn build_router_with_rate_cache(
     config: &AppConfig,
     rate_cache: Option<SharedRateCache>,
+    pool: PgPool,
 ) -> Router {
-    let state = build_state(config, rate_cache);
+    let state = build_state(config, rate_cache, pool);
     build_router_from_state(state, true)
 }
 
-pub fn build_state(config: &AppConfig, rate_cache: Option<SharedRateCache>) -> HttpState {
+pub fn build_state(config: &AppConfig, rate_cache: Option<SharedRateCache>, pool: PgPool) -> HttpState {
     let state = HttpState::new(
         config.order_token_hmac_secret.clone(),
         i64::from(config.order_expiry_minutes),
         i64::from(config.rate_lock_minutes),
+        pool,
     )
     .with_ops_context(config);
 
@@ -73,6 +78,8 @@ fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool
             "/api/v1/utilities/{slug}/variations",
             get(list_utility_variations),
         )
+        .route("/api/v1/webhooks/vtpass", post(webhook_vtpass))
+        .route("/api/v1/webhooks/remita", post(webhook_remita))
         .route("/ops/health/live", get(health_live))
         .route("/ops/health/ready", get(health_ready))
         .route("/ops/openapi.json", get(openapi_json))
@@ -155,6 +162,9 @@ pub fn router() -> Router {
         },
     );
 
-    let state = build_state(&config, Some(rate_cache));
+    let pool = PgPool::connect_lazy(&config.database_url)
+        .expect("valid pool for test router");
+
+    let state = build_state(&config, Some(rate_cache), pool);
     build_router_from_state(state, false)
 }

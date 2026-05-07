@@ -63,6 +63,50 @@ pub struct ReceivedNote {
     pub memo: Option<String>,
 }
 
+const ZATOSHI_PER_ZEC: u64 = 100_000_000;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AddressBalance {
+    pub balance_zat: u64,
+    pub received_zat: u64,
+}
+
+impl AddressBalance {
+    pub fn balance_zec(&self) -> Decimal {
+        satoshis_to_zec(self.balance_zat)
+    }
+
+    pub fn received_zec(&self) -> Decimal {
+        satoshis_to_zec(self.received_zat)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AddressUtxo {
+    pub txid: String,
+    pub output_index: u32,
+    pub satoshis: u64,
+    pub height: u64,
+}
+
+impl AddressUtxo {
+    pub fn amount_zec(&self) -> Decimal {
+        satoshis_to_zec(self.satoshis)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TransparentPaymentObservation {
+    pub total_received: Decimal,
+    pub confirmations: u16,
+    pub utxo_count: usize,
+    pub has_mempool_tx: bool,
+}
+
+fn satoshis_to_zec(zat: u64) -> Decimal {
+    Decimal::from(zat) / Decimal::from(ZATOSHI_PER_ZEC)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PaymentMatchStatus {
     Underpaid,
@@ -273,6 +317,119 @@ impl ZcashRpcClient {
             .collect())
     }
 
+    pub async fn get_address_balance(&self, address: &str) -> Result<AddressBalance> {
+        let value = self
+            .call(
+                "getaddressbalance",
+                json!([{"addresses": [address]}]),
+            )
+            .await?;
+
+        let balance_zat = value
+            .get("balance")
+            .and_then(Value::as_u64)
+            .context("missing balance in getaddressbalance response")?;
+        let received_zat = value
+            .get("received")
+            .and_then(Value::as_u64)
+            .context("missing received in getaddressbalance response")?;
+
+        Ok(AddressBalance {
+            balance_zat,
+            received_zat,
+        })
+    }
+
+    pub async fn get_address_utxos(&self, address: &str) -> Result<Vec<AddressUtxo>> {
+        let value = self
+            .call(
+                "getaddressutxos",
+                json!([{"addresses": [address]}]),
+            )
+            .await?;
+
+        let arr = value
+            .as_array()
+            .context("getaddressutxos result must be an array")?;
+
+        let mut utxos = Vec::with_capacity(arr.len());
+        for item in arr {
+            let txid = item
+                .get("txid")
+                .and_then(Value::as_str)
+                .context("missing txid in utxo")?
+                .to_owned();
+            let output_index = item
+                .get("outputIndex")
+                .and_then(Value::as_u64)
+                .unwrap_or(0) as u32;
+            let satoshis = item
+                .get("satoshis")
+                .and_then(Value::as_u64)
+                .context("missing satoshis in utxo")?;
+            let height = item
+                .get("height")
+                .and_then(Value::as_u64)
+                .unwrap_or(0);
+
+            utxos.push(AddressUtxo {
+                txid,
+                output_index,
+                satoshis,
+                height,
+            });
+        }
+
+        Ok(utxos)
+    }
+
+    pub async fn get_address_mempool(&self, address: &str) -> Result<bool> {
+        let value = self
+            .call(
+                "getaddressmempool",
+                json!([{"addresses": [address]}]),
+            )
+            .await?;
+
+        Ok(value
+            .as_array()
+            .is_some_and(|arr| !arr.is_empty()))
+    }
+
+    pub async fn observe_transparent_payment(
+        &self,
+        address: &str,
+        current_block_height: u64,
+    ) -> Result<TransparentPaymentObservation> {
+        let (utxos, has_mempool_tx) = tokio::try_join!(
+            self.get_address_utxos(address),
+            self.get_address_mempool(address),
+        )?;
+
+        let total_received = utxos.iter().fold(Decimal::ZERO, |acc, utxo| {
+            acc + utxo.amount_zec()
+        });
+
+        let confirmations = if current_block_height > 0 && !utxos.is_empty() {
+            let min_height = utxos
+                .iter()
+                .map(|utxo| utxo.height)
+                .min()
+                .unwrap_or(0);
+            u16::try_from(current_block_height.saturating_sub(min_height) + 1)
+                .unwrap_or(u16::MAX)
+        } else {
+            0
+        };
+
+        Ok(TransparentPaymentObservation {
+            total_received,
+            confirmations,
+            utxo_count: utxos.len(),
+            has_mempool_tx,
+        })
+    }
+
     async fn call(&self, method: &str, params: Value) -> Result<Value> {
         let mut last_error: Option<anyhow::Error> = None;
         for attempt in 0..=self.retry_policy.max_retries {
@@ -419,7 +576,7 @@ fn parse_decimal_value(value: &Value) -> Result<Decimal> {
 
 #[cfg(test)]
 mod tests {
-    use super::{PaymentMatchStatus, ReceivedNote, evaluate_received_notes, parse_decimal_value};
+    use super::{PaymentMatchStatus, ReceivedNote, evaluate_received_notes, parse_decimal_value, satoshis_to_zec};
     use rust_decimal::Decimal;
     use serde_json::json;
 
@@ -461,5 +618,12 @@ mod tests {
 
         let overpaid = evaluate_received_notes(&notes, Decimal::new(20, 1));
         assert_eq!(overpaid.status, PaymentMatchStatus::Overpaid);
+    }
+
+    #[test]
+    fn satoshis_to_zec_conversion() {
+        assert_eq!(satoshis_to_zec(100_000_000), Decimal::new(1, 0));
+        assert_eq!(satoshis_to_zec(50_000_000), Decimal::new(5, 1));
+        assert_eq!(satoshis_to_zec(0), Decimal::ZERO);
     }
 }

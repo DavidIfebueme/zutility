@@ -1,8 +1,9 @@
 use crate::domain::order::{OrderStatus, OrderStatusTransition};
 use anyhow::{Result, anyhow};
+use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde_json::Value;
-use sqlx::{PgPool, Postgres, Transaction};
+use sqlx::{PgPool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,9 +30,57 @@ pub struct CreateOrderInput {
     pub zec_amount: Decimal,
     pub zec_rate_id: Uuid,
     pub required_confs: i32,
-    pub expires_at: chrono::DateTime<chrono::Utc>,
+    pub expires_at: DateTime<Utc>,
     pub ip_hash: Option<String>,
     pub metadata: Value,
+    pub variation_code: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct OrderRow {
+    pub id: Uuid,
+    pub status: String,
+    pub access_token_hash: String,
+    pub utility_type: String,
+    pub utility_slug: String,
+    pub service_ref: String,
+    pub amount_ngn: i64,
+    pub deposit_address: String,
+    pub address_type: String,
+    pub zec_amount: Decimal,
+    pub zec_rate_id: Uuid,
+    pub txid: Option<String>,
+    pub confirmations: i32,
+    pub required_confs: i32,
+    pub total_received: Option<Decimal>,
+    pub created_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+    pub confirmed_at: Option<DateTime<Utc>>,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub vtpass_request_id: Option<String>,
+    pub delivery_token: Option<String>,
+    pub ip_hash: Option<String>,
+    pub metadata: Value,
+    pub variation_code: Option<String>,
+    pub provider: Option<String>,
+    pub customer_name: Option<String>,
+}
+
+impl OrderRow {
+    pub fn status(&self) -> Result<OrderStatus> {
+        match self.status.as_str() {
+            "awaiting_payment" => Ok(OrderStatus::AwaitingPayment),
+            "payment_detected" => Ok(OrderStatus::PaymentDetected),
+            "payment_confirmed" => Ok(OrderStatus::PaymentConfirmed),
+            "utility_dispatching" => Ok(OrderStatus::UtilityDispatching),
+            "completed" => Ok(OrderStatus::Completed),
+            "expired" => Ok(OrderStatus::Expired),
+            "failed" => Ok(OrderStatus::Failed),
+            "flagged_for_review" => Ok(OrderStatus::FlaggedForReview),
+            "cancelled" => Ok(OrderStatus::Cancelled),
+            other => Err(anyhow!("unknown order status: {other}")),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -206,7 +255,7 @@ pub async fn persist_rate_snapshot(
 pub async fn insert_order_with_claimed_address(
     tx: &mut Transaction<'_, Postgres>,
     input: &CreateOrderInput,
-) -> Result<Uuid> {
+) -> Result<(Uuid, String)> {
     let order_id = Uuid::new_v4();
     let deposit_address = claim_unused_deposit_address(tx, order_id, &input.address_type).await?;
 
@@ -226,7 +275,8 @@ pub async fn insert_order_with_claimed_address(
             required_confs,
             expires_at,
             ip_hash,
-            metadata
+            metadata,
+            variation_code
          ) VALUES (
             $1,
             $2,
@@ -242,7 +292,8 @@ pub async fn insert_order_with_claimed_address(
             $12,
             $13,
             $14,
-            $15
+            $15,
+            $16
          )",
     )
     .bind(order_id)
@@ -260,10 +311,11 @@ pub async fn insert_order_with_claimed_address(
     .bind(input.expires_at)
     .bind(&input.ip_hash)
     .bind(&input.metadata)
+    .bind(&input.variation_code)
     .execute(tx.as_mut())
     .await?;
 
-    Ok(order_id)
+    Ok((order_id, deposit_address))
 }
 
 pub async fn apply_order_status_transition(
@@ -303,4 +355,192 @@ pub async fn apply_order_status_transition(
     .await?;
 
     Ok(())
+}
+
+pub async fn get_order_by_id(pool: &PgPool, order_id: Uuid) -> Result<Option<OrderRow>> {
+    let row = sqlx::query(
+        "SELECT id, status, access_token_hash, utility_type, utility_slug, service_ref,
+                amount_ngn, deposit_address, address_type, zec_amount, zec_rate_id,
+                txid, confirmations, required_confs, total_received, created_at,
+                expires_at, confirmed_at, completed_at, vtpass_request_id,
+                delivery_token, ip_hash, metadata, variation_code, provider, customer_name
+         FROM orders WHERE id = $1",
+    )
+    .bind(order_id)
+    .fetch_optional(pool)
+    .await?;
+
+    row.map(map_order_row).transpose()
+}
+
+pub async fn update_order_status_cas(
+    pool: &PgPool,
+    order_id: Uuid,
+    from_status: &str,
+    to_status: &str,
+    event: &str,
+    detail: Value,
+) -> Result<bool> {
+    let rows_affected = sqlx::query(
+        "UPDATE orders SET status = $1 WHERE id = $2 AND status = $3",
+    )
+    .bind(to_status)
+    .bind(order_id)
+    .bind(from_status)
+    .execute(pool)
+    .await?
+    .rows_affected();
+
+    if rows_affected == 0 {
+        return Ok(false);
+    }
+
+    sqlx::query(
+        "INSERT INTO audit_log (order_id, event, old_status, new_status, detail)
+         VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(order_id)
+    .bind(event)
+    .bind(from_status)
+    .bind(to_status)
+    .bind(detail)
+    .execute(pool)
+    .await?;
+
+    Ok(true)
+}
+
+pub async fn update_order_payment(
+    pool: &PgPool,
+    order_id: Uuid,
+    confirmations: i32,
+    total_received: Decimal,
+    txid: Option<&str>,
+) -> Result<()> {
+    let mut query = String::from(
+        "UPDATE orders SET confirmations = $1, total_received = $2",
+    );
+    if txid.is_some() {
+        query.push_str(", txid = $4");
+    }
+    query.push_str(" WHERE id = $3");
+
+    if txid.is_some() {
+        sqlx::query(&query)
+            .bind(confirmations)
+            .bind(total_received)
+            .bind(order_id)
+            .bind(txid)
+            .execute(pool)
+            .await?;
+    } else {
+        sqlx::query(&query)
+            .bind(confirmations)
+            .bind(total_received)
+            .bind(order_id)
+            .execute(pool)
+            .await?;
+    }
+
+    Ok(())
+}
+
+pub async fn complete_order(
+    pool: &PgPool,
+    order_id: Uuid,
+    delivery_token: Option<&str>,
+    vtpass_request_id: Option<&str>,
+) -> Result<()> {
+    sqlx::query(
+        "UPDATE orders
+         SET status = 'completed', completed_at = now(), delivery_token = $2, vtpass_request_id = COALESCE($3, vtpass_request_id)
+         WHERE id = $1 AND status = 'utility_dispatching'",
+    )
+    .bind(order_id)
+    .bind(delivery_token)
+    .bind(vtpass_request_id)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn fail_order(pool: &PgPool, order_id: Uuid) -> Result<()> {
+    sqlx::query(
+        "UPDATE orders SET status = 'failed' WHERE id = $1 AND status = 'utility_dispatching'",
+    )
+    .bind(order_id)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn set_order_dispatching(
+    pool: &PgPool,
+    order_id: Uuid,
+    provider: &str,
+    vtpass_request_id: Option<&str>,
+) -> Result<bool> {
+    let rows_affected = sqlx::query(
+        "UPDATE orders
+         SET status = 'utility_dispatching', provider = $2, vtpass_request_id = COALESCE($3, vtpass_request_id)
+         WHERE id = $1 AND status = 'payment_confirmed'",
+    )
+    .bind(order_id)
+    .bind(provider)
+    .bind(vtpass_request_id)
+    .execute(pool)
+    .await?
+    .rows_affected();
+
+    Ok(rows_affected > 0)
+}
+
+pub async fn list_active_orders(pool: &PgPool) -> Result<Vec<OrderRow>> {
+    let rows = sqlx::query(
+        "SELECT id, status, access_token_hash, utility_type, utility_slug, service_ref,
+                amount_ngn, deposit_address, address_type, zec_amount, zec_rate_id,
+                txid, confirmations, required_confs, total_received, created_at,
+                expires_at, confirmed_at, completed_at, vtpass_request_id,
+                delivery_token, ip_hash, metadata, variation_code, provider, customer_name
+         FROM orders
+         WHERE status IN ('awaiting_payment', 'payment_detected', 'payment_confirmed', 'utility_dispatching')
+         ORDER BY created_at ASC",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    rows.into_iter().map(map_order_row).collect()
+}
+
+fn map_order_row(row: sqlx::postgres::PgRow) -> Result<OrderRow> {
+    Ok(OrderRow {
+        id: row.try_get("id")?,
+        status: row.try_get("status")?,
+        access_token_hash: row.try_get("access_token_hash")?,
+        utility_type: row.try_get("utility_type")?,
+        utility_slug: row.try_get("utility_slug")?,
+        service_ref: row.try_get("service_ref")?,
+        amount_ngn: row.try_get("amount_ngn")?,
+        deposit_address: row.try_get("deposit_address")?,
+        address_type: row.try_get("address_type")?,
+        zec_amount: row.try_get("zec_amount")?,
+        zec_rate_id: row.try_get("zec_rate_id")?,
+        txid: row.try_get("txid")?,
+        confirmations: row.try_get("confirmations")?,
+        required_confs: row.try_get("required_confs")?,
+        total_received: row.try_get("total_received")?,
+        created_at: row.try_get("created_at")?,
+        expires_at: row.try_get("expires_at")?,
+        confirmed_at: row.try_get("confirmed_at")?,
+        completed_at: row.try_get("completed_at")?,
+        vtpass_request_id: row.try_get("vtpass_request_id")?,
+        delivery_token: row.try_get("delivery_token")?,
+        ip_hash: row.try_get("ip_hash")?,
+        metadata: row.try_get("metadata")?,
+        variation_code: row.try_get("variation_code")?,
+        provider: row.try_get("provider")?,
+        customer_name: row.try_get("customer_name")?,
+    })
 }

@@ -9,17 +9,21 @@ use axum::{
 use chrono::{Duration, Utc};
 use rand::{RngExt, distr::Alphanumeric};
 use rust_decimal::Decimal;
+use sqlx::PgPool;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use crate::{
     config::AppConfig,
-    domain::order::OrderStatus,
+    db::{self, CreateOrderInput, OrderRow},
     http::auth,
     integrations::provider_dispatcher::ProviderDispatcher,
     integrations::rates::{
         CurrentRate, SharedRateCache, default_current_rate, new_shared_rate_cache,
     },
+    integrations::remita::RemitaClient,
+    integrations::utility_provider::ProviderTxnStatus,
+    integrations::vtpass::VtpassClient,
     integrations::zcash::ZcashRpcClient,
     observability::{AlertState, ObservabilityState, ProbeStatus, ReadinessReport},
     ws::{self, WsHub, WsOrderEvent},
@@ -28,7 +32,7 @@ use crate::{
 use super::{
     error::ApiError,
     types::{
-        CancelOrderResponse, CreateOrderRequest, CreateOrderResponse, OrderRecord,
+        CancelOrderResponse, CreateOrderRequest, CreateOrderResponse,
         OrderStatusResponse, OrderTokenQuery, RateResponse, UtilityItem, UtilityValidateQuery,
         UtilityValidateResponse, UtilityVariationItem,
     },
@@ -39,12 +43,11 @@ pub struct HttpState {
     pub order_token_hmac_secret: secrecy::SecretString,
     pub order_expiry_minutes: i64,
     pub rate_lock_minutes: i64,
-    pub orders: Arc<RwLock<HashMap<Uuid, OrderRecord>>>,
+    pub pool: PgPool,
     pub ws_hub: WsHub,
     pub rate_cache: SharedRateCache,
     pub service_ref_velocity: Arc<RwLock<HashMap<String, Vec<chrono::DateTime<Utc>>>>>,
     pub observability: ObservabilityState,
-    pub database_url: String,
     pub zcash_rpc_client: Option<ZcashRpcClient>,
     pub zcash_expected_chain: String,
     pub required_confs_transparent: u16,
@@ -57,17 +60,17 @@ impl HttpState {
         order_token_hmac_secret: secrecy::SecretString,
         order_expiry_minutes: i64,
         rate_lock_minutes: i64,
+        pool: PgPool,
     ) -> Self {
         Self {
             order_token_hmac_secret,
             order_expiry_minutes,
             rate_lock_minutes,
-            orders: Arc::new(RwLock::new(HashMap::new())),
+            pool,
             ws_hub: WsHub::new(),
             rate_cache: new_shared_rate_cache(default_current_rate()),
             service_ref_velocity: Arc::new(RwLock::new(HashMap::new())),
             observability: ObservabilityState::new(),
-            database_url: String::new(),
             zcash_rpc_client: None,
             zcash_expected_chain: String::from("test"),
             required_confs_transparent: 3,
@@ -82,7 +85,6 @@ impl HttpState {
     }
 
     pub fn with_ops_context(mut self, config: &AppConfig) -> Self {
-        self.database_url = config.database_url.clone();
         self.zcash_expected_chain = match config.zcash_network {
             crate::config::ZcashNetwork::Testnet => String::from("test"),
             crate::config::ZcashNetwork::Mainnet => String::from("main"),
@@ -90,6 +92,13 @@ impl HttpState {
         self.zcash_rpc_client = ZcashRpcClient::from_app_config(config).ok();
         self.required_confs_transparent = config.required_confs_transparent;
         self.required_confs_shielded = config.required_confs_shielded;
+
+        let vtpass = VtpassClient::from_config(config).ok();
+        let remita = RemitaClient::from_config(config).ok();
+        if let Some(vtpass) = vtpass {
+            self.provider_dispatcher = Some(ProviderDispatcher::new(vtpass, remita));
+        }
+
         self.observability.jobs().mark_alive("http_server");
         self
     }
@@ -113,12 +122,11 @@ pub async fn create_order(
     validate_create_order_payload(&payload)?;
     enforce_service_ref_velocity(&state, &payload).await?;
 
-    let order_id = Uuid::new_v4();
     state.observability.metrics().increment_order_creations();
     let order_access_token = generate_token(48);
     let access_token_hash =
         auth::hash_order_token(&state.order_token_hmac_secret, &order_access_token)
-            .map_err(ApiError::internal)?;
+            .map_err(internal_err)?;
 
     let rate = state.rate_cache.read().await.clone();
     let required_confirmations = if payload.zec_address_type == "shielded" {
@@ -131,30 +139,33 @@ pub async fn create_order(
     }
     let zec_amount = Decimal::new(payload.amount_ngn, 0) / rate.zec_ngn;
     let expires_at = Utc::now() + Duration::minutes(state.order_expiry_minutes);
-    let deposit_address = resolve_deposit_address(&state, &payload.zec_address_type).await;
 
-    let record = OrderRecord {
-        order_id,
+    let rate_snapshot_id = get_or_create_rate_snapshot(&state.pool, &rate).await.map_err(internal_err)?;
+
+    let input = CreateOrderInput {
         access_token_hash,
         utility_type: payload.utility_type.clone(),
         utility_slug: payload.utility_slug.clone(),
         service_ref: payload.service_ref.clone(),
         amount_ngn: payload.amount_ngn,
+        address_type: payload.zec_address_type.clone(),
         zec_amount,
-        deposit_address: deposit_address.clone(),
-        status: OrderStatus::AwaitingPayment,
-        confirmations: 0,
-        required_confirmations,
-        total_received: None,
+        zec_rate_id: rate_snapshot_id,
+        required_confs: i32::from(required_confirmations),
         expires_at,
-        completed_at: None,
-        delivery_token: None,
+        ip_hash: None,
+        metadata: serde_json::json!({
+            "utility_slug": payload.utility_slug,
+            "variation_code": payload.variation_code,
+        }),
         variation_code: payload.variation_code.clone(),
-        provider: None,
-        customer_name: None,
     };
 
-    state.orders.write().await.insert(order_id, record);
+    let mut tx = db::begin_tx(&state.pool).await.map_err(internal_err)?;
+    let (order_id, deposit_address) = db::insert_order_with_claimed_address(&mut tx, &input)
+        .await
+        .map_err(internal_err)?;
+    tx.commit().await.map_err(internal_err)?;
 
     Ok(Json(CreateOrderResponse {
         order_id,
@@ -222,12 +233,13 @@ pub async fn get_order(
     State(state): State<HttpState>,
 ) -> Result<Json<OrderStatusResponse>, ApiError> {
     let order = authorize_order_access(&state, order_id, &query.token).await?;
+    let status = order.status().map_err(internal_err)?;
 
     Ok(Json(OrderStatusResponse {
-        order_id: order.order_id,
-        status: order.status,
-        confirmations: order.confirmations,
-        required_confirmations: order.required_confirmations,
+        order_id: order.id,
+        status,
+        confirmations: u16::try_from(order.confirmations).unwrap_or(u16::MAX),
+        required_confirmations: u16::try_from(order.required_confs).unwrap_or(u16::MAX),
         total_received: order
             .total_received
             .map(|value| value.round_dp(8).to_string()),
@@ -262,9 +274,9 @@ pub async fn cancel_order(
     Query(query): Query<OrderTokenQuery>,
     State(state): State<HttpState>,
 ) -> Result<Json<CancelOrderResponse>, ApiError> {
-    let mut orders = state.orders.write().await;
-    let order = orders
-        .get_mut(&order_id)
+    let order = db::get_order_by_id(&state.pool, order_id)
+        .await
+        .map_err(internal_err)?
         .ok_or_else(|| ApiError::not_found("order not found"))?;
 
     if !auth::verify_order_token_hash(
@@ -275,13 +287,23 @@ pub async fn cancel_order(
         return Err(ApiError::forbidden("invalid order token"));
     }
 
-    if order.status != OrderStatus::AwaitingPayment {
+    if order.status != "awaiting_payment" {
         return Err(ApiError::conflict(
             "order can only be cancelled in awaiting_payment",
         ));
     }
 
-    order.status = OrderStatus::Cancelled;
+    db::update_order_status_cas(
+        &state.pool,
+        order_id,
+        "awaiting_payment",
+        "cancelled",
+        "order_cancelled",
+        serde_json::json!({}),
+    )
+    .await
+    .map_err(internal_err)?;
+
     Ok(Json(CancelOrderResponse { success: true }))
 }
 
@@ -664,7 +686,7 @@ fn generate_token(length: usize) -> String {
 }
 
 async fn build_readiness_report(state: &HttpState) -> ReadinessReport {
-    let db_probe = match probe_db_connectivity(&state.database_url).await {
+    let db_probe = match probe_db_connectivity(&state.pool).await {
         Ok(true) => ProbeStatus {
             healthy: true,
             detail: String::from("database connectivity ok"),
@@ -734,40 +756,21 @@ async fn build_readiness_report(state: &HttpState) -> ReadinessReport {
     }
 }
 
-async fn probe_db_connectivity(database_url: &str) -> anyhow::Result<bool> {
-    if database_url.trim().is_empty() {
-        return Ok(false);
-    }
-
-    let pool = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(1)
-        .acquire_timeout(std::time::Duration::from_secs(2))
-        .connect(database_url)
+async fn probe_db_connectivity(pool: &PgPool) -> anyhow::Result<bool> {
+    let ping = sqlx::query_scalar::<_, i64>("SELECT 1")
+        .fetch_one(pool)
         .await;
-
-    match pool {
-        Ok(pool) => {
-            let ping = sqlx::query_scalar::<_, i64>("SELECT 1")
-                .fetch_one(&pool)
-                .await;
-            pool.close().await;
-            Ok(ping.is_ok())
-        }
-        Err(_) => Ok(false),
-    }
+    Ok(ping.is_ok())
 }
 
 async fn authorize_order_access(
     state: &HttpState,
     order_id: Uuid,
     token: &str,
-) -> Result<OrderRecord, ApiError> {
-    let order = state
-        .orders
-        .read()
+) -> Result<OrderRow, ApiError> {
+    let order = db::get_order_by_id(&state.pool, order_id)
         .await
-        .get(&order_id)
-        .cloned()
+        .map_err(internal_err)?
         .ok_or_else(|| ApiError::not_found("order not found"))?;
 
     if !auth::verify_order_token_hash(
@@ -781,54 +784,167 @@ async fn authorize_order_access(
     Ok(order)
 }
 
-fn map_status_to_event(order: &OrderRecord) -> Option<WsOrderEvent> {
-    match order.status {
-        OrderStatus::PaymentDetected => Some(WsOrderEvent::PaymentDetected {
-            confirmations: order.confirmations,
-            required: order.required_confirmations,
+fn map_status_to_event(order: &OrderRow) -> Option<WsOrderEvent> {
+    match order.status.as_str() {
+        "payment_detected" => Some(WsOrderEvent::PaymentDetected {
+            confirmations: u16::try_from(order.confirmations).unwrap_or(u16::MAX),
+            required: u16::try_from(order.required_confs).unwrap_or(u16::MAX),
         }),
-        OrderStatus::PaymentConfirmed => Some(WsOrderEvent::PaymentConfirmed {
-            confirmations: order.confirmations,
+        "payment_confirmed" => Some(WsOrderEvent::PaymentConfirmed {
+            confirmations: u16::try_from(order.confirmations).unwrap_or(u16::MAX),
         }),
-        OrderStatus::UtilityDispatching => Some(WsOrderEvent::Dispatching),
-        OrderStatus::Completed => Some(WsOrderEvent::Completed {
+        "utility_dispatching" => Some(WsOrderEvent::Dispatching),
+        "completed" => Some(WsOrderEvent::Completed {
             delivery_token: order.delivery_token.clone(),
-            reference: order.order_id.to_string(),
+            reference: order.id.to_string(),
         }),
-        OrderStatus::Expired => Some(WsOrderEvent::Expired),
-        OrderStatus::Failed => Some(WsOrderEvent::Failed {
+        "expired" => Some(WsOrderEvent::Expired),
+        "failed" => Some(WsOrderEvent::Failed {
             reason: String::from("order_failed"),
         }),
-        OrderStatus::AwaitingPayment | OrderStatus::FlaggedForReview | OrderStatus::Cancelled => {
-            None
+        _ => None,
+    }
+}
+
+fn internal_err(error: impl std::fmt::Display) -> ApiError {
+    ApiError::internal(error.to_string())
+}
+
+pub async fn webhook_vtpass(
+    State(state): State<HttpState>,
+    headers: axum::http::HeaderMap,
+    body: axum::body::Bytes,
+) -> Result<StatusCode, ApiError> {
+    let Some(dispatcher) = &state.provider_dispatcher else {
+        return Ok(StatusCode::SERVICE_UNAVAILABLE);
+    };
+
+    let signature = headers
+        .get("x-vtpass-signature")
+        .or_else(|| headers.get("X-Vtpass-Signature"))
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    if !dispatcher.verify_webhook_signature("vtpass", &body, signature) {
+        return Err(ApiError::forbidden("invalid webhook signature"));
+    }
+
+    let event = dispatcher
+        .provider_for("airtime")
+        .map_err(|_| ApiError::internal("provider unavailable"))?
+        .parse_webhook_event(&body)
+        .map_err(internal_err)?;
+
+    let order_id = match Uuid::parse_str(&event.provider_request_id) {
+        Ok(id) => id,
+        Err(_) => {
+            tracing::warn!(request_id = %event.provider_request_id, "webhook request_id is not a valid order UUID");
+            return Ok(StatusCode::OK);
         }
-    }
-}
-
-async fn resolve_deposit_address(state: &HttpState, address_type: &str) -> String {
-    let client = match &state.zcash_rpc_client {
-        Some(client) => client,
-        None => return fallback_deposit_address(address_type),
     };
 
-    let address = if address_type == "shielded" {
-        client.allocate_shielded_address(true).await
-    } else {
-        client.z_getnewaddress_deprecated().await
-    };
-
-    match address {
-        Ok(value) if !value.trim().is_empty() => value,
-        _ => fallback_deposit_address(address_type),
+    match event.status {
+        ProviderTxnStatus::Delivered => {
+            let _ = db::complete_order(
+                &state.pool,
+                order_id,
+                event.token.as_deref(),
+                Some(event.provider_request_id.as_str()),
+            )
+            .await;
+            let _ = state
+                .ws_hub
+                .broadcast_event(
+                    order_id,
+                    &WsOrderEvent::Completed {
+                        delivery_token: event.token,
+                        reference: order_id.to_string(),
+                    },
+                )
+                .await;
+        }
+        ProviderTxnStatus::Failed => {
+            let _ = db::fail_order(&state.pool, order_id).await;
+            let _ = state
+                .ws_hub
+                .broadcast_event(order_id, &WsOrderEvent::Failed {
+                    reason: String::from("provider_failed_webhook"),
+                })
+                .await;
+        }
+        ProviderTxnStatus::Pending => {}
     }
+
+    Ok(StatusCode::OK)
 }
 
-fn fallback_deposit_address(address_type: &str) -> String {
-    if address_type == "shielded" {
-        String::from("ztestsapling1q3f4v8k6e4q7s9x2a5w6d8j9m3k2t7y8u6i5o4p3l2k1j0h9g8f7d6")
-    } else {
-        String::from("tmQ1Y8xQx5G4h5w6nJ4D31oQmRVVbYkA4W")
+pub async fn webhook_remita(
+    State(state): State<HttpState>,
+    headers: axum::http::HeaderMap,
+    body: axum::body::Bytes,
+) -> Result<StatusCode, ApiError> {
+    let Some(dispatcher) = &state.provider_dispatcher else {
+        return Ok(StatusCode::SERVICE_UNAVAILABLE);
+    };
+
+    let signature = headers
+        .get("x-remita-signature")
+        .or_else(|| headers.get("X-Remita-Signature"))
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    if !dispatcher.verify_webhook_signature("school_fees", &body, signature) {
+        return Err(ApiError::forbidden("invalid webhook signature"));
     }
+
+    let event = match dispatcher.provider_for("school_fees") {
+        Ok(provider) => provider
+            .parse_webhook_event(&body)
+            .map_err(internal_err)?,
+        Err(_) => return Ok(StatusCode::SERVICE_UNAVAILABLE),
+    };
+
+    let order_id = match Uuid::parse_str(&event.provider_request_id) {
+        Ok(id) => id,
+        Err(_) => {
+            tracing::warn!(request_id = %event.provider_request_id, "remita webhook request_id is not a valid order UUID");
+            return Ok(StatusCode::OK);
+        }
+    };
+
+    match event.status {
+        ProviderTxnStatus::Delivered => {
+            let _ = db::complete_order(
+                &state.pool,
+                order_id,
+                event.token.as_deref(),
+                Some(event.provider_request_id.as_str()),
+            )
+            .await;
+            let _ = state
+                .ws_hub
+                .broadcast_event(
+                    order_id,
+                    &WsOrderEvent::Completed {
+                        delivery_token: event.token,
+                        reference: order_id.to_string(),
+                    },
+                )
+                .await;
+        }
+        ProviderTxnStatus::Failed => {
+            let _ = db::fail_order(&state.pool, order_id).await;
+            let _ = state
+                .ws_hub
+                .broadcast_event(order_id, &WsOrderEvent::Failed {
+                    reason: String::from("provider_failed_webhook"),
+                })
+                .await;
+        }
+        ProviderTxnStatus::Pending => {}
+    }
+
+    Ok(StatusCode::OK)
 }
 
 fn slug_to_utility_type(slug: &str) -> String {
@@ -845,4 +961,26 @@ fn slug_to_utility_type(slug: &str) -> String {
         "school-fees" => String::from("school_fees"),
         _ => String::new(),
     }
+}
+
+async fn get_or_create_rate_snapshot(
+    pool: &PgPool,
+    rate: &CurrentRate,
+) -> Result<Uuid, anyhow::Error> {
+    let input = db::PersistRateSnapshotInput {
+        zec_ngn: rate.zec_ngn,
+        zec_usd: rate.zec_usd,
+        usd_ngn: rate.usd_ngn,
+        usd_kes: rate.usd_kes,
+        usd_ghs: rate.usd_ghs,
+        usd_zar: rate.usd_zar,
+        usd_egp: rate.usd_egp,
+        coingecko_zec_ngn: None,
+        binance_zec_usd: None,
+        kraken_zec_usd: None,
+        coinbase_zec_usd: None,
+        sources_used: vec![String::from("cache")],
+        fetched_at: rate.updated_at,
+    };
+    db::persist_rate_snapshot(pool, &input).await
 }

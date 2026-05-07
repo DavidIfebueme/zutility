@@ -64,7 +64,7 @@ async fn atomic_transition_updates_order_and_audit_log() {
     .expect("insert deposit address");
 
     let mut tx = begin_tx(&pool).await.expect("begin tx");
-    let order_id = insert_order_with_claimed_address(
+    let (order_id, _deposit_address) = insert_order_with_claimed_address(
         &mut tx,
         &CreateOrderInput {
             access_token_hash: String::from("token-hash"),
@@ -79,6 +79,7 @@ async fn atomic_transition_updates_order_and_audit_log() {
             expires_at: Utc::now() + Duration::minutes(20),
             ip_hash: Some(String::from("hash")),
             metadata: serde_json::json!({"source":"test"}),
+            variation_code: None,
         },
     )
     .await
@@ -140,7 +141,7 @@ async fn guarded_transition_fails_when_current_status_mismatches() {
     .expect("insert deposit address");
 
     let mut tx = begin_tx(&pool).await.expect("begin tx");
-    let order_id = insert_order_with_claimed_address(
+    let (order_id, _deposit_address) = insert_order_with_claimed_address(
         &mut tx,
         &CreateOrderInput {
             access_token_hash: String::from("token-hash"),
@@ -155,6 +156,7 @@ async fn guarded_transition_fails_when_current_status_mismatches() {
             expires_at: Utc::now() + Duration::minutes(20),
             ip_hash: Some(String::from("hash")),
             metadata: serde_json::json!({"source":"test"}),
+            variation_code: None,
         },
     )
     .await
