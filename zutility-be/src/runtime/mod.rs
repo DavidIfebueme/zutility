@@ -78,7 +78,7 @@ fn start_order_orchestrator(state: HttpState, config: AppConfig, pool: PgPool) {
 
         let dispatcher = ProviderDispatcher::new(vtpass, remita);
 
-        let mut ticker = interval(Duration::from_secs(15));
+        let mut ticker = interval(Duration::from_secs(60));
         loop {
             ticker.tick().await;
             jobs.mark_alive("confirmation_watcher");

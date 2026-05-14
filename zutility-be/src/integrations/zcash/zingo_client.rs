@@ -56,7 +56,7 @@ impl ZingoClient {
             client.save_task().await;
         }
 
-        client.sync().await
+        client.sync_and_await().await
             .map_err(|e| anyhow::anyhow!("zingolib initial sync failed: {e}"))?;
 
         let zingo = Self {
@@ -72,7 +72,7 @@ impl ZingoClient {
 
     pub async fn sync(&self) -> Result<()> {
         let mut client = self.client.write().await;
-        match client.sync().await {
+        match client.sync_and_await().await {
             Ok(_) => {}
             Err(e) => {
                 let msg = format!("{e}");
