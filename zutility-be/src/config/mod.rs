@@ -49,6 +49,9 @@ pub struct AppConfig {
     pub remita_service_type_id: Option<String>,
     pub remita_base_url: Option<String>,
     pub remita_webhook_secret: Option<SecretString>,
+    pub inlomax_api_key: Option<SecretString>,
+    pub inlomax_base_url: Option<String>,
+    pub inlomax_webhook_secret: Option<SecretString>,
     pub zcash_rpc_mode: ZcashRpcMode,
     pub zcash_rpc_socket_path: String,
     pub zcash_rpc_url: String,
@@ -105,6 +108,16 @@ impl AppConfig {
         }
         if let Some(ref v) = self.remita_webhook_secret {
             if v.expose_secret().trim().is_empty() { self.remita_webhook_secret = None; }
+        }
+
+        if let Some(ref v) = self.inlomax_api_key {
+            if v.expose_secret().trim().is_empty() { self.inlomax_api_key = None; }
+        }
+        if let Some(ref v) = self.inlomax_base_url {
+            if v.trim().is_empty() { self.inlomax_base_url = None; }
+        }
+        if let Some(ref v) = self.inlomax_webhook_secret {
+            if v.expose_secret().trim().is_empty() { self.inlomax_webhook_secret = None; }
         }
 
         if let Some(ref v) = self.remita_merchant_id {

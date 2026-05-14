@@ -76,7 +76,18 @@ fn start_order_orchestrator(state: HttpState, config: AppConfig, pool: PgPool) {
             }
         };
 
-        let dispatcher = ProviderDispatcher::new(vtpass, remita);
+        let inlomax = match crate::integrations::inlomax::InlomaxClient::from_config(&config) {
+            Ok(client) => {
+                tracing::info!("inlomax client initialized successfully");
+                Some(client)
+            }
+            Err(error) => {
+                tracing::warn!(error = %error, "inlomax client not configured — airtime/data/cable/electricity/education will use vtpass fallback");
+                None
+            }
+        };
+
+        let dispatcher = ProviderDispatcher::new(vtpass, remita, inlomax);
 
         let mut ticker = interval(Duration::from_secs(60));
         loop {

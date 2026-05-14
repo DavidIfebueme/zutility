@@ -25,7 +25,7 @@ use docs::{docs_ui, openapi_json};
 use handlers::{
     HttpState, alerts, cancel_order, create_order, get_current_rate, get_order, health_live,
     health_ready, list_utilities, list_utility_variations, metrics, stream_order,
-    validate_utility_reference, webhook_remita, webhook_vtpass,
+    validate_utility_reference, webhook_inlomax, webhook_remita, webhook_vtpass,
 };
 
 pub async fn build_router(config: &AppConfig) -> Result<Router, anyhow::Error> {
@@ -79,6 +79,7 @@ fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool
             get(list_utility_variations),
         )
         .route("/api/v1/webhooks/vtpass", post(webhook_vtpass))
+        .route("/api/v1/webhooks/inlomax", post(webhook_inlomax))
         .route("/api/v1/webhooks/remita", post(webhook_remita))
         .route("/ops/health/live", get(health_live))
         .route("/ops/health/ready", get(health_ready))
@@ -133,6 +134,9 @@ pub fn router() -> Router {
         remita_service_type_id: Some(String::from("demo_service_type")),
         remita_base_url: Some(String::from("https://remitademo.net/remita/exapp/api/v1")),
         remita_webhook_secret: Some(secrecy::SecretString::from(String::from("remita_webhook"))),
+        inlomax_api_key: None,
+        inlomax_base_url: None,
+        inlomax_webhook_secret: None,
         zcash_rpc_mode: crate::config::ZcashRpcMode::Unix,
         zcash_rpc_socket_path: String::from("/var/run/zcashd/zcashd.sock"),
         zcash_rpc_url: String::from("http://127.0.0.1:18232"),

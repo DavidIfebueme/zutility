@@ -1,3 +1,4 @@
+pub mod inlomax;
 pub mod provider_dispatcher;
 pub mod rates;
 pub mod remita;

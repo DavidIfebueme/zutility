@@ -94,8 +94,9 @@ impl HttpState {
 
         let vtpass = VtpassClient::from_config(config).ok();
         let remita = RemitaClient::from_config(config).ok();
+        let inlomax = crate::integrations::inlomax::InlomaxClient::from_config(config).ok();
         if let Some(vtpass) = vtpass {
-            self.provider_dispatcher = Some(ProviderDispatcher::new(vtpass, remita));
+            self.provider_dispatcher = Some(ProviderDispatcher::new(vtpass, remita, inlomax));
         }
 
         self.observability.jobs().mark_alive("http_server");
@@ -812,6 +813,82 @@ fn map_status_to_event(order: &OrderRow) -> Option<WsOrderEvent> {
 
 fn internal_err(error: impl std::fmt::Display) -> ApiError {
     ApiError::internal(error.to_string())
+}
+
+pub async fn webhook_inlomax(
+    State(state): State<HttpState>,
+    headers: axum::http::HeaderMap,
+    body: axum::body::Bytes,
+) -> Result<StatusCode, ApiError> {
+    let Some(dispatcher) = &state.provider_dispatcher else {
+        return Ok(StatusCode::SERVICE_UNAVAILABLE);
+    };
+
+    let signature = headers
+        .get("x-inlomax-signature")
+        .or_else(|| headers.get("X-Inlomax-Signature"))
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    if !dispatcher.verify_webhook_signature("airtime", &body, signature) {
+        tracing::warn!("inlomax webhook signature verification failed");
+    }
+
+    let event = match dispatcher.provider_for("airtime") {
+        Ok(provider) => provider
+            .parse_webhook_event(&body)
+            .map_err(internal_err)?,
+        Err(_) => return Ok(StatusCode::SERVICE_UNAVAILABLE),
+    };
+
+    let order_id = if let Ok(id) = Uuid::parse_str(&event.provider_request_id) {
+        Some(id)
+    } else {
+        db::find_order_by_provider_reference(&state.pool, &event.provider_request_id)
+            .await
+            .ok()
+            .flatten()
+            .map(|o| o.id)
+    };
+
+    let Some(order_id) = order_id else {
+        tracing::warn!(reference = %event.provider_request_id, "inlomax webhook reference does not match any order");
+        return Ok(StatusCode::OK);
+    };
+
+    match event.status {
+        ProviderTxnStatus::Delivered => {
+            let _ = db::complete_order(
+                &state.pool,
+                order_id,
+                event.token.as_deref(),
+                Some(event.provider_request_id.as_str()),
+            )
+            .await;
+            let _ = state
+                .ws_hub
+                .broadcast_event(
+                    order_id,
+                    &WsOrderEvent::Completed {
+                        delivery_token: event.token,
+                        reference: order_id.to_string(),
+                    },
+                )
+                .await;
+        }
+        ProviderTxnStatus::Failed => {
+            let _ = db::fail_order(&state.pool, order_id).await;
+            let _ = state
+                .ws_hub
+                .broadcast_event(order_id, &WsOrderEvent::Failed {
+                    reason: String::from("provider_failed_webhook"),
+                })
+                .await;
+        }
+        ProviderTxnStatus::Pending => {}
+    }
+
+    Ok(StatusCode::OK)
 }
 
 pub async fn webhook_vtpass(

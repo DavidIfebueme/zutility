@@ -10,7 +10,6 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256, Sha512};
 use subtle::ConstantTimeEq;
 use tokio::sync::Mutex;
-use uuid::Uuid;
 
 use crate::{
     config::AppConfig,

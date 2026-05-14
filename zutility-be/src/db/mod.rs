@@ -514,6 +514,23 @@ pub async fn list_active_orders(pool: &PgPool) -> Result<Vec<OrderRow>> {
     rows.into_iter().map(map_order_row).collect()
 }
 
+pub async fn find_order_by_provider_reference(pool: &PgPool, reference: &str) -> Result<Option<OrderRow>> {
+    let rows = sqlx::query(
+        "SELECT id, status, access_token_hash, utility_type, utility_slug, service_ref,
+                amount_ngn, deposit_address, address_type, zec_amount, zec_rate_id,
+                txid, confirmations, required_confs, total_received, created_at,
+                expires_at, confirmed_at, completed_at, vtpass_request_id,
+                delivery_token, ip_hash, metadata, variation_code, provider, customer_name
+         FROM orders
+         WHERE vtpass_request_id = $1 AND status = 'utility_dispatching'",
+    )
+    .bind(reference)
+    .fetch_all(pool)
+    .await?;
+
+    rows.into_iter().map(map_order_row).next().transpose()
+}
+
 fn map_order_row(row: sqlx::postgres::PgRow) -> Result<OrderRow> {
     Ok(OrderRow {
         id: row.try_get("id")?,

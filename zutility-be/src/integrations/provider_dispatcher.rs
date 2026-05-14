@@ -1,26 +1,31 @@
 use std::sync::Arc;
 
-use async_trait::async_trait;
-
 use crate::integrations::{
+    inlomax::InlomaxClient,
     remita::RemitaClient,
     utility_provider::{
-        ProviderError, ProviderKind, UtilityProvider, UtilityProviderRouter,
+        ProviderError, ProviderKind, UtilityProvider,
         UtilityPurchaseRequest, UtilityPurchaseResponse, UtilityVariation, ValidateRefRequest,
-        ValidateRefResponse, RequeryResponse, ProviderWebhookEvent,
+        ValidateRefResponse, RequeryResponse,
     },
     vtpass::VtpassClient,
 };
 
+const INLOMAX_UTILITY_TYPES: &[&str] = &[
+    "airtime", "data", "dstv", "gotv", "startimes", "electricity", "waec", "jamb",
+];
+
 #[derive(Clone)]
 pub struct ProviderDispatcher {
+    inlomax: Option<Arc<InlomaxClient>>,
     vtpass: Arc<VtpassClient>,
     remita: Option<Arc<RemitaClient>>,
 }
 
 impl ProviderDispatcher {
-    pub fn new(vtpass: VtpassClient, remita: Option<RemitaClient>) -> Self {
+    pub fn new(vtpass: VtpassClient, remita: Option<RemitaClient>, inlomax: Option<InlomaxClient>) -> Self {
         Self {
+            inlomax: inlomax.map(Arc::new),
             vtpass: Arc::new(vtpass),
             remita: remita.map(Arc::new),
         }
@@ -35,6 +40,12 @@ impl ProviderDispatcher {
                         crate::integrations::utility_provider::ProviderErrorKind::Outage,
                         "Remita is not configured. Set REMITA_* environment variables to enable school fees payments.",
                     )),
+                }
+            }
+            ut if INLOMAX_UTILITY_TYPES.contains(&ut) => {
+                match self.inlomax.clone() {
+                    Some(i) => Ok(i as Arc<dyn UtilityProvider>),
+                    None => Ok(self.vtpass.clone() as Arc<dyn UtilityProvider>),
                 }
             }
             _ => Ok(self.vtpass.clone() as Arc<dyn UtilityProvider>),
@@ -69,13 +80,16 @@ impl ProviderDispatcher {
         let provider = self.provider_for(utility_type)?;
         let result = provider.pay(request).await;
 
-        if utility_type == "electricity" {
-            if let Err(ref error) = result {
-                if matches!(
-                    error.kind,
-                    crate::integrations::utility_provider::ProviderErrorKind::Outage
-                        | crate::integrations::utility_provider::ProviderErrorKind::Transient
-                ) {
+        if let Err(ref error) = result {
+            if matches!(
+                error.kind,
+                crate::integrations::utility_provider::ProviderErrorKind::Outage
+                    | crate::integrations::utility_provider::ProviderErrorKind::Transient
+            ) {
+                if INLOMAX_UTILITY_TYPES.contains(&utility_type) && self.inlomax.is_some() {
+                    return self.vtpass.pay(request).await;
+                }
+                if utility_type == "electricity" {
                     if let Some(ref remita) = self.remita {
                         return remita.pay(request).await;
                     }
@@ -109,6 +123,7 @@ impl ProviderDispatcher {
     pub fn provider_kind_for(&self, utility_type: &str) -> ProviderKind {
         match utility_type {
             "school_fees" if self.remita.is_some() => ProviderKind::Remita,
+            ut if INLOMAX_UTILITY_TYPES.contains(&ut) && self.inlomax.is_some() => ProviderKind::Inlomax,
             _ => ProviderKind::Vtpass,
         }
     }
