@@ -14,8 +14,6 @@ panic = "deny"
 
 [dependencies]
 anyhow = "1.0.102"
-apalis = "0.7.4"
-apalis-sql = "0.7.4"
 async-trait = "0.1.89"
 axum = { version = "0.8.8", features = ["ws"] }
 base64 = "0.22.1"
@@ -43,6 +41,10 @@ utoipa = { version = "5.4.0", features = ["axum_extras", "chrono", "uuid"] }
 uuid = { version = "1.22.0", features = ["v4", "serde"] }
 futures-util = "0.3.31"
 hex = "0.4.3"
+zingolib = { git = "https://github.com/DavidIfebueme/zingolib-notor", branch = "main" }
+pepper-sync = { git = "https://github.com/DavidIfebueme/zingolib-notor", branch = "main" }
+zingo-status = { git = "https://github.com/DavidIfebueme/zingolib-notor", branch = "main" }
+zip32 = "0.2"
 
 [dev-dependencies]
 proptest = "1.6.0"

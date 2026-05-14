@@ -140,7 +140,7 @@ async fn process_order(
     if matches!(
         order_status,
         OrderStatus::AwaitingPayment | OrderStatus::PaymentDetected
-    ) && state.zcash_rpc_client.is_some()
+    ) && state.zcash_client.is_some()
     {
         detect_payment_and_progress(state, pool, order).await?;
     }
@@ -165,7 +165,7 @@ async fn detect_payment_and_progress(
     pool: &PgPool,
     order: &db::OrderRow,
 ) -> Result<()> {
-    let Some(client) = state.zcash_rpc_client.as_ref() else {
+    let Some(client) = state.zcash_client.as_ref() else {
         return Ok(());
     };
 
@@ -391,8 +391,8 @@ async fn fail_order(state: &HttpState, pool: &PgPool, order_id: Uuid, reason: &s
 fn start_address_pool_refill(state: HttpState, _config: AppConfig, pool: PgPool) {
     let jobs = state.observability.jobs();
     tokio::spawn(async move {
-        let Some(client) = state.zcash_rpc_client.as_ref().cloned() else {
-            tracing::info!("no zcash rpc client — address pool refill disabled");
+        let Some(client) = state.zcash_client.as_ref().cloned() else {
+            tracing::info!("no zcash client — address pool refill disabled");
             return;
         };
 
@@ -403,7 +403,7 @@ fn start_address_pool_refill(state: HttpState, _config: AppConfig, pool: PgPool)
             ticker.tick().await;
             jobs.mark_alive("address_pool_refill");
 
-            match manager.run_shielded_refill(&pool, &client, true).await {
+            match manager.run_shielded_refill(&pool, &*client).await {
                 Ok(outcome) => {
                     state.observability.metrics().set_address_pool_depth(
                         "shielded",

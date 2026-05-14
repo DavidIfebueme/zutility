@@ -24,7 +24,7 @@ use crate::{
     integrations::remita::RemitaClient,
     integrations::utility_provider::ProviderTxnStatus,
     integrations::vtpass::VtpassClient,
-    integrations::zcash::ZcashRpcClient,
+    integrations::zcash::ZcashClient,
     observability::{AlertState, ObservabilityState, ProbeStatus, ReadinessReport},
     ws::{self, WsHub, WsOrderEvent},
 };
@@ -48,7 +48,7 @@ pub struct HttpState {
     pub rate_cache: SharedRateCache,
     pub service_ref_velocity: Arc<RwLock<HashMap<String, Vec<chrono::DateTime<Utc>>>>>,
     pub observability: ObservabilityState,
-    pub zcash_rpc_client: Option<ZcashRpcClient>,
+    pub zcash_client: Option<Arc<dyn ZcashClient>>,
     pub zcash_expected_chain: String,
     pub required_confs_transparent: u16,
     pub required_confs_shielded: u16,
@@ -71,7 +71,7 @@ impl HttpState {
             rate_cache: new_shared_rate_cache(default_current_rate()),
             service_ref_velocity: Arc::new(RwLock::new(HashMap::new())),
             observability: ObservabilityState::new(),
-            zcash_rpc_client: None,
+            zcash_client: None,
             zcash_expected_chain: String::from("test"),
             required_confs_transparent: 3,
             required_confs_shielded: 10,
@@ -89,7 +89,6 @@ impl HttpState {
             crate::config::ZcashNetwork::Testnet => String::from("test"),
             crate::config::ZcashNetwork::Mainnet => String::from("main"),
         };
-        self.zcash_rpc_client = ZcashRpcClient::from_app_config(config).ok();
         self.required_confs_transparent = config.required_confs_transparent;
         self.required_confs_shielded = config.required_confs_shielded;
 
@@ -100,6 +99,11 @@ impl HttpState {
         }
 
         self.observability.jobs().mark_alive("http_server");
+        self
+    }
+
+    pub fn with_zcash_client(mut self, client: Arc<dyn ZcashClient>) -> Self {
+        self.zcash_client = Some(client);
         self
     }
 }
@@ -701,7 +705,7 @@ async fn build_readiness_report(state: &HttpState) -> ReadinessReport {
         },
     };
 
-    let zcash_probe = match &state.zcash_rpc_client {
+    let zcash_probe = match &state.zcash_client {
         Some(client) => match client.get_blockchain_info().await {
             Ok(info) => {
                 state
@@ -718,12 +722,12 @@ async fn build_readiness_report(state: &HttpState) -> ReadinessReport {
             }
             Err(error) => ProbeStatus {
                 healthy: false,
-                detail: format!("zcash rpc probe failed: {error}"),
+                detail: format!("zcash client probe failed: {error}"),
             },
         },
         None => ProbeStatus {
             healthy: false,
-            detail: String::from("zcash rpc client unavailable"),
+            detail: String::from("zcash client unavailable"),
         },
     };
 

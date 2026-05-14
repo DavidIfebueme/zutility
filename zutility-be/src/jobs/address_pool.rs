@@ -1,9 +1,11 @@
+use std::sync::Arc;
+
 use anyhow::Result;
 use sqlx::PgPool;
 
 use crate::{
     db,
-    integrations::zcash::{ZcashRpcClient, ZcashRpcMode},
+    integrations::zcash::ZcashClient,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -102,38 +104,45 @@ impl AddressPoolManager {
     pub async fn prefill_on_deploy(
         &self,
         pool: &PgPool,
-        zcash: &ZcashRpcClient,
+        zcash: &Arc<dyn ZcashClient>,
         shielded_count: usize,
-        allow_deprecated_fallback: bool,
     ) -> Result<u64> {
         if shielded_count == 0 {
             return Ok(0);
         }
 
-        let addresses = zcash
-            .generate_shielded_pool_addresses(shielded_count, allow_deprecated_fallback)
-            .await?;
+        let mut addresses = Vec::with_capacity(shielded_count);
+        for _ in 0..shielded_count {
+            let address = zcash.generate_shielded_address().await?;
+            addresses.push(address);
+        }
         db::insert_deposit_addresses(pool, "shielded", &addresses).await
     }
 
     pub async fn run_shielded_refill(
         &self,
         pool: &PgPool,
-        zcash: &ZcashRpcClient,
-        allow_deprecated_fallback: bool,
+        zcash: &dyn ZcashClient,
     ) -> Result<RefillOutcome> {
-        if matches!(zcash.mode(), ZcashRpcMode::Unix) && zcash.socket_path().trim().is_empty() {
-            anyhow::bail!("zcash unix socket path is empty");
-        }
-
         let before = db::count_unused_deposit_addresses(pool, "shielded").await?;
         let planned = self.refill_plan(before).unwrap_or(0);
 
         let inserted = if planned > 0 {
-            let addresses = zcash
-                .generate_shielded_pool_addresses(planned, allow_deprecated_fallback)
-                .await?;
-            db::insert_deposit_addresses(pool, "shielded", &addresses).await?
+            let mut addresses = Vec::with_capacity(planned);
+            for _ in 0..planned {
+                match zcash.generate_shielded_address().await {
+                    Ok(address) => addresses.push(address),
+                    Err(error) => {
+                        tracing::warn!(error = %error, "shielded address generation failed during refill");
+                        break;
+                    }
+                }
+            }
+            if !addresses.is_empty() {
+                db::insert_deposit_addresses(pool, "shielded", &addresses).await?
+            } else {
+                0
+            }
         } else {
             0
         };

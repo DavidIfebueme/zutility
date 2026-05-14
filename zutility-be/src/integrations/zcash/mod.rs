@@ -1,3 +1,7 @@
+pub mod client_trait;
+pub mod rpc_adapter;
+pub mod zingo_client;
+
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -7,6 +11,10 @@ use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use uuid::Uuid;
+
+pub use client_trait::ZcashClient;
+pub use rpc_adapter::ZcashRpcAdapter;
+pub use zingo_client::ZingoClient;
 
 use crate::config::{AppConfig, AppEnv, ZcashRpcMode as ConfigRpcMode};
 
@@ -63,7 +71,7 @@ pub struct ReceivedNote {
     pub memo: Option<String>,
 }
 
-const ZATOSHI_PER_ZEC: u64 = 100_000_000;
+pub const ZATOSHI_PER_ZEC: u64 = 100_000_000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AddressBalance {
@@ -500,6 +508,9 @@ pub fn validate_runtime_network_policy(config: &AppConfig) -> Result<()> {
 }
 
 pub fn validate_rpc_socket_policy(config: &AppConfig) -> Result<()> {
+    if matches!(config.zcash_backend, crate::config::ZcashBackend::Zingolib) {
+        return Ok(());
+    }
     if matches!(config.app_env, AppEnv::Prod)
         && !matches!(config.zcash_rpc_mode, ConfigRpcMode::Unix)
     {
