@@ -156,12 +156,6 @@ impl ZcashClient for ZingoClient {
         self.save_wallet().await
     }
 
-    async fn mnemonic_phrase(&self) -> Result<String> {
-        let client = self.client.read().await;
-        client.mnemonic_phrase()
-            .ok_or_else(|| anyhow::anyhow!("wallet has no mnemonic"))
-    }
-
     async fn get_blockchain_info(&self) -> Result<BlockchainInfo> {
         let client = self.client.read().await;
         let _info_str = client.do_info().await;
