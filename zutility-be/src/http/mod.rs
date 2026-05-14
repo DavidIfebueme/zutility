@@ -26,6 +26,7 @@ use handlers::{
     HttpState, alerts, cancel_order, create_order, get_current_rate, get_order, health_live,
     health_ready, list_utilities, list_utility_variations, metrics, stream_order,
     validate_utility_reference, webhook_inlomax, webhook_remita, webhook_vtpass,
+    admin_mnemonic,
 };
 
 pub async fn build_router(config: &AppConfig) -> Result<Router, anyhow::Error> {
@@ -81,6 +82,7 @@ fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool
         .route("/api/v1/webhooks/vtpass", post(webhook_vtpass))
         .route("/api/v1/webhooks/inlomax", post(webhook_inlomax))
         .route("/api/v1/webhooks/remita", post(webhook_remita))
+        .route("/ops/admin/mnemonic", get(admin_mnemonic))
         .route("/ops/health/live", get(health_live))
         .route("/ops/health/ready", get(health_ready))
         .route("/ops/openapi.json", get(openapi_json))

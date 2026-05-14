@@ -9,6 +9,8 @@ pub trait ZcashClient: Send + Sync {
 
     async fn save_wallet(&self) -> Result<()>;
 
+    async fn mnemonic_phrase(&self) -> Result<String>;
+
     async fn get_blockchain_info(&self) -> Result<BlockchainInfo>;
 
     async fn generate_transparent_address(&self) -> Result<String>;

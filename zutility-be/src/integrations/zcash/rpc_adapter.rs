@@ -25,6 +25,10 @@ impl ZcashClient for ZcashRpcAdapter {
         Ok(())
     }
 
+    async fn mnemonic_phrase(&self) -> Result<String> {
+        anyhow::bail!("mnemonic not available via rpc adapter")
+    }
+
     async fn get_blockchain_info(&self) -> Result<BlockchainInfo> {
         self.inner.get_blockchain_info().await
     }

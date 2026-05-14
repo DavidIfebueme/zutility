@@ -1065,3 +1065,14 @@ async fn get_or_create_rate_snapshot(
     };
     db::persist_rate_snapshot(pool, &input).await
 }
+
+pub async fn admin_mnemonic(
+    State(state): State<HttpState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let Some(client) = state.zcash_client.as_ref() else {
+        return Err(ApiError::internal("no zcash client"));
+    };
+    let phrase = client.mnemonic_phrase().await
+        .map_err(internal_err)?;
+    Ok(Json(serde_json::json!({"mnemonic": phrase})))
+}
