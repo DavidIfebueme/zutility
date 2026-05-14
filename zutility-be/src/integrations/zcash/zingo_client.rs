@@ -72,8 +72,17 @@ impl ZingoClient {
 
     pub async fn sync(&self) -> Result<()> {
         let mut client = self.client.write().await;
-        client.sync().await
-            .map_err(|e| anyhow::anyhow!("zingolib sync failed: {e}"))?;
+        match client.sync().await {
+            Ok(_) => {}
+            Err(e) => {
+                let msg = format!("{e}");
+                if msg.contains("sync is already running") {
+                    tracing::debug!("zingolib sync skipped — already in progress");
+                } else {
+                    return Err(anyhow::anyhow!("zingolib sync failed: {e}"));
+                }
+            }
+        }
         drop(client);
         self.update_chain_tip().await?;
         Ok(())
