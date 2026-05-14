@@ -26,10 +26,19 @@ impl ZingoClient {
             .parse::<axum::http::Uri>()
             .context("invalid zingolib indexer URI")?;
 
-        let wallet_config = WalletConfig::NewSeed {
-            no_of_accounts: std::num::NonZeroU32::new(1).context("invalid account count")?,
-            chain_height: 0,
-            wallet_settings: Default::default(),
+        let wallet_path = std::path::PathBuf::from(wallet_dir).join("zingo-wallet.dat");
+        let wallet_exists = wallet_path.exists();
+
+        let wallet_config = if wallet_exists {
+            tracing::info!("loading existing zingolib wallet from {}", wallet_path.display());
+            WalletConfig::Read
+        } else {
+            tracing::info!("creating new zingolib wallet at {}", wallet_path.display());
+            WalletConfig::NewSeed {
+                no_of_accounts: std::num::NonZeroU32::new(1).context("invalid account count")?,
+                chain_height: 0,
+                wallet_settings: Default::default(),
+            }
         };
 
         let config = ClientConfig::builder()
@@ -39,8 +48,13 @@ impl ZingoClient {
             .set_wallet_config(wallet_config)
             .build();
 
-        let mut client = LightClient::new(config, false)
+        let overwrite = !wallet_exists;
+        let mut client = LightClient::new(config, overwrite)
             .map_err(|e| anyhow::anyhow!("zingolib LightClient init failed: {e}"))?;
+
+        if !wallet_exists {
+            client.save_task().await;
+        }
 
         client.sync().await
             .map_err(|e| anyhow::anyhow!("zingolib initial sync failed: {e}"))?;
@@ -125,6 +139,14 @@ fn confirmation_count_from_status(status: &zingo_status::confirmation_status::Co
 
 #[async_trait]
 impl ZcashClient for ZingoClient {
+    async fn sync(&self) -> Result<()> {
+        self.sync().await
+    }
+
+    async fn save_wallet(&self) -> Result<()> {
+        self.save_wallet().await
+    }
+
     async fn get_blockchain_info(&self) -> Result<BlockchainInfo> {
         let client = self.client.read().await;
         let _info_str = client.do_info().await;
@@ -164,7 +186,7 @@ impl ZcashClient for ZingoClient {
         let account_id = zip32::AccountId::try_from(0u32)
             .map_err(|e| anyhow::anyhow!("invalid account id: {e:?}"))?;
 
-        let receivers = ReceiverSelection::default();
+        let receivers = ReceiverSelection::orchard_only();
         let (_, unified_address) = client
             .generate_unified_address(receivers, account_id)
             .await

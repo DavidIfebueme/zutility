@@ -17,6 +17,14 @@ impl ZcashRpcAdapter {
 
 #[async_trait]
 impl ZcashClient for ZcashRpcAdapter {
+    async fn sync(&self) -> Result<()> {
+        Ok(())
+    }
+
+    async fn save_wallet(&self) -> Result<()> {
+        Ok(())
+    }
+
     async fn get_blockchain_info(&self) -> Result<BlockchainInfo> {
         self.inner.get_blockchain_info().await
     }

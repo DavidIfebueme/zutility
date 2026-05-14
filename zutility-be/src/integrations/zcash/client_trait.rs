@@ -5,6 +5,10 @@ use super::{BlockchainInfo, ReceivedNote, TransparentPaymentObservation};
 
 #[async_trait]
 pub trait ZcashClient: Send + Sync {
+    async fn sync(&self) -> Result<()>;
+
+    async fn save_wallet(&self) -> Result<()>;
+
     async fn get_blockchain_info(&self) -> Result<BlockchainInfo>;
 
     async fn generate_transparent_address(&self) -> Result<String>;

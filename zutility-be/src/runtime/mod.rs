@@ -85,6 +85,12 @@ fn start_order_orchestrator(state: HttpState, config: AppConfig, pool: PgPool) {
             jobs.mark_alive("utility_dispatcher");
             jobs.mark_alive("order_timeout_reaper");
 
+            if let Some(client) = state.zcash_client.as_ref() {
+                if let Err(error) = client.sync().await {
+                    tracing::warn!(error = %error, "zingolib sync failed during order processing cycle");
+                }
+            }
+
             match db::list_active_orders(&pool).await {
                 Ok(orders) => {
                     for order in orders {
@@ -95,6 +101,12 @@ fn start_order_orchestrator(state: HttpState, config: AppConfig, pool: PgPool) {
                 }
                 Err(error) => {
                     tracing::warn!(error = %error, "failed to list active orders");
+                }
+            }
+
+            if let Some(client) = state.zcash_client.as_ref() {
+                if let Err(error) = client.save_wallet().await {
+                    tracing::warn!(error = %error, "zingolib wallet save failed");
                 }
             }
         }
