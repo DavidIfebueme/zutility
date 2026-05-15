@@ -149,6 +149,8 @@ export default function PayPage() {
     try {
       const utilityType = selectedUtility.type === 'school' ? 'school_fees' :
                           selectedUtility.type === 'tv' ? selectedUtility.slug :
+                          selectedUtility.slug === 'waec-registration' || selectedUtility.slug === 'waec-result-checker' ? 'waec' :
+                          selectedUtility.slug === 'jamb' ? 'jamb' :
                           selectedUtility.type
       const order = await apiPost<CreateOrderResponse>("/api/v1/orders/create", {
         utility_type: utilityType,

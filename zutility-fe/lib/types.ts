@@ -1,6 +1,6 @@
 export type OrderStatus =
   | 'awaiting_payment' | 'payment_detected' | 'payment_confirmed'
-  | 'utility_dispatching' | 'completed' | 'expired' | 'failed' | 'flagged_for_review'
+  | 'utility_dispatching' | 'completed' | 'expired' | 'failed' | 'flagged_for_review' | 'cancelled'
 
 export interface CreateOrderRequest {
   utility_type: string
@@ -69,3 +69,4 @@ export type OrderStreamEvent =
   | { event: 'completed'; delivery_token: string | null; reference: string }
   | { event: 'expired' }
   | { event: 'failed'; reason: string }
+  | { event: 'cancelled' }
