@@ -7,7 +7,7 @@ use tokio::sync::RwLock;
 use zingolib::config::{ChainType, ClientConfig, WalletConfig};
 use zingolib::lightclient::LightClient;
 use zingolib::wallet::keys::unified::ReceiverSelection;
-use zingolib::wallet::summary::data::TransactionKind;
+use zingolib::wallet::summary::data::{SendType, TransactionKind};
 
 use super::{
     ZcashClient, BlockchainInfo, ReceivedNote, TransparentPaymentObservation,
@@ -208,62 +208,69 @@ impl ZcashClient for ZingoClient {
         &self,
         _address: &str,
         current_block_height: u64,
+        since_timestamp: u32,
     ) -> Result<TransparentPaymentObservation> {
         let client = self.client.read().await;
-        let account_id = zip32::AccountId::try_from(0u32)
-            .map_err(|e| anyhow::anyhow!("invalid account id: {e:?}"))?;
 
-        let balance = client
-            .account_balance(account_id)
+        let summaries = client
+            .transaction_summaries(false)
             .await
-            .map_err(|e| anyhow::anyhow!("zingolib account_balance failed: {e}"))?;
+            .map_err(|e| anyhow::anyhow!("zingolib transaction_summaries failed: {e}"))?;
 
-        let confirmed_zat = balance
-            .confirmed_transparent_balance
-            .map(|z| u64::from(z))
-            .unwrap_or(0);
-        let unconfirmed_zat = balance
-            .unconfirmed_transparent_balance
-            .map(|z| u64::from(z))
-            .unwrap_or(0);
+        let relevant: Vec<_> = summaries
+            .iter()
+            .filter(|tx| tx.datetime >= since_timestamp)
+            .filter(|tx| {
+                matches!(tx.kind, TransactionKind::Received)
+                    || matches!(tx.kind, TransactionKind::Sent(SendType::SendToSelf))
+            })
+            .collect();
 
-        let has_mempool_tx = unconfirmed_zat > confirmed_zat;
-
-        let total_received = zatoshis_to_zec(confirmed_zat);
-
-        let confirmations = if confirmed_zat > 0 && current_block_height > 0 {
-            let summaries = client
-                .transaction_summaries(false)
-                .await
-                .map_err(|e| anyhow::anyhow!("zingolib transaction_summaries failed: {e}"))?;
-
-            let min_confirmed_height = summaries
-                .iter()
-                .filter(|tx| matches!(tx.kind, TransactionKind::Received))
-                .filter_map(|tx| {
-                    if let zingo_status::confirmation_status::ConfirmationStatus::Confirmed(h) = tx.status {
-                        Some(u64::from(u32::from(h)))
-                    } else {
-                        None
-                    }
-                })
-                .min()
-                .unwrap_or(0);
-
-            if min_confirmed_height > 0 {
-                u16::try_from(current_block_height.saturating_sub(min_confirmed_height) + 1)
-                    .unwrap_or(u16::MAX)
-            } else {
-                0
+        let total_received_zat: u64 = relevant.iter().map(|tx| {
+            match tx.kind {
+                TransactionKind::Sent(SendType::SendToSelf) => {
+                    tx.orchard_notes.iter().map(|n| n.value).sum::<u64>()
+                        + tx.sapling_notes.iter().map(|n| n.value).sum::<u64>()
+                        + tx.transparent_coins.iter().map(|c| c.value).sum::<u64>()
+                }
+                _ => tx.value,
             }
+        }).sum();
+        let total_received = zatoshis_to_zec(total_received_zat);
+
+        let has_mempool_tx = relevant.iter().any(|tx| {
+            matches!(
+                tx.status,
+                zingo_status::confirmation_status::ConfirmationStatus::Mempool(_)
+            )
+        });
+
+        let min_confirmed_height = relevant
+            .iter()
+            .filter_map(|tx| {
+                if let zingo_status::confirmation_status::ConfirmationStatus::Confirmed(h) = tx.status
+                {
+                    Some(u64::from(u32::from(h)))
+                } else {
+                    None
+                }
+            })
+            .min()
+            .unwrap_or(0);
+
+        let confirmations = if min_confirmed_height > 0 && current_block_height > 0 {
+            u16::try_from(current_block_height.saturating_sub(min_confirmed_height) + 1)
+                .unwrap_or(u16::MAX)
         } else {
             0
         };
 
+        drop(client);
+
         Ok(TransparentPaymentObservation {
             total_received,
             confirmations,
-            utxo_count: if confirmed_zat > 0 { 1 } else { 0 },
+            utxo_count: if total_received_zat > 0 { 1 } else { 0 },
             has_mempool_tx,
         })
     }
@@ -272,6 +279,7 @@ impl ZcashClient for ZingoClient {
         &self,
         _address: &str,
         min_confirmations: u64,
+        since_timestamp: u32,
     ) -> Result<Vec<ReceivedNote>> {
         let client = self.client.read().await;
 
@@ -282,24 +290,81 @@ impl ZcashClient for ZingoClient {
 
         let chain_tip = self.current_chain_tip().await;
 
+        tracing::info!(
+            total_txns = summaries.0.len(),
+            since_timestamp,
+            chain_tip,
+            "list_received_by_address scanning transactions"
+        );
+
+        for tx in summaries.iter() {
+            let kind_str = format!("{:?}", tx.kind);
+            let confs = confirmation_count_from_status(&tx.status, chain_tip);
+            tracing::info!(
+                txid = %tx.txid,
+                kind = %kind_str,
+                datetime = tx.datetime,
+                value = tx.value,
+                confs,
+                "wallet tx"
+            );
+        }
+
         let notes: Vec<ReceivedNote> = summaries
             .iter()
-            .filter(|tx| matches!(tx.kind, TransactionKind::Received))
             .filter(|tx| {
+                let passes_ts = tx.datetime >= since_timestamp;
+                let passes_kind = matches!(tx.kind, TransactionKind::Received)
+                    || matches!(tx.kind, TransactionKind::Sent(SendType::SendToSelf));
                 let confs = confirmation_count_from_status(&tx.status, chain_tip);
-                confs >= min_confirmations
+                let passes_confs = confs >= min_confirmations;
+                if passes_kind && !passes_ts {
+                    tracing::info!(
+                        txid = %tx.txid,
+                        datetime = tx.datetime,
+                        since_timestamp,
+                        "filtered out by timestamp"
+                    );
+                }
+                if passes_kind && passes_ts && !passes_confs {
+                    tracing::info!(
+                        txid = %tx.txid,
+                        confs,
+                        min_confirmations,
+                        "filtered out by confirmations"
+                    );
+                }
+                passes_ts && passes_kind && passes_confs
             })
             .map(|tx| {
                 let confs = confirmation_count_from_status(&tx.status, chain_tip);
+                let amount = match tx.kind {
+                    TransactionKind::Received => zatoshis_to_zec(tx.value),
+                    TransactionKind::Sent(SendType::SendToSelf) => {
+                        let note_zats: u64 = tx.orchard_notes.iter().map(|n| n.value).sum::<u64>()
+                            + tx.sapling_notes.iter().map(|n| n.value).sum::<u64>()
+                            + tx.transparent_coins.iter().map(|c| c.value).sum::<u64>();
+                        tracing::info!(
+                            txid = %tx.txid,
+                            tx_value = tx.value,
+                            note_zats,
+                            "SendToSelf computing amount from individual notes"
+                        );
+                        zatoshis_to_zec(note_zats)
+                    }
+                    _ => zatoshis_to_zec(tx.value),
+                };
                 ReceivedNote {
                     txid: tx.txid.to_string(),
                     address: String::new(),
-                    amount: zatoshis_to_zec(tx.value),
+                    amount,
                     confirmations: confs,
                     memo: None,
                 }
             })
             .collect();
+
+        tracing::info!(matching_notes = notes.len(), "list_received_by_address results");
 
         Ok(notes)
     }

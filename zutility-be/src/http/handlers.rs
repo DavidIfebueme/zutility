@@ -74,7 +74,7 @@ impl HttpState {
             zcash_client: None,
             zcash_expected_chain: String::from("test"),
             required_confs_transparent: 3,
-            required_confs_shielded: 10,
+            required_confs_shielded: 3,
             provider_dispatcher: None,
         }
     }

@@ -147,7 +147,7 @@ pub fn router() -> Router {
         zingo_indexer_uri: String::from("https://testnet.zec.rocks"),
         zingo_wallet_dir: String::from("/tmp/zingo-wallet"),
         required_confs_transparent: 3,
-        required_confs_shielded: 10,
+        required_confs_shielded: 3,
         order_expiry_minutes: 30,
         rate_lock_minutes: 15,
         sweep_threshold_zec: rust_decimal::Decimal::new(5, 1),

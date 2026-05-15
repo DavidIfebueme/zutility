@@ -41,6 +41,7 @@ impl ZcashClient for ZcashRpcAdapter {
         &self,
         address: &str,
         current_block_height: u64,
+        _since_timestamp: u32,
     ) -> Result<TransparentPaymentObservation> {
         self.inner
             .observe_transparent_payment(address, current_block_height)
@@ -51,6 +52,7 @@ impl ZcashClient for ZcashRpcAdapter {
         &self,
         address: &str,
         min_confirmations: u64,
+        _since_timestamp: u32,
     ) -> Result<Vec<ReceivedNote>> {
         self.inner.list_received_by_address(address, min_confirmations).await
     }

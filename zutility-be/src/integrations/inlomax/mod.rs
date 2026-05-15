@@ -514,6 +514,8 @@ impl UtilityProvider for InlomaxClient {
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_owned();
+
+        tracing::info!(order_id = %request.order_id, %status_str, %reference, "inlomax pay response");
         let token = data
             .get("token")
             .and_then(Value::as_str)

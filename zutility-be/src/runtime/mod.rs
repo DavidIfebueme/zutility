@@ -192,16 +192,18 @@ async fn detect_payment_and_progress(
         return Ok(());
     };
 
+    let since_ts = order.created_at.timestamp() as u32;
+
     let (total_received, confirmations) = if order.address_type == "transparent" {
         let chain_info = client.get_blockchain_info().await.ok();
         let current_height = chain_info.map(|info| info.blocks).unwrap_or(0);
         let observation = client
-            .observe_transparent_payment(&order.deposit_address, current_height)
+            .observe_transparent_payment(&order.deposit_address, current_height, since_ts)
             .await?;
         (observation.total_received, observation.confirmations)
     } else {
         let notes = client
-            .list_received_by_address(&order.deposit_address, 0)
+            .list_received_by_address(&order.deposit_address, 0, since_ts)
             .await?;
         let total = notes
             .iter()
@@ -303,7 +305,9 @@ async fn dispatch_utility(
     let provider_kind = dispatcher.provider_kind_for(&order.utility_type);
     let provider_name = format!("{provider_kind:?}").to_lowercase();
 
-    let transitioned = db::set_order_dispatching(pool, order.id, &provider_name, None).await?;
+    let request_id = format!("inl-{}", order.id.as_simple());
+
+    let transitioned = db::set_order_dispatching(pool, order.id, &provider_name, Some(&request_id)).await?;
     if !transitioned {
         return Ok(());
     }
@@ -318,7 +322,7 @@ async fn dispatch_utility(
             &order.utility_type,
             &UtilityPurchaseRequest {
                 order_id: order.id,
-                request_id: order.id.to_string(),
+                request_id: request_id.clone(),
                 service_id: order.utility_slug.clone(),
                 billers_code: order.service_ref.clone(),
                 variation_code: order.variation_code.clone(),
@@ -337,7 +341,13 @@ async fn dispatch_utility(
         Ok(result) if result.status == ProviderTxnStatus::Failed => {
             fail_order(state, pool, order.id, "provider_failed").await;
         }
-        Ok(_) => {}
+        Ok(result) => {
+            if !result.provider_request_id.is_empty() {
+                if let Err(error) = db::store_provider_reference(pool, order.id, &result.provider_request_id).await {
+                    tracing::warn!(order_id = %order.id, error = %error, "failed to store provider reference for requery");
+                }
+            }
+        }
         Err(error) => {
             tracing::warn!(order_id = %order.id, error = %error, "utility dispatch failed");
         }
@@ -352,7 +362,12 @@ async fn requery_utility_dispatch(
     pool: &PgPool,
     order: &db::OrderRow,
 ) -> Result<()> {
-    let response = dispatcher.requery(&order.utility_type, &order.id.to_string()).await;
+    let fallback_ref = order.id.to_string();
+    let reference = order.vtpass_request_id.as_deref().unwrap_or(&fallback_ref);
+    if order.vtpass_request_id.is_none() {
+        tracing::warn!(order_id = %order.id, "requery has no stored provider reference, falling back to order ID");
+    }
+    let response = dispatcher.requery(&order.utility_type, reference).await;
 
     match response {
         Ok(result) if result.status == ProviderTxnStatus::Delivered => {

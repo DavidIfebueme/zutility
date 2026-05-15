@@ -84,16 +84,23 @@ impl ProviderDispatcher {
             if matches!(
                 error.kind,
                 crate::integrations::utility_provider::ProviderErrorKind::Outage
-                    | crate::integrations::utility_provider::ProviderErrorKind::Transient
             ) {
                 if INLOMAX_UTILITY_TYPES.contains(&utility_type) && self.inlomax.is_some() {
+                    tracing::warn!(error = %error, "inlomax outage, falling back to vtpass");
                     return self.vtpass.pay(request).await;
                 }
                 if utility_type == "electricity" {
                     if let Some(ref remita) = self.remita {
+                        tracing::warn!(error = %error, "primary electricity outage, falling back to remita");
                         return remita.pay(request).await;
                     }
                 }
+            }
+            if matches!(
+                error.kind,
+                crate::integrations::utility_provider::ProviderErrorKind::Transient
+            ) {
+                tracing::warn!(error = %error, "provider transient error, NOT falling back — will requery next cycle");
             }
         }
 

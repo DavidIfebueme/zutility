@@ -476,6 +476,18 @@ pub async fn fail_order(pool: &PgPool, order_id: Uuid) -> Result<()> {
     Ok(())
 }
 
+pub async fn store_provider_reference(pool: &PgPool, order_id: Uuid, reference: &str) -> Result<()> {
+    sqlx::query(
+        "UPDATE orders SET vtpass_request_id = $2 WHERE id = $1 AND vtpass_request_id IS NULL",
+    )
+    .bind(order_id)
+    .bind(reference)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
 pub async fn set_order_dispatching(
     pool: &PgPool,
     order_id: Uuid,

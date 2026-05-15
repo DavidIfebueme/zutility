@@ -19,11 +19,13 @@ pub trait ZcashClient: Send + Sync {
         &self,
         address: &str,
         current_block_height: u64,
+        since_timestamp: u32,
     ) -> Result<TransparentPaymentObservation>;
 
     async fn list_received_by_address(
         &self,
         address: &str,
         min_confirmations: u64,
+        since_timestamp: u32,
     ) -> Result<Vec<ReceivedNote>>;
 }
