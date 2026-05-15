@@ -156,7 +156,7 @@ export default function PayPage() {
         utility_type: utilityType,
         utility_slug: selectedUtility.slug,
         service_ref: data.serviceRef,
-        amount_ngn: effectiveAmount * 100,
+        amount_ngn: Math.round(effectiveAmount),
         zec_address_type: data.addressType,
         variation_code: data.variationCode || undefined,
       })

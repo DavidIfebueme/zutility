@@ -508,14 +508,12 @@ impl UtilityProvider for InlomaxClient {
         let status_str = response.get("status").and_then(Value::as_str).unwrap_or_default();
         let status = Self::map_status(Some(status_str));
 
-        let data = response.get("data").cloned().unwrap_or(json!({}));
-        let reference = data
-            .get("reference")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_owned();
-
-        tracing::info!(order_id = %request.order_id, %status_str, %reference, "inlomax pay response");
+        tracing::info!(
+            order_id = %request.order_id,
+            %status_str,
+            raw_response = %response,
+            "inlomax pay full response"
+        );
         let token = data
             .get("token")
             .and_then(Value::as_str)
