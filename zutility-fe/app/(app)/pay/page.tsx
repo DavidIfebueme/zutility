@@ -387,7 +387,7 @@ export default function PayPage() {
                         {addressType === "shielded" && <div className="h-2 w-2 rounded-full bg-accent-zec" />}
                       </div>
                     </div>
-                    <p className="text-xs text-text-secondary">Full privacy. Takes ~13 mins to confirm (10 confs).</p>
+                    <p className="text-xs text-text-secondary">Full privacy. Takes ~4 mins to confirm (3 confs).</p>
                   </div>
 
                   <div

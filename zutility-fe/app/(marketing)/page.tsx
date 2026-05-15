@@ -30,7 +30,7 @@ export default function LandingPage() {
   const faqs = [
     { q: "Do I need an account?", a: "Yes, a simple email signup is required to track your orders and history. However, no KYC or identity verification is needed for utility payments." },
     { q: "What wallets are supported?", a: "Any wallet that supports Zcash (ZEC). We recommend Zashi or Nighthawk Wallet for the best shielded transaction experience." },
-    { q: "Shielded vs Transparent?", a: "Shielded (z-addresses) offer full privacy but take ~13 minutes to confirm. Transparent (t-addresses) are standard public transactions and confirm in ~4 minutes." },
+    { q: "Shielded vs Transparent?", a: "Shielded (z-addresses) offer full privacy and confirm in ~4 minutes with 3 confirmations. Transparent (t-addresses) are standard public transactions and also confirm in ~4 minutes." },
     { q: "How long does payment take?", a: "Once we detect your transaction on the blockchain (usually within seconds), we wait for the required confirmations. Then your utility is delivered instantly." },
     { q: "What if I send the wrong amount?", a: "Our system expects the exact ZEC amount shown. If you send a different amount, the order will be flagged for manual review and may take up to 24 hours to resolve." },
     { q: "Is this available in my country?", a: "zutility supports utility payments across Africa — Nigeria, Kenya, Ghana, South Africa, Egypt and more. As long as the utility is in our supported list, you can pay from anywhere." },
