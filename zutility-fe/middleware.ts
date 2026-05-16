@@ -6,7 +6,7 @@ const AUTH_PATHS = ["/login", "/signup"]
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
-  const hasAuthCookie = request.cookies.get("access_token")?.value
+  const hasAuthCookie = request.cookies.get("csrf_token")?.value
 
   if (pathname.startsWith("/dashboard") || pathname.startsWith("/pay") || pathname.startsWith("/history") || pathname.startsWith("/settings")) {
     if (!hasAuthCookie) {
