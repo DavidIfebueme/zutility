@@ -106,8 +106,8 @@ fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool
 
     if enable_rate_limits {
         let governor_config = GovernorConfigBuilder::default()
-            .per_second(15)
-            .burst_size(30)
+            .per_second(30)
+            .burst_size(200)
             .use_headers()
             .finish()
             .expect("valid governor config");

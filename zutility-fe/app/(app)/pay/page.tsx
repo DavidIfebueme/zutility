@@ -299,7 +299,7 @@ export default function PayPage() {
                             key={v.variation_code}
                             onClick={() => {
                               setValue("variationCode", v.variation_code, { shouldValidate: true })
-                              if (v.amount) setValue("amountNgn", v.amount / 100)
+                              if (v.amount) setValue("amountNgn", v.amount)
                             }}
                             className={`cursor-pointer rounded-lg border p-3 transition-all ${
                               isSelected
@@ -311,7 +311,7 @@ export default function PayPage() {
                               {v.name}
                             </p>
                             {v.amount && (
-                              <p className="text-xs text-text-muted mt-0.5">{formatCurrency(v.amount / 100, LOCAL_CURRENCY)}</p>
+                              <p className="text-xs text-text-muted mt-0.5">{formatCurrency(v.amount, LOCAL_CURRENCY)}</p>
                             )}
                           </div>
                         )

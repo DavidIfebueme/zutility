@@ -300,6 +300,27 @@ fn slug_to_inlomax_service_id(slug: &str) -> Option<String> {
     }
 }
 
+fn parse_ngn_amount(val: &Value) -> Option<i64> {
+    val.as_str()
+        .and_then(|s| s.replace(',', "").parse::<f64>().ok())
+        .map(|f| f.round() as i64)
+}
+
+fn slug_to_inlomax_network(slug: &str) -> Option<&'static str> {
+    match slug {
+        "mtn-data" => Some("MTN"),
+        "airtel-data" => Some("AIRTEL"),
+        "glo-data" => Some("GLO"),
+        "9mobile-data" => Some("9MOBILE"),
+        "dstv" => Some("DSTV"),
+        "gotv" => Some("GOTV"),
+        "startimes" => Some("STARTIMES"),
+        "waec-registration" | "waec-result-checker" => Some("WAEC"),
+        "jamb" => Some("JAMB"),
+        _ => None,
+    }
+}
+
 fn utility_type_to_inlomax_endpoint(utility_type: &str) -> Option<&'static str> {
     match utility_type {
         "airtime" => Some("airtime"),
@@ -341,46 +362,52 @@ impl UtilityProvider for InlomaxClient {
         }
 
         if let Some(data_plans) = data.get("dataPlans").and_then(Value::as_array) {
-            for entry in data_plans {
-                if entry.get("serviceID").and_then(Value::as_str) == Some(service_id) {
-                    let plan_name = format!(
-                        "{} - {} ({})",
-                        entry.get("dataPlan").and_then(Value::as_str).unwrap_or_default(),
-                        entry.get("amount").and_then(Value::as_str).unwrap_or_default(),
-                        entry.get("dataType").and_then(Value::as_str).unwrap_or_default(),
-                    );
-                    let amount = entry.get("amount").and_then(|v| v.as_str()).and_then(|s| s.replace(',', "").parse::<i64>().ok());
-                    variations.push(UtilityVariation {
-                        variation_code: entry.get("serviceID").and_then(Value::as_str).unwrap_or_default().to_owned(),
-                        name: plan_name,
-                        amount,
-                    });
+            if let Some(network) = slug_to_inlomax_network(service_id) {
+                for entry in data_plans {
+                    if entry.get("network").and_then(Value::as_str) == Some(network) {
+                        let plan_name = format!(
+                            "{} - ₦{} ({})",
+                            entry.get("dataPlan").and_then(Value::as_str).unwrap_or_default(),
+                            entry.get("amount").and_then(Value::as_str).unwrap_or_default(),
+                            entry.get("dataType").and_then(Value::as_str).unwrap_or_default(),
+                        );
+                        let amount = parse_ngn_amount(entry.get("amount").unwrap_or(&Value::Null));
+                        variations.push(UtilityVariation {
+                            variation_code: entry.get("serviceID").and_then(Value::as_str).unwrap_or_default().to_owned(),
+                            name: plan_name,
+                            amount,
+                        });
+                    }
                 }
             }
         }
 
         if let Some(cable_plans) = data.get("cablePlans").and_then(Value::as_array) {
-            for entry in cable_plans {
-                if entry.get("serviceID").and_then(Value::as_str) == Some(service_id) {
-                    let amount = entry.get("amount").and_then(|v| v.as_str()).and_then(|s| s.replace(',', "").parse::<i64>().ok());
-                    variations.push(UtilityVariation {
-                        variation_code: entry.get("serviceID").and_then(Value::as_str).unwrap_or_default().to_owned(),
-                        name: entry.get("cablePlan").and_then(Value::as_str).unwrap_or_default().to_owned(),
-                        amount,
-                    });
+            if let Some(cable) = slug_to_inlomax_network(service_id) {
+                for entry in cable_plans {
+                    if entry.get("cable").and_then(Value::as_str) == Some(cable) {
+                        let amount = parse_ngn_amount(entry.get("amount").unwrap_or(&Value::Null));
+                        variations.push(UtilityVariation {
+                            variation_code: entry.get("serviceID").and_then(Value::as_str).unwrap_or_default().to_owned(),
+                            name: entry.get("cablePlan").and_then(Value::as_str).unwrap_or_default().to_owned(),
+                            amount,
+                        });
+                    }
                 }
             }
         }
 
         if let Some(education) = data.get("education").and_then(Value::as_array) {
-            for entry in education {
-                if entry.get("serviceID").and_then(Value::as_str) == Some(service_id) {
-                    let amount = entry.get("amount").and_then(|v| v.as_str()).and_then(|s| s.replace(',', "").parse::<i64>().ok());
-                    variations.push(UtilityVariation {
-                        variation_code: entry.get("serviceID").and_then(Value::as_str).unwrap_or_default().to_owned(),
-                        name: entry.get("type").and_then(Value::as_str).unwrap_or_default().to_owned(),
-                        amount,
-                    });
+            if let Some(edu_type) = slug_to_inlomax_network(service_id) {
+                for entry in education {
+                    if entry.get("type").and_then(Value::as_str) == Some(edu_type) {
+                        let amount = parse_ngn_amount(entry.get("amount").unwrap_or(&Value::Null));
+                        variations.push(UtilityVariation {
+                            variation_code: entry.get("serviceID").and_then(Value::as_str).unwrap_or_default().to_owned(),
+                            name: entry.get("type").and_then(Value::as_str).unwrap_or_default().to_owned(),
+                            amount,
+                        });
+                    }
                 }
             }
         }
@@ -460,7 +487,7 @@ impl UtilityProvider for InlomaxClient {
             }
             "data" => {
                 let sid = request.variation_code.as_deref()
-                    .map(|v| slug_to_inlomax_service_id(v).unwrap_or_else(|| v.to_owned()))
+                    .map(String::from)
                     .unwrap_or_else(|| slug_to_inlomax_service_id(&request.service_id)
                         .unwrap_or_else(|| request.service_id.clone()));
                 json!({
@@ -471,7 +498,7 @@ impl UtilityProvider for InlomaxClient {
             }
             "dstv" | "gotv" | "startimes" => {
                 let sid = request.variation_code.as_deref()
-                    .map(|v| slug_to_inlomax_service_id(v).unwrap_or_else(|| v.to_owned()))
+                    .map(String::from)
                     .unwrap_or_else(|| slug_to_inlomax_service_id(&request.service_id)
                         .unwrap_or_else(|| request.service_id.clone()));
                 json!({
@@ -614,6 +641,21 @@ mod tests {
         assert_eq!(slug_to_inlomax_service_id("airtel"), Some(String::from("2")));
         assert_eq!(slug_to_inlomax_service_id("ikeja-electric"), Some(String::from("1")));
         assert_eq!(slug_to_inlomax_service_id("unknown"), None);
+    }
+
+    #[test]
+    fn slug_to_network_maps_correctly() {
+        assert_eq!(slug_to_inlomax_network("mtn-data"), Some("MTN"));
+        assert_eq!(slug_to_inlomax_network("airtel-data"), Some("AIRTEL"));
+        assert_eq!(slug_to_inlomax_network("glo-data"), Some("GLO"));
+        assert_eq!(slug_to_inlomax_network("9mobile-data"), Some("9MOBILE"));
+        assert_eq!(slug_to_inlomax_network("dstv"), Some("DSTV"));
+        assert_eq!(slug_to_inlomax_network("gotv"), Some("GOTV"));
+        assert_eq!(slug_to_inlomax_network("startimes"), Some("STARTIMES"));
+        assert_eq!(slug_to_inlomax_network("waec-registration"), Some("WAEC"));
+        assert_eq!(slug_to_inlomax_network("jamb"), Some("JAMB"));
+        assert_eq!(slug_to_inlomax_network("mtn"), None);
+        assert_eq!(slug_to_inlomax_network("unknown"), None);
     }
 
     #[test]
