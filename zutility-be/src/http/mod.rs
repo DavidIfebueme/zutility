@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use axum::http::header::HeaderName;
+use axum::http::{header::HeaderName, HeaderValue};
 use axum::{
     Router,
     middleware,
@@ -75,6 +75,7 @@ pub fn build_router_from_state(state: HttpState, enable_rate_limits: bool) -> Ro
 
 fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool) -> Router {
     let jwt_secret_for_mw = state.jwt_secret.clone();
+    let app_base_url = state.app_base_url.clone();
 
     let public_routes = Router::new()
         .route("/api/v1/auth/register", post(register))
@@ -121,14 +122,23 @@ fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool
 
     let router = public_routes
         .merge(protected_routes)
-        .layer(
-            CorsLayer::new()
-                .allow_origin(Any)
+        .layer({
+            let cors = CorsLayer::new()
                 .allow_methods(Any)
-                .allow_headers(Any)
+                .allow_headers([
+                    axum::http::header::CONTENT_TYPE,
+                    axum::http::header::ACCEPT,
+                    HeaderName::from_static("x-csrf-token"),
+                    HeaderName::from_static("x-request-id"),
+                ])
                 .allow_credentials(true)
-                .expose_headers([HeaderName::from_str("x-request-id").expect("valid header name")]),
-        )
+                .expose_headers([HeaderName::from_str("x-request-id").expect("valid header name")]);
+            if let Ok(origin) = app_base_url.parse::<HeaderValue>() {
+                cors.allow_origin(origin)
+            } else {
+                cors.allow_origin(Any)
+            }
+        })
         .layer(PropagateRequestIdLayer::new(HeaderName::from_static(
             "x-request-id",
         )))
