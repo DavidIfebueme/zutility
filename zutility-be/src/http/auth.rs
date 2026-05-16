@@ -1,5 +1,5 @@
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
-use argon2::password_hash::SaltString;
+use argon2::password_hash::{SaltString, rand_core::OsRng};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use chrono::Utc;
 use hmac::{Hmac, Mac};
@@ -42,13 +42,10 @@ pub fn hash_ip(secret: &SecretString, ip: &str) -> Result<String, String> {
 }
 
 pub fn hash_password(password: &str) -> Result<String, String> {
-    let mut rng = rand::rng();
-    let salt_bytes: Vec<u8> = (0..32).map(|_| rng.random_range(0u8..=255)).collect();
-    let salt_string = SaltString::from_b64(&STANDARD.encode(salt_bytes))
-        .map_err(|e| format!("salt encoding failed: {e}"))?;
+    let salt = SaltString::generate(&mut OsRng);
     let argon2 = Argon2::default();
     let hash = argon2
-        .hash_password(password.as_bytes(), &salt_string)
+        .hash_password(password.as_bytes(), &salt)
         .map_err(|e| format!("password hashing failed: {e}"))?;
     Ok(hash.to_string())
 }
