@@ -66,6 +66,7 @@ impl EmailClient {
             "to": [{ "email": to }],
             "subject": subject,
             "htmlContent": html_content,
+            "disableTrackClicks": true,
         });
 
         let response = self
