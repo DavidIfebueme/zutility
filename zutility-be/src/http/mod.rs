@@ -124,7 +124,11 @@ fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool
         .merge(protected_routes)
         .layer({
             let cors = CorsLayer::new()
-                .allow_methods(Any)
+                .allow_methods([
+                    axum::http::Method::GET,
+                    axum::http::Method::POST,
+                    axum::http::Method::OPTIONS,
+                ])
                 .allow_headers([
                     axum::http::header::CONTENT_TYPE,
                     axum::http::header::ACCEPT,
