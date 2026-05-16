@@ -30,6 +30,8 @@ impl EmailClient {
     <h1 style="font-size:24px;margin:0 0 8px;color:#fafafa">Verify your email</h1>
     <p style="color:#a3a3a3;margin:0 0 24px">Welcome to <span style="color:#f4b731">z</span>utility. Click the button below to verify your email address.</p>
     <a href="{verification_link}" style="display:inline-block;background:#f4b731;color:#0a0a0a;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;font-size:16px">Verify Email</a>
+    <p style="color:#a3a3a3;font-size:14px;margin:24px 0 0">If the button doesn't work, copy and paste this link into your browser:</p>
+    <p style="color:#f4b731;font-size:13px;word-break:break-all;margin:8px 0 0">{verification_link}</p>
     <p style="color:#737373;font-size:13px;margin:24px 0 0">If you didn&apos;t create an account, you can ignore this email.</p>
     <hr style="border:none;border-top:1px solid #262626;margin:24px 0" />
     <p style="color:#525252;font-size:12px;margin:0">This link expires in 24 hours.</p>
@@ -47,6 +49,8 @@ impl EmailClient {
     <h1 style="font-size:24px;margin:0 0 8px;color:#fafafa">Reset your password</h1>
     <p style="color:#a3a3a3;margin:0 0 24px">Click the button below to set a new password for your <span style="color:#f4b731">z</span>utility account.</p>
     <a href="{reset_link}" style="display:inline-block;background:#f4b731;color:#0a0a0a;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;font-size:16px">Reset Password</a>
+    <p style="color:#a3a3a3;font-size:14px;margin:24px 0 0">If the button doesn't work, copy and paste this link into your browser:</p>
+    <p style="color:#f4b731;font-size:13px;word-break:break-all;margin:8px 0 0">{reset_link}</p>
     <p style="color:#737373;font-size:13px;margin:24px 0 0">If you didn&apos;t request a password reset, you can ignore this email.</p>
     <hr style="border:none;border-top:1px solid #262626;margin:24px 0" />
     <p style="color:#525252;font-size:12px;margin:0">This link expires in 1 hour.</p>
