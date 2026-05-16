@@ -92,7 +92,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <div className="flex items-center justify-between px-3 py-2">
             <div className="flex flex-col truncate">
               <span className="text-sm font-medium text-text-primary truncate">
-                {user?.displayName || 'User'}
+                {user?.display_name || 'User'}
               </span>
               <span className="text-xs text-text-muted truncate">
                 {user?.email}
@@ -197,7 +197,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   <div className="flex items-center justify-between px-3 py-2">
                     <div className="flex flex-col truncate">
                       <span className="text-sm font-medium text-text-primary truncate">
-                        {user?.displayName || 'User'}
+                        {user?.display_name || 'User'}
                       </span>
                       <span className="text-xs text-text-muted truncate">
                         {user?.email}

@@ -1,11 +1,18 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import { apiPost } from '@/lib/api'
+
+export interface AuthUser {
+  id: string
+  email: string
+  display_name: string | null
+  email_verified: boolean
+}
 
 interface AuthState {
-  user: { email: string; displayName?: string } | null
-  token: string | null
+  user: AuthUser | null
   isAuthenticated: boolean
-  login: (user: { email: string; displayName?: string }, token: string) => void
+  setUser: (user: AuthUser) => void
   logout: () => void
 }
 
@@ -13,13 +20,16 @@ export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({
       user: null,
-      token: null,
       isAuthenticated: false,
-      login: (user, token) => set({ user, token, isAuthenticated: true }),
-      logout: () => set({ user: null, token: null, isAuthenticated: false }),
+      setUser: (user: AuthUser) => set({ user, isAuthenticated: true }),
+      logout: () => {
+        apiPost('/api/v1/auth/logout', {}).catch(() => {})
+        set({ user: null, isAuthenticated: false })
+      },
     }),
     {
       name: 'zutility-auth',
+      partialize: (state) => ({ user: state.user, isAuthenticated: state.isAuthenticated }),
     }
   )
 )

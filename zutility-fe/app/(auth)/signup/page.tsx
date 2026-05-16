@@ -10,6 +10,8 @@ import { motion } from "motion/react"
 import { Mail, Lock, User, ArrowRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { useAuthStore } from "@/store/auth"
+import { apiPostRaw } from "@/lib/api"
 import { toast } from "sonner"
 import dynamic from "next/dynamic"
 
@@ -30,6 +32,7 @@ type SignupFormValues = z.infer<typeof signupSchema>
 
 export default function SignupPage() {
   const router = useRouter()
+  const { setUser } = useAuthStore()
   const [isLoading, setIsLoading] = React.useState(false)
 
   const {
@@ -43,13 +46,23 @@ export default function SignupPage() {
   const onSubmit = async (data: SignupFormValues) => {
     setIsLoading(true)
     try {
-      // Mock API call
-      // const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/auth/register`, { ... })
-      await new Promise(resolve => setTimeout(resolve, 1500))
-      
-      toast.success("Account created successfully!")
-      router.push("/verify")
-    } catch (error) {
+      const res = await apiPostRaw("/api/v1/auth/register", {
+        email: data.email,
+        display_name: data.displayName || undefined,
+        password: data.password,
+      })
+      if (res.ok) {
+        const result = await res.json()
+        setUser(result)
+        toast.success("Account created! Please verify your email.")
+        router.push(`/verify?email=${encodeURIComponent(data.email)}`)
+      } else if (res.status === 409) {
+        toast.error("An account with this email already exists.")
+      } else {
+        const result = await res.json().catch(() => ({ error: "Signup failed" }))
+        toast.error(result.error || "Failed to create account.")
+      }
+    } catch {
       toast.error("Failed to create account. Please try again.")
     } finally {
       setIsLoading(false)
@@ -58,7 +71,6 @@ export default function SignupPage() {
 
   return (
     <div className="flex min-h-screen bg-bg-void text-text-primary">
-      {/* Left side - 3D & Branding (Hidden on mobile) */}
       <div className="hidden w-1/2 flex-col justify-between border-r border-border-subtle bg-bg-surface p-12 lg:flex relative overflow-hidden">
         <div className="absolute inset-0 z-0 opacity-30 pointer-events-none">
            <Canvas camera={{ position: [0, 0, 5], fov: 45 }}>
@@ -83,7 +95,6 @@ export default function SignupPage() {
         </div>
       </div>
 
-      {/* Right side - Form */}
       <div className="flex w-full flex-col justify-center px-8 sm:px-16 lg:w-1/2 xl:px-24">
         <div className="mx-auto w-full max-w-sm">
           <div className="mb-10 lg:hidden">

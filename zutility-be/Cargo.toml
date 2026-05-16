@@ -14,13 +14,16 @@ panic = "deny"
 
 [dependencies]
 anyhow = "1.0.102"
+argon2 = "0.5"
 async-trait = "0.1.89"
 axum = { version = "0.8.8", features = ["ws"] }
+axum-extra = { version = "0.10", features = ["cookie"] }
 base64 = "0.22.1"
 chrono = { version = "0.4.44", features = ["serde"] }
 config = "0.15.22"
 dotenvy = "0.15.7"
 hmac = "0.12.1"
+jsonwebtoken = "9"
 rand = "0.10.0"
 reqwest = { version = "0.12.28", default-features = false, features = ["json", "rustls-tls"] }
 rust_decimal = "1.40.0"
@@ -31,6 +34,7 @@ sha2 = "0.10.9"
 sqlx = { version = "0.8.6", features = ["postgres", "runtime-tokio-rustls", "uuid", "chrono", "json", "rust_decimal"] }
 subtle = "2.6.1"
 thiserror = "2.0.18"
+time = "0.3"
 tokio = { version = "1.50.0", features = ["full"] }
 tower = "0.5.3"
 tower-http = { version = "0.6.8", features = ["cors", "trace", "request-id"] }
@@ -38,7 +42,7 @@ tower_governor = "0.8.0"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 utoipa = { version = "5.4.0", features = ["axum_extras", "chrono", "uuid"] }
-uuid = { version = "1.22.0", features = ["v4", "serde"] }
+uuid = { version = "1.22.0", features = ["v4", "v7", "serde"] }
 futures-util = "0.3.31"
 hex = "0.4.3"
 zingolib = { git = "https://github.com/DavidIfebueme/zingolib-notor", branch = "main" }

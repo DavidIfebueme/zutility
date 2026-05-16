@@ -3,6 +3,7 @@ use std::str::FromStr;
 use axum::http::header::HeaderName;
 use axum::{
     Router,
+    middleware,
     routing::{get, post},
 };
 use sqlx::PgPool;
@@ -14,13 +15,19 @@ use tower_http::{
 };
 
 pub mod auth;
+pub mod auth_handlers;
 pub mod docs;
 pub mod error;
 pub mod handlers;
+pub mod mw;
 pub mod types;
 
 use crate::config::AppConfig;
 use crate::integrations::rates::SharedRateCache;
+use auth_handlers::{
+    forgot_password, get_me, get_order_history, login, logout, refresh, register,
+    resend_verification, reset_password, verify_email,
+};
 use docs::{docs_ui, openapi_json};
 use handlers::{
     HttpState, alerts, cancel_order, create_order, get_current_rate, get_order, health_live,
@@ -49,6 +56,10 @@ pub fn build_state(config: &AppConfig, rate_cache: Option<SharedRateCache>, pool
         i64::from(config.order_expiry_minutes),
         i64::from(config.rate_lock_minutes),
         pool,
+        config.jwt_secret.clone(),
+        i64::from(config.access_token_ttl_minutes),
+        i64::from(config.refresh_token_ttl_hours),
+        config.app_base_url.clone(),
     )
     .with_ops_context(config);
 
@@ -63,11 +74,16 @@ pub fn build_router_from_state(state: HttpState, enable_rate_limits: bool) -> Ro
 }
 
 fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool) -> Router {
-    let router = Router::new()
-        .route("/api/v1/orders/create", post(create_order))
-        .route("/api/v1/orders/{order_id}", get(get_order))
-        .route("/api/v1/orders/{order_id}/stream", get(stream_order))
-        .route("/api/v1/orders/{order_id}/cancel", post(cancel_order))
+    let jwt_secret_for_mw = state.jwt_secret.clone();
+
+    let public_routes = Router::new()
+        .route("/api/v1/auth/register", post(register))
+        .route("/api/v1/auth/login", post(login))
+        .route("/api/v1/auth/refresh", post(refresh))
+        .route("/api/v1/auth/verify-email", post(verify_email))
+        .route("/api/v1/auth/resend-verification", post(resend_verification))
+        .route("/api/v1/auth/forgot-password", post(forgot_password))
+        .route("/api/v1/auth/reset-password", post(reset_password))
         .route("/api/v1/rates/current", get(get_current_rate))
         .route("/api/v1/utilities", get(list_utilities))
         .route(
@@ -87,12 +103,30 @@ fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool
         .route("/ops/docs", get(docs_ui))
         .route("/ops/metrics", get(metrics))
         .route("/ops/alerts", get(alerts))
+        .with_state(state.clone());
+
+    let protected_routes = Router::new()
+        .route("/api/v1/orders/create", post(create_order))
+        .route("/api/v1/orders/{order_id}", get(get_order))
+        .route("/api/v1/orders/{order_id}/stream", get(stream_order))
+        .route("/api/v1/orders/{order_id}/cancel", post(cancel_order))
+        .route("/api/v1/auth/logout", post(logout))
+        .route("/api/v1/auth/me", get(get_me))
+        .route("/api/v1/orders/history", get(get_order_history))
         .with_state(state)
+        .layer(middleware::from_fn_with_state(
+            jwt_secret_for_mw.clone(),
+            mw::auth_middleware,
+        ));
+
+    let router = public_routes
+        .merge(protected_routes)
         .layer(
             CorsLayer::new()
                 .allow_origin(Any)
                 .allow_methods(Any)
                 .allow_headers(Any)
+                .allow_credentials(true)
                 .expose_headers([HeaderName::from_str("x-request-id").expect("valid header name")]),
         )
         .layer(PropagateRequestIdLayer::new(HeaderName::from_static(
@@ -154,6 +188,13 @@ pub fn router() -> Router {
         signing_service_url: String::from("http://10.0.0.2:8080"),
         signing_service_hmac_secret: secrecy::SecretString::from(String::from("hmac_secret")),
         rate_source_timeout_ms: 3000,
+        jwt_secret: secrecy::SecretString::from(String::from("dev_jwt_secret_key_change_in_prod")),
+        access_token_ttl_minutes: 15,
+        refresh_token_ttl_hours: 24,
+        brevo_api_key: None,
+        brevo_sender_email: None,
+        brevo_sender_name: None,
+        app_base_url: String::from("http://localhost:3000"),
     };
 
     let rate_cache = crate::integrations::rates::new_shared_rate_cache(

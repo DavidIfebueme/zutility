@@ -5,6 +5,7 @@ use utoipa::ToSchema;
 #[derive(Debug)]
 pub enum ApiError {
     BadRequest(String),
+    Unauthorized(String),
     Forbidden(String),
     NotFound(String),
     Conflict(String),
@@ -20,6 +21,10 @@ pub struct ErrorEnvelope {
 impl ApiError {
     pub fn bad_request(message: impl Into<String>) -> Self {
         Self::BadRequest(message.into())
+    }
+
+    pub fn unauthorized(message: impl Into<String>) -> Self {
+        Self::Unauthorized(message.into())
     }
 
     pub fn forbidden(message: impl Into<String>) -> Self {
@@ -47,6 +52,7 @@ impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
         let (status, message) = match self {
             Self::BadRequest(message) => (StatusCode::BAD_REQUEST, message),
+            Self::Unauthorized(message) => (StatusCode::UNAUTHORIZED, message),
             Self::Forbidden(message) => (StatusCode::FORBIDDEN, message),
             Self::NotFound(message) => (StatusCode::NOT_FOUND, message),
             Self::Conflict(message) => (StatusCode::CONFLICT, message),

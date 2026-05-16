@@ -3,27 +3,43 @@
 import * as React from "react"
 import Link from "next/link"
 import { motion } from "motion/react"
-import { CreditCard, ArrowRightLeft, Store, ArrowRight, Zap, Clock, CheckCircle2, AlertCircle, History } from "lucide-react"
+import { CreditCard, ArrowRightLeft, Store, ArrowRight, Zap, Clock, CheckCircle2, AlertCircle, History, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { useAuthStore } from "@/store/auth"
 import { useOrderStore } from "@/store/order"
 import { useRate } from "@/lib/hooks/useRate"
+import { apiGet } from "@/lib/api"
 import { formatNGN, formatZEC } from "@/lib/utils"
 import { detectCurrency, formatCurrency, convertFromNGN, CURRENCIES, type CurrencyCode, type FxRates } from "@/lib/currency"
+
+interface OrderHistoryItem {
+  order_id: string
+  utility_slug: string
+  utility_type: string
+  amount_ngn: number
+  zec_amount: string
+  status: string
+  created_at: string
+  completed_at: string | null
+}
 
 export default function DashboardPage() {
   const { user } = useAuthStore()
   const { activeOrder, status } = useOrderStore()
   const { rate } = useRate()
+  const [orders, setOrders] = React.useState<OrderHistoryItem[]>([])
+  const [ordersLoading, setOrdersLoading] = React.useState(true)
 
-  // Mock recent transactions
-  const recentTransactions = [
-    { id: "ORD-1234", date: "2025-10-24T14:30:00Z", utility: "MTN Airtime", ngn: 5000, zec: "0.03333333", status: "completed" },
-    { id: "ORD-1235", date: "2025-10-23T09:15:00Z", utility: "DSTV Premium", ngn: 24500, zec: "0.16333333", status: "completed" },
-    { id: "ORD-1236", date: "2025-10-20T18:45:00Z", utility: "PHCN Prepaid", ngn: 10000, zec: "0.06666666", status: "failed" },
-  ]
+  React.useEffect(() => {
+    apiGet<OrderHistoryItem[]>("/api/v1/orders/history")
+      .then(setOrders)
+      .catch(() => {})
+      .finally(() => setOrdersLoading(false))
+  }, [])
+
+  const recentTransactions = orders.slice(0, 5)
 
   return (
     <div className="space-y-8">
@@ -31,7 +47,7 @@ export default function DashboardPage() {
       <div>
         <h1 className="font-dela text-3xl tracking-tight">Dashboard</h1>
         <p className="text-text-secondary mt-2">
-          Welcome back, {user?.displayName || user?.email || 'User'}.
+          Welcome back, {user?.display_name || user?.email || 'User'}.
         </p>
       </div>
 
@@ -152,28 +168,32 @@ export default function DashboardPage() {
               </Link>
             </CardHeader>
             <CardContent>
-              {recentTransactions.length > 0 ? (
+              {ordersLoading ? (
+                <div className="flex justify-center py-12">
+                  <Loader2 className="h-6 w-6 animate-spin text-text-muted" />
+                </div>
+              ) : recentTransactions.length > 0 ? (
                 <div className="space-y-4 mt-4">
                   {recentTransactions.map((tx) => (
-                    <div key={tx.id} className="flex items-center justify-between p-4 rounded-lg bg-bg-elevated border border-border-subtle">
+                    <div key={tx.order_id} className="flex items-center justify-between p-4 rounded-lg bg-bg-elevated border border-border-subtle">
                       <div className="flex items-center gap-4">
                         <div className="h-10 w-10 rounded-full bg-bg-surface flex items-center justify-center">
-                          {tx.status === 'completed' ? (
+                          {tx.status === 'Completed' ? (
                             <CheckCircle2 className="h-5 w-5 text-accent-green" />
-                          ) : tx.status === 'failed' ? (
+                          ) : tx.status === 'Failed' || tx.status === 'Cancelled' ? (
                             <AlertCircle className="h-5 w-5 text-accent-red" />
                           ) : (
                             <Clock className="h-5 w-5 text-accent-zec" />
                           )}
                         </div>
                         <div>
-                          <p className="font-medium text-text-primary">{tx.utility}</p>
-                          <p className="text-xs text-text-muted font-mono">{tx.id} • {new Date(tx.date).toLocaleDateString()}</p>
+                          <p className="font-medium text-text-primary">{tx.utility_slug}</p>
+                          <p className="text-xs text-text-muted font-mono">{tx.order_id.slice(0,8)} • {new Date(tx.created_at).toLocaleDateString()}</p>
                         </div>
                       </div>
                       <div className="text-right">
-                        <p className="font-medium text-text-primary">{formatNGN(tx.ngn)}</p>
-                        <p className="text-xs text-text-secondary font-mono">{formatZEC(tx.zec)} ZEC</p>
+                        <p className="font-medium text-text-primary">{formatNGN(tx.amount_ngn)}</p>
+                        <p className="text-xs text-text-secondary font-mono">{formatZEC(tx.zec_amount)} ZEC</p>
                       </div>
                     </div>
                   ))}

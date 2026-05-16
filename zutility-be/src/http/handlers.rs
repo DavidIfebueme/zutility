@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use axum::{
     Json,
-    extract::{Path, Query, State, ws::WebSocketUpgrade},
+    extract::{Extension, Path, Query, State, ws::WebSocketUpgrade},
     http::StatusCode,
     response::Response,
 };
@@ -53,6 +53,11 @@ pub struct HttpState {
     pub required_confs_transparent: u16,
     pub required_confs_shielded: u16,
     pub provider_dispatcher: Option<ProviderDispatcher>,
+    pub jwt_secret: secrecy::SecretString,
+    pub access_token_ttl_minutes: i64,
+    pub refresh_token_ttl_hours: i64,
+    pub email_client: Option<crate::integrations::email::EmailClient>,
+    pub app_base_url: String,
 }
 
 impl HttpState {
@@ -61,6 +66,10 @@ impl HttpState {
         order_expiry_minutes: i64,
         rate_lock_minutes: i64,
         pool: PgPool,
+        jwt_secret: secrecy::SecretString,
+        access_token_ttl_minutes: i64,
+        refresh_token_ttl_hours: i64,
+        app_base_url: String,
     ) -> Self {
         Self {
             order_token_hmac_secret,
@@ -76,6 +85,11 @@ impl HttpState {
             required_confs_transparent: 3,
             required_confs_shielded: 3,
             provider_dispatcher: None,
+            jwt_secret,
+            access_token_ttl_minutes,
+            refresh_token_ttl_hours,
+            email_client: None,
+            app_base_url,
         }
     }
 
@@ -100,6 +114,20 @@ impl HttpState {
         }
 
         self.observability.jobs().mark_alive("http_server");
+
+        if let (Some(api_key), Some(sender_email), Some(sender_name)) = (
+            &config.brevo_api_key,
+            &config.brevo_sender_email,
+            &config.brevo_sender_name,
+        ) {
+            self.email_client = Some(
+                crate::integrations::email::EmailClient::new(api_key, sender_email, sender_name),
+            );
+            tracing::info!("brevo email client configured");
+        } else {
+            tracing::warn!("brevo email client not configured — verification emails will be logged instead");
+        }
+
         self
     }
 
@@ -122,6 +150,7 @@ impl HttpState {
 )]
 pub async fn create_order(
     State(state): State<HttpState>,
+    Extension(auth_user): Extension<crate::http::mw::AuthenticatedUser>,
     Json(payload): Json<CreateOrderRequest>,
 ) -> Result<Json<CreateOrderResponse>, ApiError> {
     validate_create_order_payload(&payload)?;
@@ -168,6 +197,9 @@ pub async fn create_order(
 
     let mut tx = db::begin_tx(&state.pool).await.map_err(internal_err)?;
     let (order_id, deposit_address) = db::insert_order_with_claimed_address(&mut tx, &input)
+        .await
+        .map_err(internal_err)?;
+    db::set_order_user_id_tx(&mut tx, order_id, auth_user.user_id)
         .await
         .map_err(internal_err)?;
     tx.commit().await.map_err(internal_err)?;
@@ -234,10 +266,26 @@ async fn enforce_service_ref_velocity(
 )]
 pub async fn get_order(
     Path(order_id): Path<Uuid>,
+    Extension(auth_user): Extension<crate::http::mw::AuthenticatedUser>,
     Query(query): Query<OrderTokenQuery>,
     State(state): State<HttpState>,
 ) -> Result<Json<OrderStatusResponse>, ApiError> {
-    let order = authorize_order_access(&state, order_id, &query.token).await?;
+    let order = db::get_order_by_id(&state.pool, order_id)
+        .await
+        .map_err(internal_err)?
+        .ok_or_else(|| ApiError::not_found("order not found"))?;
+
+    let is_owner = order_matches_user(&order, &auth_user);
+    let token_valid = auth::verify_order_token_hash(
+        &state.order_token_hmac_secret,
+        &query.token,
+        &order.access_token_hash,
+    );
+
+    if !is_owner && !token_valid {
+        return Err(ApiError::forbidden("access denied"));
+    }
+
     let status = order.status().map_err(internal_err)?;
 
     Ok(Json(OrderStatusResponse {
@@ -276,6 +324,7 @@ pub async fn get_order(
 )]
 pub async fn cancel_order(
     Path(order_id): Path<Uuid>,
+    Extension(auth_user): Extension<crate::http::mw::AuthenticatedUser>,
     Query(query): Query<OrderTokenQuery>,
     State(state): State<HttpState>,
 ) -> Result<Json<CancelOrderResponse>, ApiError> {
@@ -284,12 +333,15 @@ pub async fn cancel_order(
         .map_err(internal_err)?
         .ok_or_else(|| ApiError::not_found("order not found"))?;
 
-    if !auth::verify_order_token_hash(
+    let is_owner = order_matches_user(&order, &auth_user);
+    let token_valid = auth::verify_order_token_hash(
         &state.order_token_hmac_secret,
         &query.token,
         &order.access_token_hash,
-    ) {
-        return Err(ApiError::forbidden("invalid order token"));
+    );
+
+    if !is_owner && !token_valid {
+        return Err(ApiError::forbidden("access denied"));
     }
 
     if order.status != "awaiting_payment" {
@@ -314,11 +366,27 @@ pub async fn cancel_order(
 
 pub async fn stream_order(
     Path(order_id): Path<Uuid>,
+    Extension(auth_user): Extension<crate::http::mw::AuthenticatedUser>,
     Query(query): Query<OrderTokenQuery>,
     State(state): State<HttpState>,
     ws: WebSocketUpgrade,
 ) -> Result<Response, ApiError> {
-    let order = authorize_order_access(&state, order_id, &query.token).await?;
+    let order = db::get_order_by_id(&state.pool, order_id)
+        .await
+        .map_err(internal_err)?
+        .ok_or_else(|| ApiError::not_found("order not found"))?;
+
+    let is_owner = order_matches_user(&order, &auth_user);
+    let token_valid = auth::verify_order_token_hash(
+        &state.order_token_hmac_secret,
+        &query.token,
+        &order.access_token_hash,
+    );
+
+    if !is_owner && !token_valid {
+        return Err(ApiError::forbidden("access denied"));
+    }
+
     let hub = state.ws_hub.clone();
     let initial_event = map_status_to_event(&order);
 
@@ -766,6 +834,10 @@ async fn probe_db_connectivity(pool: &PgPool) -> anyhow::Result<bool> {
         .fetch_one(pool)
         .await;
     Ok(ping.is_ok())
+}
+
+fn order_matches_user(order: &OrderRow, user: &crate::http::mw::AuthenticatedUser) -> bool {
+    order.user_id == Some(user.user_id)
 }
 
 async fn authorize_order_access(

@@ -69,6 +69,13 @@ pub struct AppConfig {
     pub signing_service_url: String,
     pub signing_service_hmac_secret: SecretString,
     pub rate_source_timeout_ms: u64,
+    pub jwt_secret: SecretString,
+    pub access_token_ttl_minutes: u16,
+    pub refresh_token_ttl_hours: u16,
+    pub brevo_api_key: Option<SecretString>,
+    pub brevo_sender_email: Option<String>,
+    pub brevo_sender_name: Option<String>,
+    pub app_base_url: String,
 }
 
 impl AppConfig {
@@ -179,6 +186,31 @@ impl AppConfig {
         if self.rate_source_timeout_ms == 0 {
             anyhow::bail!("RATE_SOURCE_TIMEOUT_MS must be greater than 0");
         }
+
+        ensure_non_empty_secret("JWT_SECRET", &self.jwt_secret)?;
+
+        if self.access_token_ttl_minutes == 0 {
+            anyhow::bail!("ACCESS_TOKEN_TTL_MINUTES must be greater than 0");
+        }
+        if self.refresh_token_ttl_hours == 0 {
+            anyhow::bail!("REFRESH_TOKEN_TTL_HOURS must be greater than 0");
+        }
+
+        if let Some(ref v) = self.brevo_api_key {
+            if v.expose_secret().trim().is_empty() { self.brevo_api_key = None; }
+        }
+        if let Some(ref v) = self.brevo_sender_email {
+            if v.trim().is_empty() { self.brevo_sender_email = None; }
+        }
+        if let Some(ref v) = self.brevo_sender_name {
+            if v.trim().is_empty() { self.brevo_sender_name = None; }
+        }
+
+        if self.brevo_api_key.is_some() && self.brevo_sender_email.is_none() {
+            anyhow::bail!("BREVO_SENDER_EMAIL is required when BREVO_API_KEY is set");
+        }
+
+        ensure_non_empty("APP_BASE_URL", &self.app_base_url)?;
 
         Ok(self)
     }

@@ -1,8 +1,15 @@
+use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
+use argon2::password_hash::SaltString;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use chrono::Utc;
 use hmac::{Hmac, Mac};
+use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, Algorithm};
+use rand::prelude::*;
 use secrecy::{ExposeSecret, SecretString};
+use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use subtle::ConstantTimeEq;
+use uuid::Uuid;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -30,6 +37,95 @@ pub fn hash_ip(secret: &SecretString, ip: &str) -> Result<String, String> {
     let mut mac = HmacSha256::new_from_slice(secret.expose_secret().as_bytes())
         .map_err(|_| String::from("invalid hmac key"))?;
     mac.update(normalized.as_bytes());
+    let digest = mac.finalize().into_bytes();
+    Ok(STANDARD.encode(digest))
+}
+
+pub fn hash_password(password: &str) -> Result<String, String> {
+    let mut rng = rand::rng();
+    let salt_bytes: Vec<u8> = (0..32).map(|_| rng.random_range(0u8..=255)).collect();
+    let salt_string = SaltString::from_b64(&STANDARD.encode(salt_bytes))
+        .map_err(|e| format!("salt encoding failed: {e}"))?;
+    let argon2 = Argon2::default();
+    let hash = argon2
+        .hash_password(password.as_bytes(), &salt_string)
+        .map_err(|e| format!("password hashing failed: {e}"))?;
+    Ok(hash.to_string())
+}
+
+pub fn verify_password(password: &str, hash: &str) -> Result<bool, String> {
+    let parsed = PasswordHash::new(hash).map_err(|e| format!("invalid password hash: {e}"))?;
+    Ok(Argon2::default()
+        .verify_password(password.as_bytes(), &parsed)
+        .is_ok())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AccessTokenClaims {
+    pub sub: String,
+    pub email: String,
+    pub csrf: String,
+    pub exp: i64,
+    pub iat: i64,
+}
+
+pub fn create_access_jwt(
+    user_id: Uuid,
+    email: &str,
+    csrf_token: &str,
+    secret: &SecretString,
+    ttl_minutes: i64,
+) -> Result<String, String> {
+    let now = Utc::now();
+    let claims = AccessTokenClaims {
+        sub: user_id.to_string(),
+        email: email.to_owned(),
+        csrf: csrf_token.to_owned(),
+        exp: now.timestamp() + (ttl_minutes * 60),
+        iat: now.timestamp(),
+    };
+
+    jsonwebtoken::encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(secret.expose_secret().as_bytes()),
+    )
+    .map_err(|e| format!("jwt encoding failed: {e}"))
+}
+
+pub fn verify_access_jwt(
+    token: &str,
+    secret: &SecretString,
+) -> Result<AccessTokenClaims, String> {
+    let mut validation = Validation::new(Algorithm::HS256);
+    validation.validate_exp = true;
+
+    let data = jsonwebtoken::decode::<AccessTokenClaims>(
+        token,
+        &DecodingKey::from_secret(secret.expose_secret().as_bytes()),
+        &validation,
+    )
+    .map_err(|e| format!("jwt verification failed: {e}"))?;
+
+    Ok(data.claims)
+}
+
+pub fn generate_csrf_token() -> String {
+    let mut rng = rand::rng();
+    let bytes: Vec<u8> = (0..32).map(|_| rng.random_range(0u8..=255)).collect();
+    STANDARD.encode(bytes)
+}
+
+pub fn generate_verification_token() -> String {
+    let mut rng = rand::rng();
+    let bytes: Vec<u8> = (0..48).map(|_| rng.random_range(0u8..=255)).collect();
+    STANDARD.encode(bytes)
+}
+
+pub fn hash_verification_token(token: &str) -> Result<String, String> {
+    let mut mac = HmacSha256::new_from_slice(b"zutility-email-token")
+        .map_err(|_| String::from("invalid hmac key"))?;
+    mac.update(token.as_bytes());
     let digest = mac.finalize().into_bytes();
     Ok(STANDARD.encode(digest))
 }

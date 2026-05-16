@@ -11,6 +11,7 @@ import { Mail, Lock, ArrowRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useAuthStore } from "@/store/auth"
+import { apiPostRaw } from "@/lib/api"
 import { toast } from "sonner"
 import dynamic from "next/dynamic"
 
@@ -26,7 +27,7 @@ type LoginFormValues = z.infer<typeof loginSchema>
 
 export default function LoginPage() {
   const router = useRouter()
-  const { login } = useAuthStore()
+  const { setUser } = useAuthStore()
   const [isLoading, setIsLoading] = React.useState(false)
 
   const {
@@ -40,18 +41,28 @@ export default function LoginPage() {
   const onSubmit = async (data: LoginFormValues) => {
     setIsLoading(true)
     try {
-      // Mock API call
-      // const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/auth/login`, { ... })
-      await new Promise(resolve => setTimeout(resolve, 1500))
-      
-      if (data.email === "test@example.com" && data.password === "password") {
-        login({ email: data.email, displayName: "Test User" }, "mock-jwt-token")
+      const res = await apiPostRaw("/api/v1/auth/login", {
+        email: data.email,
+        password: data.password,
+      })
+      if (res.ok) {
+        const result = await res.json()
+        setUser(result)
         toast.success("Welcome back!")
         router.push("/dashboard")
+      } else if (res.status === 403) {
+        const result = await res.json()
+        if (result.error === "email_not_verified") {
+          toast.error("Please verify your email first")
+          router.push(`/verify?email=${encodeURIComponent(data.email)}`)
+        } else {
+          toast.error(result.error || "Access denied")
+        }
       } else {
-        toast.error("Invalid email or password. Try test@example.com / password")
+        const result = await res.json().catch(() => ({ error: "Login failed" }))
+        toast.error(result.error || "Invalid email or password")
       }
-    } catch (error) {
+    } catch {
       toast.error("An error occurred during login.")
     } finally {
       setIsLoading(false)
@@ -60,7 +71,6 @@ export default function LoginPage() {
 
   return (
     <div className="flex min-h-screen bg-bg-void text-text-primary">
-      {/* Left side - 3D & Branding (Hidden on mobile) */}
       <div className="hidden w-1/2 flex-col justify-between border-r border-border-subtle bg-bg-surface p-12 lg:flex relative overflow-hidden">
         <div className="absolute inset-0 z-0 opacity-30 pointer-events-none">
            <Canvas camera={{ position: [0, 0, 5], fov: 45 }}>
@@ -85,7 +95,6 @@ export default function LoginPage() {
         </div>
       </div>
 
-      {/* Right side - Form */}
       <div className="flex w-full flex-col justify-center px-8 sm:px-16 lg:w-1/2 xl:px-24">
         <div className="mx-auto w-full max-w-sm">
           <div className="mb-10 lg:hidden">
@@ -127,7 +136,7 @@ export default function LoginPage() {
                   error={errors.password?.message}
                 />
                 <div className="flex justify-end pt-1">
-                  <Link href="#" className="text-xs text-text-muted hover:text-text-primary transition-colors">
+                  <Link href="/forgot-password" className="text-xs text-text-muted hover:text-text-primary transition-colors">
                     Forgot password?
                   </Link>
                 </div>

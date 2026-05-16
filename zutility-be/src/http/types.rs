@@ -95,6 +95,60 @@ pub struct UtilityValidateQuery {
     pub reference: String,
 }
 
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct RegisterRequest {
+    pub email: String,
+    pub display_name: Option<String>,
+    pub password: String,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct LoginRequest {
+    pub email: String,
+    pub password: String,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct VerifyEmailRequest {
+    pub token: String,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct ResendVerificationRequest {
+    pub email: String,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct ForgotPasswordRequest {
+    pub email: String,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct ResetPasswordRequest {
+    pub token: String,
+    pub password: String,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct AuthUserResponse {
+    pub id: Uuid,
+    pub email: String,
+    pub display_name: Option<String>,
+    pub email_verified: bool,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct OrderHistoryItem {
+    pub order_id: Uuid,
+    pub utility_slug: String,
+    pub utility_type: String,
+    pub amount_ngn: i64,
+    pub zec_amount: String,
+    pub status: String,
+    pub created_at: DateTime<Utc>,
+    pub completed_at: Option<DateTime<Utc>>,
+}
+
 #[derive(Debug, Clone)]
 pub struct OrderRecord {
     pub order_id: Uuid,

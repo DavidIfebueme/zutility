@@ -64,6 +64,7 @@ pub struct OrderRow {
     pub variation_code: Option<String>,
     pub provider: Option<String>,
     pub customer_name: Option<String>,
+    pub user_id: Option<Uuid>,
 }
 
 impl OrderRow {
@@ -363,7 +364,7 @@ pub async fn get_order_by_id(pool: &PgPool, order_id: Uuid) -> Result<Option<Ord
                 amount_ngn, deposit_address, address_type, zec_amount, zec_rate_id,
                 txid, confirmations, required_confs, total_received, created_at,
                 expires_at, confirmed_at, completed_at, vtpass_request_id,
-                delivery_token, ip_hash, metadata, variation_code, provider, customer_name
+                delivery_token, ip_hash, metadata, variation_code, provider, customer_name, user_id
          FROM orders WHERE id = $1",
     )
     .bind(order_id)
@@ -515,7 +516,7 @@ pub async fn list_active_orders(pool: &PgPool) -> Result<Vec<OrderRow>> {
                 amount_ngn, deposit_address, address_type, zec_amount, zec_rate_id,
                 txid, confirmations, required_confs, total_received, created_at,
                 expires_at, confirmed_at, completed_at, vtpass_request_id,
-                delivery_token, ip_hash, metadata, variation_code, provider, customer_name
+                delivery_token, ip_hash, metadata, variation_code, provider, customer_name, user_id
          FROM orders
          WHERE status IN ('awaiting_payment', 'payment_detected', 'payment_confirmed', 'utility_dispatching')
          ORDER BY created_at ASC",
@@ -532,7 +533,7 @@ pub async fn find_order_by_provider_reference(pool: &PgPool, reference: &str) ->
                 amount_ngn, deposit_address, address_type, zec_amount, zec_rate_id,
                 txid, confirmations, required_confs, total_received, created_at,
                 expires_at, confirmed_at, completed_at, vtpass_request_id,
-                delivery_token, ip_hash, metadata, variation_code, provider, customer_name
+                delivery_token, ip_hash, metadata, variation_code, provider, customer_name, user_id
          FROM orders
          WHERE vtpass_request_id = $1 AND status = 'utility_dispatching'",
     )
@@ -541,6 +542,287 @@ pub async fn find_order_by_provider_reference(pool: &PgPool, reference: &str) ->
     .await?;
 
     rows.into_iter().map(map_order_row).next().transpose()
+}
+
+#[derive(Debug, Clone)]
+pub struct UserRow {
+    pub id: Uuid,
+    pub email: String,
+    pub display_name: Option<String>,
+    pub password_hash: String,
+    pub email_verified: bool,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RefreshTokenRow {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct EmailTokenRow {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub token_hash: String,
+    pub token_type: String,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+    pub used_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+pub async fn create_user(
+    pool: &PgPool,
+    email: &str,
+    display_name: Option<&str>,
+    password_hash: &str,
+) -> Result<UserRow> {
+    let row = sqlx::query(
+        "INSERT INTO users (email, display_name, password_hash)
+         VALUES (LOWER($1), $2, $3)
+         RETURNING id, email, display_name, password_hash, email_verified, created_at, updated_at",
+    )
+    .bind(email)
+    .bind(display_name)
+    .bind(password_hash)
+    .fetch_one(pool)
+    .await?;
+
+    map_user_row(row)
+}
+
+pub async fn find_user_by_email(pool: &PgPool, email: &str) -> Result<Option<UserRow>> {
+    let row = sqlx::query(
+        "SELECT id, email, display_name, password_hash, email_verified, created_at, updated_at
+         FROM users WHERE LOWER(email) = LOWER($1)",
+    )
+    .bind(email)
+    .fetch_optional(pool)
+    .await?;
+
+    row.map(map_user_row).transpose()
+}
+
+pub async fn find_user_by_id(pool: &PgPool, id: Uuid) -> Result<Option<UserRow>> {
+    let row = sqlx::query(
+        "SELECT id, email, display_name, password_hash, email_verified, created_at, updated_at
+         FROM users WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await?;
+
+    row.map(map_user_row).transpose()
+}
+
+pub async fn update_user_password(pool: &PgPool, user_id: Uuid, password_hash: &str) -> Result<()> {
+    sqlx::query(
+        "UPDATE users SET password_hash = $2, updated_at = now() WHERE id = $1",
+    )
+    .bind(user_id)
+    .bind(password_hash)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn verify_user_email(pool: &PgPool, user_id: Uuid) -> Result<()> {
+    sqlx::query(
+        "UPDATE users SET email_verified = true, updated_at = now() WHERE id = $1",
+    )
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn create_refresh_token(
+    pool: &PgPool,
+    id: Uuid,
+    user_id: Uuid,
+    expires_at: chrono::DateTime<chrono::Utc>,
+    user_agent: Option<&str>,
+    ip_hash: Option<&str>,
+) -> Result<()> {
+    sqlx::query(
+        "INSERT INTO refresh_tokens (id, user_id, expires_at, user_agent, ip_hash)
+         VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(id)
+    .bind(user_id)
+    .bind(expires_at)
+    .bind(user_agent)
+    .bind(ip_hash)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn find_refresh_token(pool: &PgPool, id: Uuid) -> Result<Option<RefreshTokenRow>> {
+    let row = sqlx::query(
+        "SELECT id, user_id, expires_at, created_at, revoked_at
+         FROM refresh_tokens WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await?;
+
+    row.map(|r| Ok(RefreshTokenRow {
+        id: r.try_get("id")?,
+        user_id: r.try_get("user_id")?,
+        expires_at: r.try_get("expires_at")?,
+        created_at: r.try_get("created_at")?,
+        revoked_at: r.try_get("revoked_at")?,
+    }))
+    .transpose()
+}
+
+pub async fn revoke_refresh_token(pool: &PgPool, id: Uuid) -> Result<()> {
+    sqlx::query(
+        "UPDATE refresh_tokens SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL",
+    )
+    .bind(id)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn revoke_all_user_refresh_tokens(pool: &PgPool, user_id: Uuid) -> Result<()> {
+    sqlx::query(
+        "UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL",
+    )
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn create_email_token(
+    pool: &PgPool,
+    user_id: Uuid,
+    token_hash: &str,
+    token_type: &str,
+    expires_at: chrono::DateTime<chrono::Utc>,
+) -> Result<()> {
+    sqlx::query(
+        "INSERT INTO email_verification_tokens (user_id, token_hash, token_type, expires_at)
+         VALUES ($1, $2, $3, $4)",
+    )
+    .bind(user_id)
+    .bind(token_hash)
+    .bind(token_type)
+    .bind(expires_at)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn find_email_token_by_hash(
+    pool: &PgPool,
+    token_hash: &str,
+    token_type: &str,
+) -> Result<Option<EmailTokenRow>> {
+    let row = sqlx::query(
+        "SELECT id, user_id, token_hash, token_type, expires_at, used_at
+         FROM email_verification_tokens
+         WHERE token_hash = $1 AND token_type = $2 AND used_at IS NULL AND expires_at > now()",
+    )
+    .bind(token_hash)
+    .bind(token_type)
+    .fetch_optional(pool)
+    .await?;
+
+    row.map(|r| Ok(EmailTokenRow {
+        id: r.try_get("id")?,
+        user_id: r.try_get("user_id")?,
+        token_hash: r.try_get("token_hash")?,
+        token_type: r.try_get("token_type")?,
+        expires_at: r.try_get("expires_at")?,
+        used_at: r.try_get("used_at")?,
+    }))
+    .transpose()
+}
+
+pub async fn mark_email_token_used(pool: &PgPool, id: Uuid) -> Result<()> {
+    sqlx::query(
+        "UPDATE email_verification_tokens SET used_at = now() WHERE id = $1",
+    )
+    .bind(id)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn find_orders_by_user(
+    pool: &PgPool,
+    user_id: Uuid,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<OrderRow>> {
+    let rows = sqlx::query(
+        "SELECT id, status, access_token_hash, utility_type, utility_slug, service_ref,
+                amount_ngn, deposit_address, address_type, zec_amount, zec_rate_id,
+                txid, confirmations, required_confs, total_received, created_at,
+                expires_at, confirmed_at, completed_at, vtpass_request_id,
+                delivery_token, ip_hash, metadata, variation_code, provider, customer_name, user_id
+         FROM orders
+         WHERE user_id = $1
+         ORDER BY created_at DESC
+         LIMIT $2 OFFSET $3",
+    )
+    .bind(user_id)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool)
+    .await?;
+
+    rows.into_iter().map(map_order_row).collect()
+}
+
+pub async fn set_order_user_id(pool: &PgPool, order_id: Uuid, user_id: Uuid) -> Result<()> {
+    sqlx::query(
+        "UPDATE orders SET user_id = $2 WHERE id = $1 AND user_id IS NULL",
+    )
+    .bind(order_id)
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn set_order_user_id_tx(tx: &mut Transaction<'_, Postgres>, order_id: Uuid, user_id: Uuid) -> Result<()> {
+    sqlx::query(
+        "UPDATE orders SET user_id = $2 WHERE id = $1 AND user_id IS NULL",
+    )
+    .bind(order_id)
+    .bind(user_id)
+    .execute(tx.as_mut())
+    .await?;
+
+    Ok(())
+}
+
+fn map_user_row(row: sqlx::postgres::PgRow) -> Result<UserRow> {
+    Ok(UserRow {
+        id: row.try_get("id")?,
+        email: row.try_get("email")?,
+        display_name: row.try_get("display_name")?,
+        password_hash: row.try_get("password_hash")?,
+        email_verified: row.try_get("email_verified")?,
+        created_at: row.try_get("created_at")?,
+        updated_at: row.try_get("updated_at")?,
+    })
 }
 
 fn map_order_row(row: sqlx::postgres::PgRow) -> Result<OrderRow> {
@@ -571,5 +853,6 @@ fn map_order_row(row: sqlx::postgres::PgRow) -> Result<OrderRow> {
         variation_code: row.try_get("variation_code")?,
         provider: row.try_get("provider")?,
         customer_name: row.try_get("customer_name")?,
+        user_id: row.try_get("user_id")?,
     })
 }
