@@ -137,11 +137,16 @@ fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool
                 ])
                 .allow_credentials(true)
                 .expose_headers([HeaderName::from_str("x-request-id").expect("valid header name")]);
-            if let Ok(origin) = app_base_url.parse::<HeaderValue>() {
-                cors.allow_origin(origin)
-            } else {
-                cors.allow_origin(Any)
-            }
+            let allowed_origins = [
+                app_base_url.clone(),
+                app_base_url.replace("https://", "https://www."),
+                app_base_url.replace("http://", "http://www."),
+            ];
+            let origins: Vec<HeaderValue> = allowed_origins
+                .iter()
+                .filter_map(|o| o.parse::<HeaderValue>().ok())
+                .collect();
+            cors.allow_origin(origins)
         })
         .layer(PropagateRequestIdLayer::new(HeaderName::from_static(
             "x-request-id",
