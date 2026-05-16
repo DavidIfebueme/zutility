@@ -126,3 +126,21 @@ pub fn hash_verification_token(token: &str) -> Result<String, String> {
     let digest = mac.finalize().into_bytes();
     Ok(STANDARD.encode(digest))
 }
+
+pub fn is_valid_email(email: &str) -> bool {
+    if email.is_empty() {
+        return false;
+    }
+    let parts: Vec<&str> = email.rsplitn(2, '@').collect();
+    if parts.len() != 2 {
+        return false;
+    }
+    let (domain, local) = (parts[0], parts[1]);
+    if local.is_empty() || domain.is_empty() {
+        return false;
+    }
+    if !domain.contains('.') || domain.starts_with('.') || domain.ends_with('.') {
+        return false;
+    }
+    true
+}

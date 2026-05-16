@@ -166,7 +166,7 @@ pub async fn register(
     Json(payload): Json<RegisterRequest>,
 ) -> Result<Response, ApiError> {
     let email = payload.email.trim().to_lowercase();
-    if email.is_empty() || !email.contains('@') {
+    if !auth::is_valid_email(&email) {
         return Err(ApiError::bad_request("invalid email address"));
     }
     if payload.password.len() < 8 {

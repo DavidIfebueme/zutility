@@ -19,6 +19,13 @@ use crate::{
     },
 };
 
+fn validate_email(email: &str) -> Result<(), ApiError> {
+    if !auth::is_valid_email(email) {
+        return Err(ApiError::bad_request("valid email is required"));
+    }
+    Ok(())
+}
+
 fn internal_err(error: impl std::fmt::Display) -> ApiError {
     ApiError::internal(error.to_string())
 }
@@ -46,9 +53,7 @@ pub async fn waitlist_join(
     Json(payload): Json<WaitlistJoinRequest>,
 ) -> Result<Response, ApiError> {
     let email = payload.email.trim().to_lowercase();
-    if email.is_empty() || !email.contains('@') {
-        return Err(ApiError::bad_request("valid email is required"));
-    }
+    validate_email(&email)?;
 
     if let Some(existing) = db::find_waitlist_entry_by_email(&state.pool, &email)
         .await
@@ -196,6 +201,7 @@ pub async fn waitlist_resend(
     Json(payload): Json<WaitlistResendRequest>,
 ) -> Result<StatusCode, ApiError> {
     let email = payload.email.trim().to_lowercase();
+    validate_email(&email)?;
 
     let entry = db::find_waitlist_entry_by_email(&state.pool, &email)
         .await
