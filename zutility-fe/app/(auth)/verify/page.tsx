@@ -9,7 +9,7 @@ import { Mail, ArrowRight, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { useAuthStore } from "@/store/auth"
-import { apiPost, apiPostRaw } from "@/lib/api"
+import { apiGet, apiPost, apiPostRaw } from "@/lib/api"
 import { toast } from "sonner"
 
 function VerifyContent() {
@@ -54,7 +54,7 @@ function VerifyContent() {
     let isMounted = true
     const pollInterval = setInterval(async () => {
       try {
-        const result = await apiPost<{ email_verified: boolean }>("/api/v1/auth/me", {}).catch(() => null)
+        const result = await apiGet<{ email_verified: boolean }>("/api/v1/auth/me").catch(() => null)
         if (result && result.email_verified && isMounted) {
           clearInterval(pollInterval)
           setVerified(true)
