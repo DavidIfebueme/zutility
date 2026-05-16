@@ -170,3 +170,44 @@ pub struct OrderRecord {
     pub provider: Option<String>,
     pub customer_name: Option<String>,
 }
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct WaitlistJoinRequest {
+    pub email: String,
+    pub display_name: Option<String>,
+    pub ref_code: Option<String>,
+    pub utm_source: Option<String>,
+    pub utm_medium: Option<String>,
+    pub utm_campaign: Option<String>,
+    pub utm_content: Option<String>,
+    pub utm_term: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct WaitlistVerifyRequest {
+    pub token: String,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct WaitlistResendRequest {
+    pub email: String,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct WaitlistJoinResponse {
+    pub referral_code: String,
+    pub position: i64,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct WaitlistVerifyResponse {
+    pub email: String,
+    pub position: i64,
+    pub referral_code: String,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct WaitlistStatsResponse {
+    pub total: i64,
+    pub verified: i64,
+}

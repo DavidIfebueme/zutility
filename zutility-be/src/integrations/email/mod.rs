@@ -61,6 +61,25 @@ impl EmailClient {
         self.send(to, "Reset your password — zutility", &html).await
     }
 
+    pub async fn send_waitlist_verification_email(&self, to: &str, verification_link: &str) -> Result<()> {
+        let html = format!(
+            r#"<html><body style="font-family:system-ui,sans-serif;max-width:480px;margin:0 auto;padding:24px;background:#0a0a0a;color:#fafafa">
+  <div style="border:1px solid #262626;border-radius:12px;padding:32px;background:#141414">
+    <h1 style="font-size:24px;margin:0 0 8px;color:#fafafa">You're on the list!</h1>
+    <p style="color:#a3a3a3;margin:0 0 24px">Thanks for joining the <span style="color:#f4b731">z</span>utility waitlist. Confirm your email to secure your spot.</p>
+    <a href="{verification_link}" style="display:inline-block;background:#f4b731;color:#0a0a0a;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;font-size:16px">Confirm Email</a>
+    <p style="color:#a3a3a3;font-size:14px;margin:24px 0 0">If the button doesn't work, copy and paste this link into your browser:</p>
+    <p style="color:#f4b731;font-size:13px;word-break:break-all;margin:8px 0 0">{verification_link}</p>
+    <p style="color:#737373;font-size:13px;margin:24px 0 0">If you didn't sign up for the waitlist, you can ignore this email.</p>
+    <hr style="border:none;border-top:1px solid #262626;margin:24px 0" />
+    <p style="color:#525252;font-size:12px;margin:0">This link expires in 24 hours.</p>
+  </div>
+</body></html>"#
+        );
+
+        self.send(to, "Confirm your email — zutility waitlist", &html).await
+    }
+
     async fn send(&self, to: &str, subject: &str, html_content: &str) -> Result<()> {
         let payload = json!({
             "sender": {

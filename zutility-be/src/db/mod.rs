@@ -856,3 +856,213 @@ fn map_order_row(row: sqlx::postgres::PgRow) -> Result<OrderRow> {
         user_id: row.try_get("user_id")?,
     })
 }
+
+#[derive(Debug, Clone)]
+pub struct WaitlistEntryRow {
+    pub id: Uuid,
+    pub email: String,
+    pub display_name: Option<String>,
+    pub email_verified: bool,
+    pub referral_code: String,
+    pub referred_by: Option<String>,
+    pub ip_hash: Option<String>,
+    pub utm_source: Option<String>,
+    pub utm_medium: Option<String>,
+    pub utm_campaign: Option<String>,
+    pub utm_content: Option<String>,
+    pub utm_term: Option<String>,
+    pub verified_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+pub async fn create_waitlist_entry(
+    pool: &PgPool,
+    email: &str,
+    display_name: Option<&str>,
+    referral_code: &str,
+    referred_by: Option<&str>,
+    ip_hash: Option<&str>,
+    utm_source: Option<&str>,
+    utm_medium: Option<&str>,
+    utm_campaign: Option<&str>,
+    utm_content: Option<&str>,
+    utm_term: Option<&str>,
+) -> Result<WaitlistEntryRow> {
+    let row = sqlx::query(
+        "INSERT INTO waitlist_entries (email, display_name, referral_code, referred_by, ip_hash, utm_source, utm_medium, utm_campaign, utm_content, utm_term)
+         VALUES (LOWER($1), $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         RETURNING id, email, display_name, email_verified, referral_code, referred_by, ip_hash, utm_source, utm_medium, utm_campaign, utm_content, utm_term, verified_at, created_at",
+    )
+    .bind(email)
+    .bind(display_name)
+    .bind(referral_code)
+    .bind(referred_by)
+    .bind(ip_hash)
+    .bind(utm_source)
+    .bind(utm_medium)
+    .bind(utm_campaign)
+    .bind(utm_content)
+    .bind(utm_term)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(WaitlistEntryRow {
+        id: row.try_get("id")?,
+        email: row.try_get("email")?,
+        display_name: row.try_get("display_name")?,
+        email_verified: row.try_get("email_verified")?,
+        referral_code: row.try_get("referral_code")?,
+        referred_by: row.try_get("referred_by")?,
+        ip_hash: row.try_get("ip_hash")?,
+        utm_source: row.try_get("utm_source")?,
+        utm_medium: row.try_get("utm_medium")?,
+        utm_campaign: row.try_get("utm_campaign")?,
+        utm_content: row.try_get("utm_content")?,
+        utm_term: row.try_get("utm_term")?,
+        verified_at: row.try_get("verified_at")?,
+        created_at: row.try_get("created_at")?,
+    })
+}
+
+pub async fn find_waitlist_entry_by_email(pool: &PgPool, email: &str) -> Result<Option<WaitlistEntryRow>> {
+    let row = sqlx::query(
+        "SELECT id, email, display_name, email_verified, referral_code, referred_by, ip_hash, utm_source, utm_medium, utm_campaign, utm_content, utm_term, verified_at, created_at
+         FROM waitlist_entries WHERE LOWER(email) = LOWER($1)",
+    )
+    .bind(email)
+    .fetch_optional(pool)
+    .await?;
+
+    row.map(|r| Ok(WaitlistEntryRow {
+        id: r.try_get("id")?,
+        email: r.try_get("email")?,
+        display_name: r.try_get("display_name")?,
+        email_verified: r.try_get("email_verified")?,
+        referral_code: r.try_get("referral_code")?,
+        referred_by: r.try_get("referred_by")?,
+        ip_hash: r.try_get("ip_hash")?,
+        utm_source: r.try_get("utm_source")?,
+        utm_medium: r.try_get("utm_medium")?,
+        utm_campaign: r.try_get("utm_campaign")?,
+        utm_content: r.try_get("utm_content")?,
+        utm_term: r.try_get("utm_term")?,
+        verified_at: r.try_get("verified_at")?,
+        created_at: r.try_get("created_at")?,
+    })).transpose()
+}
+
+pub async fn find_waitlist_entry_by_referral_code(pool: &PgPool, code: &str) -> Result<Option<WaitlistEntryRow>> {
+    let row = sqlx::query(
+        "SELECT id, email, display_name, email_verified, referral_code, referred_by, ip_hash, utm_source, utm_medium, utm_campaign, utm_content, utm_term, verified_at, created_at
+         FROM waitlist_entries WHERE referral_code = $1",
+    )
+    .bind(code)
+    .fetch_optional(pool)
+    .await?;
+
+    row.map(|r| Ok(WaitlistEntryRow {
+        id: r.try_get("id")?,
+        email: r.try_get("email")?,
+        display_name: r.try_get("display_name")?,
+        email_verified: r.try_get("email_verified")?,
+        referral_code: r.try_get("referral_code")?,
+        referred_by: r.try_get("referred_by")?,
+        ip_hash: r.try_get("ip_hash")?,
+        utm_source: r.try_get("utm_source")?,
+        utm_medium: r.try_get("utm_medium")?,
+        utm_campaign: r.try_get("utm_campaign")?,
+        utm_content: r.try_get("utm_content")?,
+        utm_term: r.try_get("utm_term")?,
+        verified_at: r.try_get("verified_at")?,
+        created_at: r.try_get("created_at")?,
+    })).transpose()
+}
+
+pub async fn verify_waitlist_email(pool: &PgPool, entry_id: Uuid) -> Result<()> {
+    sqlx::query(
+        "UPDATE waitlist_entries SET email_verified = true, verified_at = now() WHERE id = $1",
+    )
+    .bind(entry_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn get_waitlist_position(pool: &PgPool, entry_id: Uuid) -> Result<i64> {
+    let row = sqlx::query(
+        "SELECT COUNT(*) AS pos FROM waitlist_entries WHERE created_at <= (SELECT created_at FROM waitlist_entries WHERE id = $1)",
+    )
+    .bind(entry_id)
+    .fetch_one(pool)
+    .await?;
+    Ok(row.try_get("pos")?)
+}
+
+pub async fn count_waitlist_entries(pool: &PgPool) -> Result<(i64, i64)> {
+    let row = sqlx::query(
+        "SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE email_verified) AS verified FROM waitlist_entries",
+    )
+    .fetch_one(pool)
+    .await?;
+    Ok((row.try_get("total")?, row.try_get("verified")?))
+}
+
+pub async fn create_waitlist_verify_token(
+    pool: &PgPool,
+    entry_id: Uuid,
+    token_hash: &str,
+    expires_at: chrono::DateTime<chrono::Utc>,
+) -> Result<()> {
+    sqlx::query(
+        "INSERT INTO waitlist_verify_tokens (entry_id, token_hash, expires_at) VALUES ($1, $2, $3)",
+    )
+    .bind(entry_id)
+    .bind(token_hash)
+    .bind(expires_at)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub struct WaitlistVerifyTokenRow {
+    pub id: Uuid,
+    pub entry_id: Uuid,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+    pub used_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+pub async fn find_waitlist_verify_token(pool: &PgPool, token_hash: &str) -> Result<Option<WaitlistVerifyTokenRow>> {
+    let row = sqlx::query(
+        "SELECT id, entry_id, expires_at, used_at FROM waitlist_verify_tokens WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now()",
+    )
+    .bind(token_hash)
+    .fetch_optional(pool)
+    .await?;
+
+    row.map(|r| Ok(WaitlistVerifyTokenRow {
+        id: r.try_get("id")?,
+        entry_id: r.try_get("entry_id")?,
+        expires_at: r.try_get("expires_at")?,
+        used_at: r.try_get("used_at")?,
+    })).transpose()
+}
+
+pub async fn mark_waitlist_verify_token_used(pool: &PgPool, token_id: Uuid) -> Result<()> {
+    sqlx::query(
+        "UPDATE waitlist_verify_tokens SET used_at = now() WHERE id = $1",
+    )
+    .bind(token_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn referral_code_exists(pool: &PgPool, code: &str) -> Result<bool> {
+    let row = sqlx::query(
+        "SELECT EXISTS(SELECT 1 FROM waitlist_entries WHERE referral_code = $1) AS exists",
+    )
+    .bind(code)
+    .fetch_one(pool)
+    .await?;
+    Ok(row.try_get("exists")?)
+}

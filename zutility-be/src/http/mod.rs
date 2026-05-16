@@ -21,6 +21,7 @@ pub mod error;
 pub mod handlers;
 pub mod mw;
 pub mod types;
+pub mod waitlist_handlers;
 
 use crate::config::AppConfig;
 use crate::integrations::rates::SharedRateCache;
@@ -34,6 +35,7 @@ use handlers::{
     health_ready, list_utilities, list_utility_variations, metrics, stream_order,
     validate_utility_reference, webhook_inlomax, webhook_remita, webhook_vtpass,
 };
+use waitlist_handlers::{waitlist_join, waitlist_resend, waitlist_stats, waitlist_verify};
 
 pub async fn build_router(config: &AppConfig) -> Result<Router, anyhow::Error> {
     let pool = PgPool::connect(&config.database_url).await?;
@@ -104,6 +106,10 @@ fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool
         .route("/ops/docs", get(docs_ui))
         .route("/ops/metrics", get(metrics))
         .route("/ops/alerts", get(alerts))
+        .route("/api/v1/waitlist/join", post(waitlist_join))
+        .route("/api/v1/waitlist/verify", post(waitlist_verify))
+        .route("/api/v1/waitlist/resend", post(waitlist_resend))
+        .route("/api/v1/waitlist/stats", get(waitlist_stats))
         .with_state(state.clone());
 
     let protected_routes = Router::new()
