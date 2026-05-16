@@ -1,6 +1,6 @@
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use argon2::password_hash::{SaltString, rand_core::OsRng};
-use base64::{Engine as _, engine::general_purpose::STANDARD};
+use base64::{Engine as _, engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD}};
 use chrono::Utc;
 use hmac::{Hmac, Mac};
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, Algorithm};
@@ -110,13 +110,13 @@ pub fn verify_access_jwt(
 pub fn generate_csrf_token() -> String {
     let mut rng = rand::rng();
     let bytes: Vec<u8> = (0..32).map(|_| rng.random_range(0u8..=255)).collect();
-    STANDARD.encode(bytes)
+    URL_SAFE_NO_PAD.encode(bytes)
 }
 
 pub fn generate_verification_token() -> String {
     let mut rng = rand::rng();
     let bytes: Vec<u8> = (0..48).map(|_| rng.random_range(0u8..=255)).collect();
-    STANDARD.encode(bytes)
+    URL_SAFE_NO_PAD.encode(bytes)
 }
 
 pub fn hash_verification_token(token: &str) -> Result<String, String> {
