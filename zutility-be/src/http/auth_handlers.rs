@@ -161,10 +161,12 @@ async fn create_session(
 }
 
 pub async fn register(
-    State(state): State<HttpState>,
-    jar: CookieJar,
-    Json(payload): Json<RegisterRequest>,
+    State(_state): State<HttpState>,
+    _jar: CookieJar,
+    _payload: Json<RegisterRequest>,
 ) -> Result<Response, ApiError> {
+    return Err(ApiError::bad_request("registration is currently closed"));
+    /*
     let email = payload.email.trim().to_lowercase();
     if !auth::is_valid_email(&email) {
         return Err(ApiError::bad_request("invalid email address"));
@@ -234,6 +236,7 @@ pub async fn register(
     let jar = set_auth_cookies(jar, &access_jwt, &refresh_id.to_string(), &csrf_token, cookie_domain.as_deref());
 
     Ok(auth_created(jar, &user))
+    */
 }
 
 pub async fn login(
