@@ -211,3 +211,11 @@ pub struct WaitlistStatsResponse {
     pub total: i64,
     pub verified: i64,
 }
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct SupportRequest {
+    pub email: String,
+    pub name: String,
+    pub subject: String,
+    pub message: String,
+}

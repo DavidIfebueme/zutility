@@ -20,6 +20,7 @@ pub mod docs;
 pub mod error;
 pub mod handlers;
 pub mod mw;
+pub mod support_handlers;
 pub mod types;
 pub mod waitlist_handlers;
 
@@ -36,6 +37,7 @@ use handlers::{
     validate_utility_reference, webhook_inlomax, webhook_remita, webhook_vtpass,
 };
 use waitlist_handlers::{waitlist_join, waitlist_resend, waitlist_stats, waitlist_verify};
+use support_handlers::support_contact;
 
 pub async fn build_router(config: &AppConfig) -> Result<Router, anyhow::Error> {
     let pool = PgPool::connect(&config.database_url).await?;
@@ -110,6 +112,7 @@ fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool
         .route("/api/v1/waitlist/verify", post(waitlist_verify))
         .route("/api/v1/waitlist/resend", post(waitlist_resend))
         .route("/api/v1/waitlist/stats", get(waitlist_stats))
+        .route("/api/v1/support", post(support_contact))
         .with_state(state.clone());
 
     let protected_routes = Router::new()

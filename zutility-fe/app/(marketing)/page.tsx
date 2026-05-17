@@ -390,7 +390,7 @@ export default function LandingPage() {
           <div className="flex gap-6 text-sm font-medium text-text-secondary">
             <Link href="/how-it-works" className="hover:text-text-primary transition-colors">How it works</Link>
             <Link href="/login" className="hover:text-text-primary transition-colors">Login</Link>
-            <a href="#" className="hover:text-text-primary transition-colors">Support</a>
+            <Link href="/support" className="hover:text-text-primary transition-colors">Support</Link>
             <a href="#" className="hover:text-text-primary transition-colors">Terms</a>
           </div>
         </div>

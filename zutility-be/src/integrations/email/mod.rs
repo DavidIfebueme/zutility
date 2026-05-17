@@ -80,6 +80,26 @@ impl EmailClient {
         self.send(to, "Confirm your email — zutility waitlist", &html).await
     }
 
+    pub async fn send_support_email(&self, from_email: &str, from_name: &str, subject: &str, message: &str) -> Result<()> {
+        let html = format!(
+            r#"<html><body style="font-family:system-ui,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#0a0a0a;color:#fafafa">
+  <div style="border:1px solid #262626;border-radius:12px;padding:32px;background:#141414">
+    <h1 style="font-size:20px;margin:0 0 16px;color:#fafafa">New Support Request</h1>
+    <table style="width:100%;border-collapse:collapse;font-size:14px">
+      <tr><td style="padding:4px 0;color:#a3a3a3;width:80px">From</td><td style="padding:4px 0;color:#fafafa">{from_name} ({from_email})</td></tr>
+      <tr><td style="padding:4px 0;color:#a3a3a3">Subject</td><td style="padding:4px 0;color:#f4b731">{subject}</td></tr>
+    </table>
+    <hr style="border:none;border-top:1px solid #262626;margin:16px 0" />
+    <div style="color:#d4d4d4;font-size:14px;line-height:1.6;white-space:pre-wrap">{message}</div>
+    <hr style="border:none;border-top:1px solid #262626;margin:16px 0" />
+    <p style="color:#525252;font-size:12px;margin:0">Reply to {from_email} or respond via the zutility admin.</p>
+  </div>
+</body></html>"#
+        );
+
+        self.send(&self.sender_email, &format!("[Support] {subject}"), &html).await
+    }
+
     async fn send(&self, to: &str, subject: &str, html_content: &str) -> Result<()> {
         let payload = json!({
             "sender": {
