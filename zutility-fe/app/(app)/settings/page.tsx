@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/modal"
 import { useAuthStore } from "@/store/auth"
 import { apiPost } from "@/lib/api"
+import { useCurrency } from "@/lib/hooks/useCurrency"
 import { CURRENCIES, type CurrencyCode } from "@/lib/currency"
 import { toast } from "sonner"
 
@@ -67,6 +68,7 @@ type DeleteAccountFormValues = z.infer<typeof deleteAccountSchema>
 export default function SettingsPage() {
   const router = useRouter()
   const { user, setUser, logout, preferredCurrency, setPreferredCurrency } = useAuthStore()
+  const activeCurrency = useCurrency()
 
   const [profileLoading, setProfileLoading] = React.useState(false)
   const [passwordLoading, setPasswordLoading] = React.useState(false)
@@ -321,16 +323,7 @@ export default function SettingsPage() {
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {(Object.keys(CURRENCIES) as CurrencyCode[]).map((code) => {
                   const currency = CURRENCIES[code]
-                  const isSelected = (preferredCurrency || (() => {
-                    try {
-                      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
-                      const map: Record<string, CurrencyCode> = {
-                        'Africa/Lagos': 'NGN', 'Africa/Nairobi': 'KES', 'Africa/Accra': 'GHS',
-                        'Africa/Johannesburg': 'ZAR', 'Africa/Cairo': 'EGP',
-                      }
-                      return map[tz] || 'USD'
-                    } catch { return 'USD' }
-                  })()) === code
+                  const isSelected = activeCurrency === code
                   return (
                     <button
                       key={code}

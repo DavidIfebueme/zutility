@@ -3,7 +3,8 @@
 import * as React from "react"
 import { cn } from "@/lib/utils"
 import { useRate } from "@/lib/hooks/useRate"
-import { detectCurrency, formatCurrency, convertFromNGN, CURRENCIES, type CurrencyCode, type FxRates } from "@/lib/currency"
+import { useCurrency } from "@/lib/hooks/useCurrency"
+import { formatCurrency, convertFromNGN, CURRENCIES, type FxRates } from "@/lib/currency"
 
 interface RateTickerProps extends React.HTMLAttributes<HTMLDivElement> {
   showChange?: boolean
@@ -12,7 +13,7 @@ interface RateTickerProps extends React.HTMLAttributes<HTMLDivElement> {
 export function RateTicker({ showChange = false, className, ...props }: RateTickerProps) {
   const { rate, isLoading, isError, lastUpdated } = useRate()
   const [isFresh, setIsFresh] = React.useState(false)
-  const [currency] = React.useState<CurrencyCode>(() => detectCurrency())
+  const currency = useCurrency()
 
   React.useEffect(() => {
     if (lastUpdated) {

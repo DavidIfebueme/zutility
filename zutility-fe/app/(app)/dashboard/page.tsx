@@ -10,9 +10,10 @@ import { Badge } from "@/components/ui/badge"
 import { useAuthStore } from "@/store/auth"
 import { useOrderStore } from "@/store/order"
 import { useRate } from "@/lib/hooks/useRate"
+import { useCurrency } from "@/lib/hooks/useCurrency"
 import { apiGet } from "@/lib/api"
 import { formatNGN, formatZEC } from "@/lib/utils"
-import { detectCurrency, formatCurrency, convertFromNGN, CURRENCIES, type CurrencyCode, type FxRates } from "@/lib/currency"
+import { formatCurrency, convertFromNGN, CURRENCIES, type FxRates } from "@/lib/currency"
 
 interface OrderHistoryItem {
   order_id: string
@@ -29,6 +30,7 @@ export default function DashboardPage() {
   const { user } = useAuthStore()
   const { activeOrder, status } = useOrderStore()
   const { rate } = useRate()
+  const currency = useCurrency()
   const [orders, setOrders] = React.useState<OrderHistoryItem[]>([])
   const [ordersLoading, setOrdersLoading] = React.useState(true)
 
@@ -229,12 +231,11 @@ export default function DashboardPage() {
                   <div className="text-3xl font-dela text-text-primary mb-2">
                     {rate ? formatCurrency(
                       (() => {
-                        const c = detectCurrency()
                         const fx: FxRates = { usd_ngn: parseFloat(rate.usd_ngn) || 1, usd_kes: parseFloat(rate.usd_kes) || 0, usd_ghs: parseFloat(rate.usd_ghs) || 0, usd_zar: parseFloat(rate.usd_zar) || 0, usd_egp: parseFloat(rate.usd_egp) || 0 }
-                        return c === 'NGN' ? parseFloat(rate.zec_ngn) : c === 'USD' ? parseFloat(rate.zec_usd) : convertFromNGN(parseFloat(rate.zec_ngn), c, fx)
+                        return currency === 'NGN' ? parseFloat(rate.zec_ngn) : currency === 'USD' ? parseFloat(rate.zec_usd) : convertFromNGN(parseFloat(rate.zec_ngn), currency, fx)
                       })(),
-                      detectCurrency()
-                    ) : `${CURRENCIES[detectCurrency()].symbol}---`}
+                      currency
+                    ) : `${CURRENCIES[currency].symbol}---`}
                   </div>
                   <div className="flex items-center gap-2 text-sm">
                     <span className="text-accent-green flex items-center gap-1 bg-accent-green/10 px-2 py-0.5 rounded">

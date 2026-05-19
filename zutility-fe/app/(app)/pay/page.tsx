@@ -17,11 +17,9 @@ import { useRate } from "@/lib/hooks/useRate"
 import { apiGet, apiPost } from "@/lib/api"
 import { CreateOrderResponse, UtilityVariationResponse, UtilityValidateResponse } from "@/lib/types"
 import { formatNGN } from "@/lib/utils"
-import { detectCurrency, formatCurrency, formatLocalAmount, convertFromNGN, CURRENCIES, type CurrencyCode, type FxRates } from "@/lib/currency"
+import { useCurrency } from "@/lib/hooks/useCurrency"
+import { formatCurrency, formatLocalAmount, convertFromNGN, CURRENCIES, type FxRates } from "@/lib/currency"
 import { toast } from "sonner"
-
-const LOCAL_CURRENCY = typeof window !== 'undefined' ? detectCurrency() : 'NGN'
-const LOCAL_SYMBOL = CURRENCIES[LOCAL_CURRENCY]?.symbol || '₦'
 
 const orderSchema = z.object({
   utilityId: z.string().min(1, "Please select a utility"),
@@ -50,6 +48,8 @@ export default function PayPage() {
   const router = useRouter()
   const { setActiveOrder } = useOrderStore()
   const { rate } = useRate()
+  const currency = useCurrency()
+  const currencySymbol = CURRENCIES[currency]?.symbol || '₦'
   const [isLoading, setIsLoading] = React.useState(false)
   const [activeCategory, setActiveCategory] = React.useState<UtilityType | 'school'>('airtime')
   const [variations, setVariations] = React.useState<UtilityVariationResponse[]>([])
@@ -311,7 +311,7 @@ export default function PayPage() {
                               {v.name}
                             </p>
                             {v.amount && (
-                              <p className="text-xs text-text-muted mt-0.5">{formatCurrency(v.amount, LOCAL_CURRENCY)}</p>
+                              <p className="text-xs text-text-muted mt-0.5">{formatCurrency(v.amount, currency)}</p>
                             )}
                           </div>
                         )
@@ -327,7 +327,7 @@ export default function PayPage() {
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-text-secondary">Amount</label>
                   <div className="relative">
-                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted font-medium">{LOCAL_SYMBOL}</span>
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted font-medium">{currencySymbol}</span>
                     <Input
                       type="number"
                       {...register("amountNgn", { valueAsNumber: true })}
@@ -348,7 +348,7 @@ export default function PayPage() {
                               : "border-border-subtle bg-bg-surface text-text-secondary hover:text-text-primary"
                           }`}
                         >
-                          {formatCurrency(amt, LOCAL_CURRENCY)}
+                          {formatCurrency(amt, currency)}
                         </button>
                       ))}
                     </div>
@@ -360,7 +360,7 @@ export default function PayPage() {
                 <div className="rounded-lg bg-bg-surface border border-border-subtle p-4">
                   <p className="text-sm text-text-secondary">Fixed Amount</p>
                   <p className="text-2xl font-dela text-text-primary mt-1">
-                    {formatCurrency(selectedUtility.fixedAmountKobo / 100, LOCAL_CURRENCY)}
+                    {formatCurrency(selectedUtility.fixedAmountKobo / 100, currency)}
                   </p>
                 </div>
               )}
