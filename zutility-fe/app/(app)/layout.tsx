@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import { motion, AnimatePresence } from "motion/react"
 import { 
   Home, 
@@ -31,23 +31,30 @@ const NAV_ITEMS = [
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
-  const { user, logout } = useAuthStore()
+  const router = useRouter()
+  const { user, isAuthenticated, logout } = useAuthStore()
   const { activeOrder } = useOrderStore()
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false)
 
-  // Close mobile menu on route change
   React.useEffect(() => {
     setIsMobileMenuOpen(false)
   }, [pathname])
+
+  React.useEffect(() => {
+    if (!isAuthenticated) {
+      router.push("/login")
+    }
+  }, [isAuthenticated, router])
 
   return (
     <div className="flex min-h-screen bg-bg-void text-text-primary">
       {/* Desktop Sidebar */}
       <aside className="hidden w-64 flex-col border-r border-border-subtle bg-bg-surface xl:flex">
-        <div className="flex h-16 items-center px-6">
+        <div className="flex h-16 items-center justify-between px-6">
           <Link href="/dashboard" className="font-dela text-xl tracking-tight">
             <span className="text-accent-zec">z</span>utility
           </Link>
+          <NotificationDropdown />
         </div>
         
         <div className="px-6 py-4 border-b border-border-subtle">
@@ -98,16 +105,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 {user?.email}
               </span>
             </div>
-            <div className="flex items-center gap-2">
-              <NotificationDropdown />
-              <button
-                onClick={logout}
-                className="text-text-muted hover:text-accent-red transition-colors"
-                aria-label="Logout"
-              >
-                <LogOut className="h-5 w-5" />
-              </button>
-            </div>
+            <button
+              onClick={logout}
+              className="text-text-muted hover:text-accent-red transition-colors"
+              aria-label="Logout"
+            >
+              <LogOut className="h-5 w-5" />
+            </button>
           </div>
         </div>
       </aside>
