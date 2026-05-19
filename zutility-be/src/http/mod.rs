@@ -28,8 +28,8 @@ pub mod waitlist_handlers;
 use crate::config::AppConfig;
 use crate::integrations::rates::SharedRateCache;
 use auth_handlers::{
-    forgot_password, get_me, get_order_history, login, logout, refresh, register,
-    resend_verification, reset_password, verify_email,
+    change_password, delete_account, forgot_password, get_me, get_order_history, login, logout,
+    refresh, register, resend_verification, reset_password, update_profile, verify_email,
 };
 use admin_handlers::wallet_balance;
 use docs::{docs_ui, openapi_json};
@@ -125,6 +125,9 @@ fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool
         .route("/api/v1/orders/{order_id}/cancel", post(cancel_order))
         .route("/api/v1/auth/logout", post(logout))
         .route("/api/v1/auth/me", get(get_me))
+        .route("/api/v1/auth/profile", post(update_profile))
+        .route("/api/v1/auth/change-password", post(change_password))
+        .route("/api/v1/auth/delete-account", post(delete_account))
         .route("/api/v1/orders/history", get(get_order_history))
         .with_state(state.clone())
         .layer(middleware::from_fn_with_state(

@@ -17,8 +17,9 @@ use crate::{
     http::handlers::HttpState,
     http::mw::AuthenticatedUser,
     http::types::{
-        AuthUserResponse, ForgotPasswordRequest, LoginRequest, OrderHistoryItem,
-        RegisterRequest, ResendVerificationRequest, ResetPasswordRequest, VerifyEmailRequest,
+        AuthUserResponse, ChangePasswordRequest, DeleteAccountRequest, ForgotPasswordRequest,
+        LoginRequest, OrderHistoryItem, RegisterRequest, ResendVerificationRequest,
+        ResetPasswordRequest, UpdateProfileRequest, VerifyEmailRequest,
     },
 };
 
@@ -545,4 +546,103 @@ pub async fn get_order_history(
         .collect();
 
     Ok(Json(items))
+}
+
+pub async fn update_profile(
+    State(state): State<HttpState>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Json(payload): Json<UpdateProfileRequest>,
+) -> Result<Json<AuthUserResponse>, ApiError> {
+    if let Some(ref name) = payload.display_name {
+        if name.trim().is_empty() {
+            return Err(ApiError::bad_request("display name cannot be empty"));
+        }
+        if name.len() > 100 {
+            return Err(ApiError::bad_request("display name must be 100 characters or less"));
+        }
+    }
+
+    let display_name = payload.display_name.as_deref().map(|n| n.trim());
+
+    db::update_user_display_name(&state.pool, user.user_id, display_name)
+        .await
+        .map_err(internal_err)?;
+
+    let db_user = db::find_user_by_id(&state.pool, user.user_id)
+        .await
+        .map_err(internal_err)?
+        .ok_or_else(|| ApiError::unauthorized("user not found"))?;
+
+    Ok(Json(user_to_response(&db_user)))
+}
+
+pub async fn change_password(
+    State(state): State<HttpState>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Json(payload): Json<ChangePasswordRequest>,
+) -> Result<StatusCode, ApiError> {
+    if payload.new_password.len() < 8 {
+        return Err(ApiError::bad_request("new password must be at least 8 characters"));
+    }
+
+    let db_user = db::find_user_by_id(&state.pool, user.user_id)
+        .await
+        .map_err(internal_err)?
+        .ok_or_else(|| ApiError::unauthorized("user not found"))?;
+
+    let valid = auth::verify_password(&payload.current_password, &db_user.password_hash)
+        .map_err(internal_err)?;
+
+    if !valid {
+        return Err(ApiError::bad_request("current password is incorrect"));
+    }
+
+    let new_hash = auth::hash_password(&payload.new_password).map_err(internal_err)?;
+
+    db::update_user_password(&state.pool, user.user_id, &new_hash)
+        .await
+        .map_err(internal_err)?;
+
+    db::revoke_all_user_refresh_tokens(&state.pool, user.user_id)
+        .await
+        .map_err(internal_err)?;
+
+    Ok(StatusCode::OK)
+}
+
+pub async fn delete_account(
+    State(state): State<HttpState>,
+    Extension(user): Extension<AuthenticatedUser>,
+    jar: CookieJar,
+    Json(payload): Json<DeleteAccountRequest>,
+) -> Result<Response, ApiError> {
+    let db_user = db::find_user_by_id(&state.pool, user.user_id)
+        .await
+        .map_err(internal_err)?
+        .ok_or_else(|| ApiError::unauthorized("user not found"))?;
+
+    let valid = auth::verify_password(&payload.password, &db_user.password_hash)
+        .map_err(internal_err)?;
+
+    if !valid {
+        return Err(ApiError::bad_request("password is incorrect"));
+    }
+
+    db::revoke_all_user_refresh_tokens(&state.pool, user.user_id)
+        .await
+        .map_err(internal_err)?;
+
+    db::soft_delete_user(&state.pool, user.user_id)
+        .await
+        .map_err(internal_err)?;
+
+    let cookie_domain = cookie_domain_from_base_url(&state.app_base_url);
+    let jar = clear_auth_cookies(jar, cookie_domain.as_deref());
+    let mut response = StatusCode::OK.into_response();
+    for cookie in jar.iter() {
+        if let Ok(val) = cookie.encoded().to_string().parse() {
+            response.headers_mut().append(axum::http::header::SET_COOKIE, val);
+        }
+    }
+    Ok(response)
 }

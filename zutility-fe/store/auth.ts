@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { apiPost } from '@/lib/api'
+import type { CurrencyCode } from '@/lib/currency'
 
 export interface AuthUser {
   id: string
@@ -12,8 +13,10 @@ export interface AuthUser {
 interface AuthState {
   user: AuthUser | null
   isAuthenticated: boolean
+  preferredCurrency: CurrencyCode | null
   setUser: (user: AuthUser) => void
   logout: () => void
+  setPreferredCurrency: (currency: CurrencyCode) => void
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -21,15 +24,21 @@ export const useAuthStore = create<AuthState>()(
     (set) => ({
       user: null,
       isAuthenticated: false,
+      preferredCurrency: null,
       setUser: (user: AuthUser) => set({ user, isAuthenticated: true }),
       logout: () => {
         apiPost('/api/v1/auth/logout', {}).catch(() => {})
         set({ user: null, isAuthenticated: false })
       },
+      setPreferredCurrency: (currency: CurrencyCode) => set({ preferredCurrency: currency }),
     }),
     {
       name: 'zutility-auth',
-      partialize: (state) => ({ user: state.user, isAuthenticated: state.isAuthenticated }),
+      partialize: (state) => ({
+        user: state.user,
+        isAuthenticated: state.isAuthenticated,
+        preferredCurrency: state.preferredCurrency,
+      }),
     }
   )
 )

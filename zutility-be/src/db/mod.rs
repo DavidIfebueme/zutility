@@ -553,6 +553,7 @@ pub struct UserRow {
     pub email_verified: bool,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub deleted_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Debug, Clone)]
@@ -583,7 +584,7 @@ pub async fn create_user(
     let row = sqlx::query(
         "INSERT INTO users (email, display_name, password_hash)
          VALUES (LOWER($1), $2, $3)
-         RETURNING id, email, display_name, password_hash, email_verified, created_at, updated_at",
+         RETURNING id, email, display_name, password_hash, email_verified, created_at, updated_at, deleted_at",
     )
     .bind(email)
     .bind(display_name)
@@ -596,8 +597,8 @@ pub async fn create_user(
 
 pub async fn find_user_by_email(pool: &PgPool, email: &str) -> Result<Option<UserRow>> {
     let row = sqlx::query(
-        "SELECT id, email, display_name, password_hash, email_verified, created_at, updated_at
-         FROM users WHERE LOWER(email) = LOWER($1)",
+        "SELECT id, email, display_name, password_hash, email_verified, created_at, updated_at, deleted_at
+         FROM users WHERE LOWER(email) = LOWER($1) AND deleted_at IS NULL",
     )
     .bind(email)
     .fetch_optional(pool)
@@ -608,8 +609,8 @@ pub async fn find_user_by_email(pool: &PgPool, email: &str) -> Result<Option<Use
 
 pub async fn find_user_by_id(pool: &PgPool, id: Uuid) -> Result<Option<UserRow>> {
     let row = sqlx::query(
-        "SELECT id, email, display_name, password_hash, email_verified, created_at, updated_at
-         FROM users WHERE id = $1",
+        "SELECT id, email, display_name, password_hash, email_verified, created_at, updated_at, deleted_at
+         FROM users WHERE id = $1 AND deleted_at IS NULL",
     )
     .bind(id)
     .fetch_optional(pool)
@@ -620,10 +621,33 @@ pub async fn find_user_by_id(pool: &PgPool, id: Uuid) -> Result<Option<UserRow>>
 
 pub async fn update_user_password(pool: &PgPool, user_id: Uuid, password_hash: &str) -> Result<()> {
     sqlx::query(
-        "UPDATE users SET password_hash = $2, updated_at = now() WHERE id = $1",
+        "UPDATE users SET password_hash = $2, updated_at = now() WHERE id = $1 AND deleted_at IS NULL",
     )
     .bind(user_id)
     .bind(password_hash)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn update_user_display_name(pool: &PgPool, user_id: Uuid, display_name: Option<&str>) -> Result<()> {
+    sqlx::query(
+        "UPDATE users SET display_name = $2, updated_at = now() WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind(user_id)
+    .bind(display_name)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn soft_delete_user(pool: &PgPool, user_id: Uuid) -> Result<()> {
+    sqlx::query(
+        "UPDATE users SET deleted_at = now(), updated_at = now(), email = email || '.' || gen_random_uuid()::text WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind(user_id)
     .execute(pool)
     .await?;
 
@@ -822,6 +846,7 @@ fn map_user_row(row: sqlx::postgres::PgRow) -> Result<UserRow> {
         email_verified: row.try_get("email_verified")?,
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
+        deleted_at: row.try_get("deleted_at")?,
     })
 }
 

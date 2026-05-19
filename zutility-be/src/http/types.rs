@@ -219,3 +219,19 @@ pub struct SupportRequest {
     pub subject: String,
     pub message: String,
 }
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct UpdateProfileRequest {
+    pub display_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct ChangePasswordRequest {
+    pub current_password: String,
+    pub new_password: String,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct DeleteAccountRequest {
+    pub password: String,
+}
