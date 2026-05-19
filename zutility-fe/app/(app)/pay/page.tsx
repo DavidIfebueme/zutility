@@ -18,7 +18,7 @@ import { apiGet, apiPost } from "@/lib/api"
 import { CreateOrderResponse, UtilityVariationResponse, UtilityValidateResponse } from "@/lib/types"
 import { formatNGN } from "@/lib/utils"
 import { useCurrency } from "@/lib/hooks/useCurrency"
-import { formatCurrency, formatLocalAmount, convertFromNGN, CURRENCIES, type FxRates } from "@/lib/currency"
+import { formatCurrency, formatLocalAmount, convertFromNGN, convertToNGN, CURRENCIES, type FxRates } from "@/lib/currency"
 import { toast } from "sonner"
 
 const orderSchema = z.object({
@@ -56,6 +56,25 @@ export default function PayPage() {
   const [loadingVariations, setLoadingVariations] = React.useState(false)
   const [validating, setValidating] = React.useState(false)
   const [validated, setValidated] = React.useState<{ valid: boolean; customer_name: string | null } | null>(null)
+  const [displayAmount, setDisplayAmount] = React.useState<string>("1000")
+
+  const fxRates: FxRates | null = rate ? {
+    usd_ngn: parseFloat(rate.usd_ngn) || 1,
+    usd_kes: parseFloat(rate.usd_kes) || 0,
+    usd_ghs: parseFloat(rate.usd_ghs) || 0,
+    usd_zar: parseFloat(rate.usd_zar) || 0,
+    usd_egp: parseFloat(rate.usd_egp) || 0,
+  } : null
+
+  const ngnFromDisplay = React.useCallback((localAmount: number): number => {
+    if (!fxRates) return localAmount
+    return convertToNGN(localAmount, currency, fxRates)
+  }, [currency, fxRates])
+
+  const localFromNgn = React.useCallback((ngnAmount: number): number => {
+    if (!fxRates) return ngnAmount
+    return convertFromNGN(ngnAmount, currency, fxRates)
+  }, [currency, fxRates])
 
   const {
     register,
@@ -87,7 +106,7 @@ export default function PayPage() {
     if (selectedUtility.fixedAmountKobo) return selectedUtility.fixedAmountKobo / 100
     if (selectedUtility.hasVariations && variationCode) {
       const variation = variations.find(v => v.variation_code === variationCode)
-      if (variation?.amount) return variation.amount / 100
+      if (variation?.amount) return variation.amount
     }
     return amountNgn
   }, [selectedUtility, amountNgn, variationCode, variations])
@@ -98,6 +117,29 @@ export default function PayPage() {
     if (zecNgn <= 0) return "0.00000000"
     return (effectiveAmount / zecNgn).toFixed(8)
   }, [rate, effectiveAmount])
+
+  React.useEffect(() => {
+    if (currency === 'NGN' || !fxRates) {
+      setDisplayAmount(String(amountNgn))
+    } else {
+      setDisplayAmount(localFromNgn(amountNgn).toFixed(2))
+    }
+  }, [amountNgn, currency, fxRates, localFromNgn])
+
+  const handleDisplayAmountChange = React.useCallback((raw: string) => {
+    setDisplayAmount(raw)
+    const parsed = parseFloat(raw)
+    if (isNaN(parsed) || parsed <= 0) {
+      setValue("amountNgn", 0, { shouldValidate: true })
+      return
+    }
+    if (currency === 'NGN' || !fxRates) {
+      setValue("amountNgn", Math.round(parsed), { shouldValidate: true })
+    } else {
+      const ngn = ngnFromDisplay(parsed)
+      setValue("amountNgn", Math.round(ngn), { shouldValidate: true })
+    }
+  }, [currency, fxRates, ngnFromDisplay, setValue])
 
   React.useEffect(() => {
     setValidated(null)
@@ -299,7 +341,7 @@ export default function PayPage() {
                             key={v.variation_code}
                             onClick={() => {
                               setValue("variationCode", v.variation_code, { shouldValidate: true })
-                              if (v.amount) setValue("amountNgn", v.amount)
+                              if (v.amount) setValue("amountNgn", v.amount, { shouldValidate: true })
                             }}
                             className={`cursor-pointer rounded-lg border p-3 transition-all ${
                               isSelected
@@ -311,7 +353,7 @@ export default function PayPage() {
                               {v.name}
                             </p>
                             {v.amount && (
-                              <p className="text-xs text-text-muted mt-0.5">{formatCurrency(v.amount, currency)}</p>
+                              <p className="text-xs text-text-muted mt-0.5">{fxRates ? formatLocalAmount(v.amount, currency, fxRates) : formatCurrency(v.amount, 'NGN')}</p>
                             )}
                           </div>
                         )
@@ -330,7 +372,8 @@ export default function PayPage() {
                     <span className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted font-medium">{currencySymbol}</span>
                     <Input
                       type="number"
-                      {...register("amountNgn", { valueAsNumber: true })}
+                      value={displayAmount}
+                      onChange={(e) => handleDisplayAmountChange(e.target.value)}
                       className="pl-8"
                       error={errors.amountNgn?.message}
                     />
@@ -348,7 +391,7 @@ export default function PayPage() {
                               : "border-border-subtle bg-bg-surface text-text-secondary hover:text-text-primary"
                           }`}
                         >
-                          {formatCurrency(amt, currency)}
+                          {fxRates ? formatLocalAmount(amt, currency, fxRates) : formatCurrency(amt, 'NGN')}
                         </button>
                       ))}
                     </div>
@@ -360,7 +403,7 @@ export default function PayPage() {
                 <div className="rounded-lg bg-bg-surface border border-border-subtle p-4">
                   <p className="text-sm text-text-secondary">Fixed Amount</p>
                   <p className="text-2xl font-dela text-text-primary mt-1">
-                    {formatCurrency(selectedUtility.fixedAmountKobo / 100, currency)}
+                    {fxRates ? formatLocalAmount(selectedUtility.fixedAmountKobo / 100, currency, fxRates) : formatCurrency(selectedUtility.fixedAmountKobo / 100, 'NGN')}
                   </p>
                 </div>
               )}
@@ -430,6 +473,11 @@ export default function PayPage() {
                     <span className="text-3xl font-dela text-accent-zec">{estimatedZec}</span>
                     <span className="text-text-muted font-medium">ZEC</span>
                   </div>
+                  {currency !== 'NGN' && effectiveAmount > 0 && (
+                    <p className="text-xs text-text-muted mt-1">
+                      ≈ {formatCurrency(effectiveAmount, 'NGN')}
+                    </p>
+                  )}
                   <div className="flex items-center gap-1.5 text-xs text-text-muted mt-1">
                     <Info className="h-3.5 w-3.5" />
                     Rate locked for 15 minutes after creation

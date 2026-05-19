@@ -107,6 +107,20 @@ export function convertFromNGN(amountNGN: number, targetCurrency: CurrencyCode, 
   }
 }
 
+export function convertToNGN(amountLocal: number, fromCurrency: CurrencyCode, rates: FxRates): number {
+  if (fromCurrency === 'NGN') return amountLocal
+  let usdAmount: number
+  switch (fromCurrency) {
+    case 'KES': usdAmount = amountLocal / (rates.usd_kes || 1); break
+    case 'GHS': usdAmount = amountLocal / (rates.usd_ghs || 1); break
+    case 'ZAR': usdAmount = amountLocal / (rates.usd_zar || 1); break
+    case 'EGP': usdAmount = amountLocal / (rates.usd_egp || 1); break
+    case 'USD': usdAmount = amountLocal; break
+    default: return amountLocal
+  }
+  return usdAmount * (rates.usd_ngn || 1)
+}
+
 export function formatLocalAmount(amountNGN: number, currency: CurrencyCode, rates: FxRates): string {
   if (currency === 'NGN') return formatCurrency(amountNGN, 'NGN')
   const converted = convertFromNGN(amountNGN, currency, rates)
