@@ -11,7 +11,7 @@ use zingolib::wallet::summary::data::{SendType, TransactionKind};
 
 use super::{
     ZcashClient, BlockchainInfo, ReceivedNote, TransparentPaymentObservation,
-    ZATOSHI_PER_ZEC,
+    WalletBalanceInfo, ZATOSHI_PER_ZEC,
 };
 
 pub struct ZingoClient {
@@ -105,6 +105,33 @@ impl ZingoClient {
         }
 
         Ok(())
+    }
+
+    pub async fn get_wallet_balance(&self) -> Result<WalletBalanceInfo> {
+        let client = self.client.read().await;
+        let balance = client.account_balance(zip32::AccountId::ZERO).await
+            .map_err(|e| anyhow::anyhow!("account_balance failed: {e}"))?;
+        drop(client);
+
+        let transparent_zats = balance.total_transparent_balance
+            .as_ref()
+            .map(|z| z.into_u64())
+            .unwrap_or(0);
+        let shielded_zats = balance.total_orchard_balance
+            .as_ref()
+            .map(|z| z.into_u64())
+            .unwrap_or(0)
+            + balance.total_sapling_balance
+            .as_ref()
+            .map(|z| z.into_u64())
+            .unwrap_or(0);
+        let total_zats = transparent_zats + shielded_zats;
+
+        Ok(WalletBalanceInfo {
+            transparent: zatoshis_to_zec(transparent_zats).round_dp(8).to_string(),
+            shielded: zatoshis_to_zec(shielded_zats).round_dp(8).to_string(),
+            total: zatoshis_to_zec(total_zats).round_dp(8).to_string(),
+        })
     }
 
     async fn current_chain_tip(&self) -> u64 {
@@ -367,5 +394,9 @@ impl ZcashClient for ZingoClient {
         tracing::info!(matching_notes = notes.len(), "list_received_by_address results");
 
         Ok(notes)
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 }

@@ -76,6 +76,7 @@ pub struct AppConfig {
     pub brevo_sender_email: Option<String>,
     pub brevo_sender_name: Option<String>,
     pub app_base_url: String,
+    pub admin_secret: Option<SecretString>,
 }
 
 impl AppConfig {

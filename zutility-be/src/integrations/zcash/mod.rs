@@ -111,6 +111,13 @@ pub struct TransparentPaymentObservation {
     pub has_mempool_tx: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct WalletBalanceInfo {
+    pub transparent: String,
+    pub shielded: String,
+    pub total: String,
+}
+
 fn satoshis_to_zec(zat: u64) -> Decimal {
     Decimal::from(zat) / Decimal::from(ZATOSHI_PER_ZEC)
 }

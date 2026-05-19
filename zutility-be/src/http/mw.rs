@@ -5,7 +5,8 @@ use axum::{
     response::Response,
 };
 use axum_extra::extract::CookieJar;
-use secrecy::SecretString;
+use secrecy::{ExposeSecret, SecretString};
+use subtle::ConstantTimeEq;
 use uuid::Uuid;
 
 use super::auth;
@@ -67,6 +68,37 @@ pub async fn auth_middleware(
 
     let mut request = request;
     request.extensions_mut().insert(user);
+
+    Ok(next.run(request).await)
+}
+
+pub async fn admin_middleware(
+    State(admin_secret): State<Option<SecretString>>,
+    request: Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    let secret = admin_secret.ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+
+    let provided = request
+        .headers()
+        .get("x-admin-secret")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    let expected = secret.expose_secret();
+
+    if provided.is_empty() || expected.is_empty() {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+
+    let provided_bytes: &[u8] = provided.as_bytes();
+    let expected_bytes: &[u8] = expected.as_bytes();
+
+    if provided_bytes.len() != expected_bytes.len()
+        || !bool::from(provided_bytes.ct_eq(expected_bytes))
+    {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
 
     Ok(next.run(request).await)
 }

@@ -56,4 +56,8 @@ impl ZcashClient for ZcashRpcAdapter {
     ) -> Result<Vec<ReceivedNote>> {
         self.inner.list_received_by_address(address, min_confirmations).await
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }

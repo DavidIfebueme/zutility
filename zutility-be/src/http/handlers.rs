@@ -58,6 +58,7 @@ pub struct HttpState {
     pub refresh_token_ttl_hours: i64,
     pub email_client: Option<crate::integrations::email::EmailClient>,
     pub app_base_url: String,
+    pub admin_secret: Option<secrecy::SecretString>,
 }
 
 impl HttpState {
@@ -90,6 +91,7 @@ impl HttpState {
             refresh_token_ttl_hours,
             email_client: None,
             app_base_url,
+            admin_secret: None,
         }
     }
 
@@ -127,6 +129,13 @@ impl HttpState {
         } else {
             tracing::warn!("brevo email client not configured — verification emails will be logged instead");
         }
+
+        if config.admin_secret.is_some() {
+            tracing::info!("admin secret configured — admin endpoints enabled");
+        } else {
+            tracing::warn!("admin secret not configured — admin endpoints disabled");
+        }
+        self.admin_secret = config.admin_secret.clone();
 
         self
     }

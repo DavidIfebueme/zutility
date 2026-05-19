@@ -16,6 +16,7 @@ use tower_http::{
 
 pub mod auth;
 pub mod auth_handlers;
+pub mod admin_handlers;
 pub mod docs;
 pub mod error;
 pub mod handlers;
@@ -30,6 +31,7 @@ use auth_handlers::{
     forgot_password, get_me, get_order_history, login, logout, refresh, register,
     resend_verification, reset_password, verify_email,
 };
+use admin_handlers::wallet_balance;
 use docs::{docs_ui, openapi_json};
 use handlers::{
     HttpState, alerts, cancel_order, create_order, get_current_rate, get_order, health_live,
@@ -115,6 +117,7 @@ fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool
         .route("/api/v1/support", post(support_contact))
         .with_state(state.clone());
 
+    let admin_secret_for_mw = state.admin_secret.clone();
     let protected_routes = Router::new()
         .route("/api/v1/orders/create", post(create_order))
         .route("/api/v1/orders/{order_id}", get(get_order))
@@ -123,14 +126,23 @@ fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool
         .route("/api/v1/auth/logout", post(logout))
         .route("/api/v1/auth/me", get(get_me))
         .route("/api/v1/orders/history", get(get_order_history))
-        .with_state(state)
+        .with_state(state.clone())
         .layer(middleware::from_fn_with_state(
             jwt_secret_for_mw.clone(),
             mw::auth_middleware,
         ));
 
+    let admin_routes = Router::new()
+        .route("/ops/admin/wallet/balance", get(wallet_balance))
+        .with_state(state)
+        .layer(middleware::from_fn_with_state(
+            admin_secret_for_mw,
+            mw::admin_middleware,
+        ));
+
     let router = public_routes
         .merge(protected_routes)
+        .merge(admin_routes)
         .layer({
             let cors = CorsLayer::new()
                 .allow_methods([
@@ -223,6 +235,7 @@ pub fn router() -> Router {
         brevo_sender_email: None,
         brevo_sender_name: None,
         app_base_url: String::from("http://localhost:3000"),
+        admin_secret: Some(secrecy::SecretString::from(String::from("dev_admin_secret"))),
     };
 
     let rate_cache = crate::integrations::rates::new_shared_rate_cache(

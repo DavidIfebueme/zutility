@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use anyhow::Result;
 
-use super::{BlockchainInfo, ReceivedNote, TransparentPaymentObservation};
+use super::{BlockchainInfo, ReceivedNote, TransparentPaymentObservation, WalletBalanceInfo};
 
 #[async_trait]
 pub trait ZcashClient: Send + Sync {
@@ -28,4 +28,6 @@ pub trait ZcashClient: Send + Sync {
         min_confirmations: u64,
         since_timestamp: u32,
     ) -> Result<Vec<ReceivedNote>>;
+
+    fn as_any(&self) -> &dyn std::any::Any;
 }
