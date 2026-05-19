@@ -21,6 +21,7 @@ pub mod docs;
 pub mod error;
 pub mod handlers;
 pub mod mw;
+pub mod notification_handlers;
 pub mod support_handlers;
 pub mod types;
 pub mod waitlist_handlers;
@@ -32,6 +33,9 @@ use auth_handlers::{
     refresh, register, resend_verification, reset_password, update_profile, verify_email,
 };
 use admin_handlers::wallet_balance;
+use notification_handlers::{
+    get_unread_count, list_notifications, mark_all_notifications_read, mark_notification_read,
+};
 use docs::{docs_ui, openapi_json};
 use handlers::{
     HttpState, alerts, cancel_order, create_order, get_current_rate, get_order, health_live,
@@ -128,6 +132,10 @@ fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool
         .route("/api/v1/auth/profile", post(update_profile))
         .route("/api/v1/auth/change-password", post(change_password))
         .route("/api/v1/auth/delete-account", post(delete_account))
+        .route("/api/v1/notifications", get(list_notifications))
+        .route("/api/v1/notifications/unread-count", get(get_unread_count))
+        .route("/api/v1/notifications/{id}/read", post(mark_notification_read))
+        .route("/api/v1/notifications/mark-all-read", post(mark_all_notifications_read))
         .route("/api/v1/orders/history", get(get_order_history))
         .with_state(state.clone())
         .layer(middleware::from_fn_with_state(

@@ -12,12 +12,12 @@ import {
   History, 
   Settings, 
   LogOut,
-  Menu,
-  Bell
+  Menu
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAuthStore } from "@/store/auth"
 import { useOrderStore } from "@/store/order"
+import { NotificationDropdown } from "@/components/ui/notification-dropdown"
 import { RateTicker } from "@/components/ui/rate-ticker"
 
 const NAV_ITEMS = [
@@ -98,13 +98,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 {user?.email}
               </span>
             </div>
-            <button
-              onClick={logout}
-              className="text-text-muted hover:text-accent-red transition-colors"
-              aria-label="Logout"
-            >
-              <LogOut className="h-5 w-5" />
-            </button>
+            <div className="flex items-center gap-2">
+              <NotificationDropdown />
+              <button
+                onClick={logout}
+                className="text-text-muted hover:text-accent-red transition-colors"
+                aria-label="Logout"
+              >
+                <LogOut className="h-5 w-5" />
+              </button>
+            </div>
           </div>
         </div>
       </aside>
@@ -125,12 +128,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </div>
           <div className="flex items-center gap-4">
             <RateTicker className="hidden sm:flex" />
-            <button className="text-text-secondary hover:text-text-primary relative">
-              <Bell className="h-5 w-5" />
-              {activeOrder && (
-                <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-accent-zec" />
-              )}
-            </button>
+            <NotificationDropdown />
           </div>
         </header>
 

@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -234,4 +235,21 @@ pub struct ChangePasswordRequest {
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct DeleteAccountRequest {
     pub password: String,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct NotificationResponse {
+    pub id: Uuid,
+    pub order_id: Option<Uuid>,
+    pub r#type: String,
+    pub title: String,
+    pub body: String,
+    pub detail: Value,
+    pub read: bool,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct UnreadCountResponse {
+    pub count: i64,
 }

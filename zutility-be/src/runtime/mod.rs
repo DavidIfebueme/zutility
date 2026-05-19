@@ -157,6 +157,14 @@ async fn process_order(
             .ws_hub
             .broadcast_event(order.id, &WsOrderEvent::Expired)
             .await;
+        notify_order(
+            pool,
+            order,
+            "order_expired",
+            "Order Expired",
+            &format!("Your {} order has expired.", order.utility_slug),
+            serde_json::json!({ "utility_slug": order.utility_slug }),
+        );
         return Ok(());
     }
 
@@ -248,6 +256,14 @@ async fn detect_payment_and_progress(
             confirmations,
             required: u16::try_from(required_confs).unwrap_or(u16::MAX),
         });
+        notify_order(
+            pool,
+            order,
+            "payment_detected",
+            "Payment Detected",
+            &format!("We detected your ZEC payment for {}.", order.utility_slug),
+            serde_json::json!({ "utility_slug": order.utility_slug, "confirmations": confirmations }),
+        );
     }
 
     events.push(WsOrderEvent::Confirmation {
@@ -273,6 +289,14 @@ async fn detect_payment_and_progress(
             events.push(WsOrderEvent::Failed {
                 reason: String::from("underpaid_flagged"),
             });
+            notify_order(
+                pool,
+                order,
+                "order_flagged",
+                "Order Under Review",
+                &format!("Your {} payment is being reviewed due to an underpayment.", order.utility_slug),
+                serde_json::json!({ "utility_slug": order.utility_slug }),
+            );
         } else {
             db::update_order_status_cas(
                 pool,
@@ -286,6 +310,14 @@ async fn detect_payment_and_progress(
             )
             .await?;
             events.push(WsOrderEvent::PaymentConfirmed { confirmations });
+            notify_order(
+                pool,
+                order,
+                "payment_confirmed",
+                "Payment Confirmed",
+                &format!("Your payment for {} has been confirmed. Processing your order...", order.utility_slug),
+                serde_json::json!({ "utility_slug": order.utility_slug }),
+            );
         }
     }
 
@@ -316,6 +348,15 @@ async fn dispatch_utility(
         .ws_hub
         .broadcast_event(order.id, &WsOrderEvent::Dispatching)
         .await;
+
+    notify_order(
+        pool,
+        order,
+        "utility_dispatching",
+        "Processing Your Order",
+        &format!("We're sending your {} payment for processing.", order.utility_slug),
+        serde_json::json!({ "utility_slug": order.utility_slug }),
+    );
 
     let response = dispatcher
         .pay(
@@ -385,6 +426,30 @@ async fn requery_utility_dispatch(
     Ok(())
 }
 
+fn notify_order(
+    pool: &PgPool,
+    order: &db::OrderRow,
+    notification_type: &str,
+    title: &str,
+    body: &str,
+    detail: serde_json::Value,
+) {
+    let user_id = match order.user_id {
+        Some(uid) => uid,
+        None => return,
+    };
+    let pool = pool.clone();
+    let order_id = order.id;
+    let nt = notification_type.to_owned();
+    let t = title.to_owned();
+    let b = body.to_owned();
+    tokio::spawn(async move {
+        if let Err(e) = db::create_notification(&pool, user_id, Some(order_id), &nt, &t, &b, detail).await {
+            tracing::warn!(order_id = %order_id, error = %e, "failed to create notification");
+        }
+    });
+}
+
 async fn complete_order(
     state: &HttpState,
     pool: &PgPool,
@@ -407,6 +472,17 @@ async fn complete_order(
             },
         )
         .await;
+
+    if let Ok(Some(order)) = db::get_order_by_id(pool, order_id).await {
+        notify_order(
+            pool,
+            &order,
+            "order_completed",
+            "Order Completed",
+            &format!("Your {} payment was delivered successfully!", order.utility_slug),
+            serde_json::json!({ "utility_slug": order.utility_slug }),
+        );
+    }
 }
 
 async fn fail_order(state: &HttpState, pool: &PgPool, order_id: Uuid, reason: &str) {
@@ -424,6 +500,17 @@ async fn fail_order(state: &HttpState, pool: &PgPool, order_id: Uuid, reason: &s
             },
         )
         .await;
+
+    if let Ok(Some(order)) = db::get_order_by_id(pool, order_id).await {
+        notify_order(
+            pool,
+            &order,
+            "order_failed",
+            "Order Failed",
+            &format!("Your {} payment failed. Please contact support if needed.", order.utility_slug),
+            serde_json::json!({ "utility_slug": order.utility_slug, "reason": reason }),
+        );
+    }
 }
 
 fn start_address_pool_refill(state: HttpState, _config: AppConfig, pool: PgPool) {

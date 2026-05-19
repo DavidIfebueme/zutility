@@ -1091,3 +1091,108 @@ pub async fn referral_code_exists(pool: &PgPool, code: &str) -> Result<bool> {
     .await?;
     Ok(row.try_get("exists")?)
 }
+
+#[derive(Debug, Clone)]
+pub struct NotificationRow {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub order_id: Option<Uuid>,
+    pub notification_type: String,
+    pub title: String,
+    pub body: String,
+    pub detail: Value,
+    pub read_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+pub async fn create_notification(
+    pool: &PgPool,
+    user_id: Uuid,
+    order_id: Option<Uuid>,
+    notification_type: &str,
+    title: &str,
+    body: &str,
+    detail: Value,
+) -> Result<()> {
+    sqlx::query(
+        "INSERT INTO notifications (user_id, order_id, type, title, body, detail)
+         VALUES ($1, $2, $3, $4, $5, $6)",
+    )
+    .bind(user_id)
+    .bind(order_id)
+    .bind(notification_type)
+    .bind(title)
+    .bind(body)
+    .bind(detail)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn list_notifications(
+    pool: &PgPool,
+    user_id: Uuid,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<NotificationRow>> {
+    let rows = sqlx::query(
+        "SELECT id, user_id, order_id, type, title, body, detail, read_at, created_at
+         FROM notifications
+         WHERE user_id = $1
+         ORDER BY created_at DESC
+         LIMIT $2 OFFSET $3",
+    )
+    .bind(user_id)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool)
+    .await?;
+
+    rows.into_iter().map(map_notification_row).collect()
+}
+
+pub async fn count_unread_notifications(pool: &PgPool, user_id: Uuid) -> Result<i64> {
+    let row = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM notifications WHERE user_id = $1 AND read_at IS NULL",
+    )
+    .bind(user_id)
+    .fetch_one(pool)
+    .await?;
+    Ok(row)
+}
+
+pub async fn mark_notification_read(pool: &PgPool, id: Uuid, user_id: Uuid) -> Result<bool> {
+    let affected = sqlx::query(
+        "UPDATE notifications SET read_at = now() WHERE id = $1 AND user_id = $2 AND read_at IS NULL",
+    )
+    .bind(id)
+    .bind(user_id)
+    .execute(pool)
+    .await?
+    .rows_affected();
+    Ok(affected > 0)
+}
+
+pub async fn mark_all_notifications_read(pool: &PgPool, user_id: Uuid) -> Result<()> {
+    sqlx::query(
+        "UPDATE notifications SET read_at = now() WHERE user_id = $1 AND read_at IS NULL",
+    )
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+fn map_notification_row(row: sqlx::postgres::PgRow) -> Result<NotificationRow> {
+    Ok(NotificationRow {
+        id: row.try_get("id")?,
+        user_id: row.try_get("user_id")?,
+        order_id: row.try_get("order_id")?,
+        notification_type: row.try_get("type")?,
+        title: row.try_get("title")?,
+        body: row.try_get("body")?,
+        detail: row.try_get("detail")?,
+        read_at: row.try_get("read_at")?,
+        created_at: row.try_get("created_at")?,
+    })
+}
