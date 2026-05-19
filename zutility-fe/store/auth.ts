@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { apiPost } from '@/lib/api'
-import type { CurrencyCode } from '@/lib/currency'
+import { detectCurrency, type CurrencyCode } from '@/lib/currency'
 
 export interface AuthUser {
   id: string
@@ -21,11 +21,15 @@ interface AuthState {
 
 export const useAuthStore = create<AuthState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       user: null,
       isAuthenticated: false,
       preferredCurrency: null,
-      setUser: (user: AuthUser) => set({ user, isAuthenticated: true }),
+      setUser: (user: AuthUser) => set({
+        user,
+        isAuthenticated: true,
+        preferredCurrency: get().preferredCurrency || detectCurrency(),
+      }),
       logout: () => {
         apiPost('/api/v1/auth/logout', {}).catch(() => {})
         set({ user: null, isAuthenticated: false })
