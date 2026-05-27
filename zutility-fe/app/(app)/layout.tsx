@@ -30,7 +30,7 @@ const NAV_ITEMS = [
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
-  const { user, isAuthenticated, logout } = useAuthStore()
+  const { user, isAuthenticated, hasHydrated, logout } = useAuthStore()
   const { activeOrder } = useOrderStore()
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false)
 
@@ -39,10 +39,22 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }, [pathname])
 
   React.useEffect(() => {
-    if (!isAuthenticated) {
+    if (hasHydrated && !isAuthenticated) {
       router.push("/login")
     }
-  }, [isAuthenticated, router])
+  }, [hasHydrated, isAuthenticated, router])
+
+  if (!hasHydrated) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-bg-void">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-accent-zec border-t-transparent" />
+      </div>
+    )
+  }
+
+  if (!isAuthenticated) {
+    return null
+  }
 
   return (
     <div className="flex min-h-screen bg-bg-void text-text-primary">

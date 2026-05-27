@@ -14,9 +14,23 @@ interface AuthState {
   user: AuthUser | null
   isAuthenticated: boolean
   preferredCurrency: CurrencyCode | null
+  hasHydrated: boolean
   setUser: (user: AuthUser) => void
   logout: () => void
   setPreferredCurrency: (currency: CurrencyCode) => void
+  setHasHydrated: (v: boolean) => void
+}
+
+function clearAuthCookies() {
+  const domain = window.location.hostname.replace(/^www\./, '')
+  const paths = ['/', '/api', '/api/v1/auth/refresh']
+  const cookies = ['csrf_token', 'access_token', 'refresh_token']
+  for (const name of cookies) {
+    for (const path of paths) {
+      document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=${path}; domain=.${domain};`
+      document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=${path};`
+    }
+  }
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -25,6 +39,7 @@ export const useAuthStore = create<AuthState>()(
       user: null,
       isAuthenticated: false,
       preferredCurrency: null,
+      hasHydrated: false,
       setUser: (user: AuthUser) => set({
         user,
         isAuthenticated: true,
@@ -32,9 +47,11 @@ export const useAuthStore = create<AuthState>()(
       }),
       logout: () => {
         apiPost('/api/v1/auth/logout', {}).catch(() => {})
-        set({ user: null, isAuthenticated: false })
+        clearAuthCookies()
+        set({ user: null, isAuthenticated: false, preferredCurrency: null })
       },
       setPreferredCurrency: (currency: CurrencyCode) => set({ preferredCurrency: currency }),
+      setHasHydrated: (v: boolean) => set({ hasHydrated: v }),
     }),
     {
       name: 'zutility-auth',
@@ -43,6 +60,9 @@ export const useAuthStore = create<AuthState>()(
         isAuthenticated: state.isAuthenticated,
         preferredCurrency: state.preferredCurrency,
       }),
+      onRehydrateStorage: () => (state) => {
+        state?.setHasHydrated(true)
+      },
     }
   )
 )

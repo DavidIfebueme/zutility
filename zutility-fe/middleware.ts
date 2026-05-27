@@ -8,7 +8,7 @@ export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
   const hasAuthCookie = request.cookies.get("csrf_token")?.value
 
-  if (pathname.startsWith("/dashboard") || pathname.startsWith("/pay") || pathname.startsWith("/history") || pathname.startsWith("/settings")) {
+  if (pathname.startsWith("/dashboard") || pathname.startsWith("/pay") || pathname.startsWith("/history") || pathname.startsWith("/settings") || pathname.startsWith("/otc") || pathname.startsWith("/p2p")) {
     if (!hasAuthCookie) {
       const loginUrl = new URL("/login", request.url)
       loginUrl.searchParams.set("next", pathname)
@@ -26,5 +26,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/pay/:path*", "/history/:path*", "/settings/:path*", "/login", "/signup"],
+  matcher: ["/dashboard/:path*", "/pay/:path*", "/history/:path*", "/settings/:path*", "/otc/:path*", "/p2p/:path*", "/login", "/signup"],
 }
