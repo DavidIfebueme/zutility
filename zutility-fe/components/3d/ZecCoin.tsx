@@ -11,15 +11,14 @@ export function ZecCoin() {
   useFrame((state) => {
     if (groupRef.current) {
       const t = state.clock.elapsedTime
-      groupRef.current.rotation.y = t * 0.3
-      groupRef.current.rotation.x = -0.45 + Math.sin(t * 0.4) * 0.35
+      groupRef.current.rotation.z = Math.sin(t * 0.35) * 1.2
     }
   })
 
   return (
-    <Float speed={1.5} rotationIntensity={0.15} floatIntensity={0.5}>
-      <group ref={groupRef} scale={2.3}>
-        <mesh>
+    <Float speed={1} rotationIntensity={0.05} floatIntensity={0.4}>
+      <group ref={groupRef} scale={2.4}>
+        <mesh rotation={[Math.PI / 2, 0, 0]}>
           <cylinderGeometry args={[1, 1, 0.12, 64]} />
           <meshStandardMaterial
             color="#F4B728"
@@ -29,7 +28,7 @@ export function ZecCoin() {
           />
         </mesh>
 
-        <mesh>
+        <mesh rotation={[Math.PI / 2, 0, 0]}>
           <cylinderGeometry args={[0.92, 0.92, 0.125, 64]} />
           <meshStandardMaterial
             color="#D9A21B"
@@ -39,7 +38,7 @@ export function ZecCoin() {
           />
         </mesh>
 
-        <mesh position={[0, 0.063, 0]}>
+        <mesh position={[0, 0.063, 0]} rotation={[Math.PI / 2, 0, 0]}>
           <torusGeometry args={[0.88, 0.03, 8, 64]} />
           <meshStandardMaterial
             color="#C4920F"
@@ -50,8 +49,8 @@ export function ZecCoin() {
         </mesh>
 
         <Text
-          position={[0, 0.066, 0]}
-          fontSize={1.1}
+          position={[0, 0.067, 0]}
+          fontSize={1.15}
           textAlign="center"
           anchorX="center"
           anchorY="middle"
@@ -65,7 +64,7 @@ export function ZecCoin() {
           />
         </Text>
 
-        <mesh position={[0, -0.063, 0]}>
+        <mesh position={[0, -0.063, 0]} rotation={[Math.PI / 2, 0, 0]}>
           <torusGeometry args={[0.88, 0.03, 8, 64]} />
           <meshStandardMaterial
             color="#C4920F"
@@ -76,13 +75,12 @@ export function ZecCoin() {
         </mesh>
 
         <Text
-          position={[0, -0.066, 0]}
-          rotation={[Math.PI, 0, 0]}
-          fontSize={0.35}
+          position={[0, -0.067, 0]}
+          fontSize={0.38}
           textAlign="center"
           anchorX="center"
           anchorY="middle"
-          letterSpacing={0.15}
+          letterSpacing={0.18}
         >
           ZEC
           <meshStandardMaterial
@@ -94,12 +92,12 @@ export function ZecCoin() {
         </Text>
       </group>
 
-      <mesh position={[0, 0, -1]}>
-        <planeGeometry args={[6, 6]} />
+      <mesh position={[0, 0, -1.2]}>
+        <planeGeometry args={[8, 8]} />
         <meshBasicMaterial
           color="#F4B728"
           transparent
-          opacity={0.05}
+          opacity={0.04}
           blending={THREE.AdditiveBlending}
         />
       </mesh>
