@@ -4,20 +4,14 @@ import Link from "next/link"
 import { motion } from "motion/react"
 import LockIcon from "@/components/icons/lock-icon"
 import { Button } from "@/components/ui/button"
-import dynamic from "next/dynamic"
-
-const ZecCoinScene = dynamic(() => import("@/components/3d/ZecCoin").then(mod => mod.ZecCoinScene), { ssr: false })
-const Canvas = dynamic(() => import("@react-three/fiber").then(mod => mod.Canvas), { ssr: false })
+import { PaymentFlow } from "@/components/ui/payment-flow"
 
 export default function SignupPage() {
   return (
     <div className="flex min-h-screen bg-bg-void text-text-primary">
       <div className="hidden w-1/2 flex-col justify-between border-r border-border-subtle bg-bg-surface p-12 lg:flex relative overflow-hidden">
         <div className="absolute inset-0 z-0 opacity-30 pointer-events-none">
-          <Canvas camera={{ position: [0, 0, 5], fov: 45 }}>
-            <ambientLight intensity={0.5} />
-            <ZecCoinScene />
-          </Canvas>
+          <PaymentFlow />
         </div>
         <div className="relative z-10">
           <Link href="/" className="font-dela text-2xl tracking-tight">

@@ -17,10 +17,7 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { apiPost } from "@/lib/api"
 import { toast } from "sonner"
-import dynamic from "next/dynamic"
-
-const ZecCoinScene = dynamic(() => import("@/components/3d/ZecCoin").then(mod => mod.ZecCoinScene), { ssr: false })
-const Canvas = dynamic(() => import("@react-three/fiber").then(mod => mod.Canvas), { ssr: false })
+import { PaymentFlow } from "@/components/ui/payment-flow"
 
 const supportSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -78,10 +75,7 @@ export default function SupportPage() {
 
       <section className="relative flex items-center py-24 overflow-hidden">
         <div className="absolute right-0 top-0 w-1/3 h-full opacity-15 pointer-events-none hidden lg:block">
-          <Canvas camera={{ position: [0, 0, 5], fov: 45 }}>
-            <ambientLight intensity={0.5} />
-            <ZecCoinScene />
-          </Canvas>
+          <PaymentFlow />
         </div>
 
         <div className="mx-auto max-w-xl px-6 relative z-10 w-full">

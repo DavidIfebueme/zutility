@@ -12,10 +12,7 @@ import QrcodeIcon from "@/components/icons/qrcode-icon"
 import CheckedIcon from "@/components/icons/checked-icon"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
-import dynamic from "next/dynamic"
-
-const ZecCoinScene = dynamic(() => import("@/components/3d/ZecCoin").then(mod => mod.ZecCoinScene), { ssr: false })
-const Canvas = dynamic(() => import("@react-three/fiber").then(mod => mod.Canvas), { ssr: false })
+import { PaymentFlow } from "@/components/ui/payment-flow"
 
 const steps = [
   {
@@ -65,10 +62,7 @@ export default function HowItWorksPage() {
 
       <section className="relative flex items-center py-24 overflow-hidden">
         <div className="absolute right-0 top-0 w-1/2 h-full opacity-20 pointer-events-none hidden lg:block">
-          <Canvas camera={{ position: [0, 0, 5], fov: 45 }}>
-            <ambientLight intensity={0.5} />
-            <ZecCoinScene />
-          </Canvas>
+          <PaymentFlow />
         </div>
 
         <div className="mx-auto max-w-4xl px-6 relative z-10">
