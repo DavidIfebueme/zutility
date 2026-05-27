@@ -3,7 +3,16 @@
 import * as React from "react"
 import Link from "next/link"
 import { motion } from "motion/react"
-import { CreditCard, ArrowRightLeft, Store, ArrowRight, Zap, Clock, CheckCircle2, AlertCircle, History, Loader2 } from "lucide-react"
+import CreditCardIcon from "@/components/icons/credit-card-icon"
+import ArrowBackUpIcon from "@/components/icons/arrow-back-up-icon"
+import ShoppingCartIcon from "@/components/icons/shopping-cart-icon"
+import ArrowNarrowRightIcon from "@/components/icons/arrow-narrow-right-icon"
+import PlugConnectedIcon from "@/components/icons/plug-connected-icon"
+import ClockIcon from "@/components/icons/clock-icon"
+import CheckedIcon from "@/components/icons/checked-icon"
+import TriangleAlertIcon from "@/components/icons/triangle-alert-icon"
+import HistoryCircleIcon from "@/components/icons/history-circle-icon"
+import { Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -75,7 +84,7 @@ export default function DashboardPage() {
               </div>
               <Link href={`/pay/${activeOrder.order_id}`}>
                 <Button variant="primary" className="w-full sm:w-auto shrink-0">
-                  View Order <ArrowRight className="ml-2 h-4 w-4" />
+                  View Order <ArrowNarrowRightIcon size={16} className="ml-2" />
                 </Button>
               </Link>
             </CardContent>
@@ -98,7 +107,7 @@ export default function DashboardPage() {
               </div>
               <Link href="/pay">
                 <Button variant="primary" className="w-full sm:w-auto shrink-0">
-                  Pay a Utility <ArrowRight className="ml-2 h-4 w-4" />
+                  Pay a Utility <ArrowNarrowRightIcon size={16} className="ml-2" />
                 </Button>
               </Link>
             </CardContent>
@@ -112,7 +121,7 @@ export default function DashboardPage() {
           <Card glow className="h-full hover:-translate-y-1 transition-transform duration-200 cursor-pointer">
             <CardContent className="p-6 flex flex-col items-center text-center gap-4">
               <div className="h-12 w-12 rounded-full bg-accent-zec/10 text-accent-zec flex items-center justify-center">
-                <CreditCard className="h-6 w-6" />
+                <CreditCardIcon size={24} />
               </div>
               <div>
                 <h4 className="font-semibold">Pay Utilities</h4>
@@ -129,7 +138,7 @@ export default function DashboardPage() {
                 <Badge variant="coming-soon" className="scale-75 origin-top-right">SOON</Badge>
               </div>
               <div className="h-12 w-12 rounded-full bg-text-muted/20 text-text-secondary flex items-center justify-center">
-                <ArrowRightLeft className="h-6 w-6" />
+                <ArrowBackUpIcon size={24} />
               </div>
               <div>
                 <h4 className="font-semibold text-text-secondary">OTC Swap</h4>
@@ -146,7 +155,7 @@ export default function DashboardPage() {
                 <Badge variant="coming-soon" className="scale-75 origin-top-right">SOON</Badge>
               </div>
               <div className="h-12 w-12 rounded-full bg-text-muted/20 text-text-secondary flex items-center justify-center">
-                <Store className="h-6 w-6" />
+                <ShoppingCartIcon size={24} />
               </div>
               <div>
                 <h4 className="font-semibold text-text-secondary">P2P Trade</h4>
@@ -181,11 +190,11 @@ export default function DashboardPage() {
                       <div className="flex items-center gap-4">
                         <div className="h-10 w-10 rounded-full bg-bg-surface flex items-center justify-center">
                           {tx.status === 'Completed' ? (
-                            <CheckCircle2 className="h-5 w-5 text-accent-green" />
+                            <CheckedIcon size={20} className="text-accent-green" />
                           ) : tx.status === 'Failed' || tx.status === 'Cancelled' ? (
-                            <AlertCircle className="h-5 w-5 text-accent-red" />
+                            <TriangleAlertIcon size={20} className="text-accent-red" />
                           ) : (
-                            <Clock className="h-5 w-5 text-accent-zec" />
+                            <ClockIcon size={20} className="text-accent-zec" />
                           )}
                         </div>
                         <div>
@@ -203,7 +212,7 @@ export default function DashboardPage() {
               ) : (
                 <div className="flex flex-col items-center justify-center py-12 text-center">
                   <div className="h-16 w-16 rounded-full bg-bg-elevated flex items-center justify-center mb-4 text-text-muted">
-                    <History className="h-8 w-8" />
+                    <HistoryCircleIcon size={32} />
                   </div>
                   <h4 className="text-lg font-medium mb-2">No transactions yet</h4>
                   <p className="text-text-secondary mb-6 max-w-sm">

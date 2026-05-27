@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { motion } from "motion/react"
-import { Lock } from "lucide-react"
+import LockIcon from "@/components/icons/lock-icon"
 import { Button } from "@/components/ui/button"
 import dynamic from "next/dynamic"
 
@@ -49,7 +49,7 @@ export default function SignupPage() {
             className="text-center"
           >
             <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-accent-zec/10 text-accent-zec">
-              <Lock className="h-8 w-8" />
+              <LockIcon size={32} />
             </div>
             <h2 className="font-dela text-3xl mb-2">Registration Closed</h2>
             <p className="text-text-secondary mb-8">

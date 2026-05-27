@@ -6,7 +6,9 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { motion } from "motion/react"
-import { Mail, ArrowLeft, ArrowRight } from "lucide-react"
+import MailFilledIcon from "@/components/icons/mail-filled-icon"
+import ArrowBackIcon from "@/components/icons/arrow-back-icon"
+import ArrowNarrowRightIcon from "@/components/icons/arrow-narrow-right-icon"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { apiPostRaw } from "@/lib/api"
@@ -95,7 +97,7 @@ export default function ForgotPasswordPage() {
             {sent ? (
               <div className="rounded-lg border border-border-subtle bg-bg-elevated p-6 text-center">
                 <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-accent-zec/10 text-accent-zec">
-                  <Mail className="h-6 w-6" />
+                  <MailFilledIcon size={24} />
                 </div>
                 <h3 className="font-semibold mb-2">Check your email</h3>
                 <p className="text-sm text-text-secondary">
@@ -109,20 +111,20 @@ export default function ForgotPasswordPage() {
                     {...register("email")}
                     type="email"
                     placeholder="Email address"
-                    leftIcon={<Mail className="h-5 w-5" />}
+                    leftIcon={<MailFilledIcon size={20} />}
                     error={errors.email?.message}
                   />
                 </div>
 
                 <Button type="submit" className="w-full h-12 text-base mt-4" loading={isLoading}>
-                  Send Reset Link <ArrowRight className="ml-2 h-4 w-4" />
+                  Send Reset Link <ArrowNarrowRightIcon size={16} className="ml-2" />
                 </Button>
               </form>
             )}
 
             <div className="mt-8">
               <Link href="/login" className="inline-flex items-center gap-2 text-sm text-text-secondary hover:text-text-primary transition-colors">
-                <ArrowLeft className="h-4 w-4" />
+                <ArrowBackIcon size={16} />
                 Back to login
               </Link>
             </div>

@@ -4,16 +4,14 @@ import * as React from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { motion, AnimatePresence } from "motion/react"
-import { 
-  Home, 
-  CreditCard, 
-  ArrowRightLeft, 
-  Store, 
-  History, 
-  Settings, 
-  LogOut,
-  Menu
-} from "lucide-react"
+import HomeIcon from "@/components/icons/home-icon"
+import CreditCardIcon from "@/components/icons/credit-card-icon"
+import ArrowBackUpIcon from "@/components/icons/arrow-back-up-icon"
+import ShoppingCartIcon from "@/components/icons/shopping-cart-icon"
+import HistoryCircleIcon from "@/components/icons/history-circle-icon"
+import GearIcon from "@/components/icons/gear-icon"
+import LogoutIcon from "@/components/icons/logout-icon"
+import MenuIcon from "@/components/icons/menu-icon"
 import { cn } from "@/lib/utils"
 import { useAuthStore } from "@/store/auth"
 import { useOrderStore } from "@/store/order"
@@ -21,12 +19,12 @@ import { NotificationDropdown } from "@/components/ui/notification-dropdown"
 import { RateTicker } from "@/components/ui/rate-ticker"
 
 const NAV_ITEMS = [
-  { href: "/dashboard", label: "Home", icon: Home },
-  { href: "/pay", label: "Pay Utilities", icon: CreditCard, badge: true },
-  { href: "/otc", label: "OTC Off-ramp", icon: ArrowRightLeft, soon: true },
-  { href: "/p2p", label: "P2P Market", icon: Store, soon: true },
-  { href: "/history", label: "History", icon: History },
-  { href: "/settings", label: "Settings", icon: Settings },
+  { href: "/dashboard", label: "Home", icon: HomeIcon },
+  { href: "/pay", label: "Pay Utilities", icon: CreditCardIcon, badge: true },
+  { href: "/otc", label: "OTC Off-ramp", icon: ArrowBackUpIcon, soon: true },
+  { href: "/p2p", label: "P2P Market", icon: ShoppingCartIcon, soon: true },
+  { href: "/history", label: "History", icon: HistoryCircleIcon },
+  { href: "/settings", label: "Settings", icon: GearIcon },
 ]
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -76,8 +74,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 )}
               >
                 <item.icon
+                  size={20}
                   className={cn(
-                    "mr-3 h-5 w-5 flex-shrink-0 transition-colors",
+                    "mr-3 flex-shrink-0",
                     isActive ? "text-accent-zec" : "text-text-muted group-hover:text-text-secondary"
                   )}
                 />
@@ -110,7 +109,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               className="text-text-muted hover:text-accent-red transition-colors"
               aria-label="Logout"
             >
-              <LogOut className="h-5 w-5" />
+              <LogoutIcon size={20} />
             </button>
           </div>
         </div>
@@ -124,7 +123,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               onClick={() => setIsMobileMenuOpen(true)}
               className="text-text-secondary hover:text-text-primary"
             >
-              <Menu className="h-6 w-6" />
+              <MenuIcon size={24} />
             </button>
             <Link href="/dashboard" className="font-dela text-lg tracking-tight">
               <span className="text-accent-zec">z</span>utility
@@ -179,8 +178,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                         )}
                       >
                         <item.icon
+                          size={20}
                           className={cn(
-                            "mr-3 h-5 w-5 flex-shrink-0",
+                            "mr-3 flex-shrink-0",
                             isActive ? "text-accent-zec" : "text-text-muted"
                           )}
                         />
@@ -209,7 +209,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                       onClick={logout}
                       className="text-text-muted hover:text-accent-red transition-colors"
                     >
-                      <LogOut className="h-5 w-5" />
+                      <LogoutIcon size={20} />
                     </button>
                   </div>
                 </div>

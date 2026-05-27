@@ -8,7 +8,8 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { motion } from "motion/react"
-import { Lock, ArrowRight } from "lucide-react"
+import LockIcon from "@/components/icons/lock-icon"
+import ArrowNarrowRightIcon from "@/components/icons/arrow-narrow-right-icon"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { apiPostRaw } from "@/lib/api"
@@ -141,7 +142,7 @@ function ResetPasswordContent() {
                     {...register("password")}
                     type="password"
                     placeholder="New password"
-                    leftIcon={<Lock className="h-5 w-5" />}
+                    leftIcon={<LockIcon size={20} />}
                     error={errors.password?.message}
                   />
                 </div>
@@ -151,13 +152,13 @@ function ResetPasswordContent() {
                     {...register("confirmPassword")}
                     type="password"
                     placeholder="Confirm new password"
-                    leftIcon={<Lock className="h-5 w-5" />}
+                    leftIcon={<LockIcon size={20} />}
                     error={errors.confirmPassword?.message}
                   />
                 </div>
 
                 <Button type="submit" className="w-full h-12 text-base mt-4" loading={isLoading}>
-                  Reset Password <ArrowRight className="ml-2 h-4 w-4" />
+                  Reset Password <ArrowNarrowRightIcon size={16} className="ml-2" />
                 </Button>
               </form>
             )}

@@ -3,18 +3,13 @@
 import * as React from "react"
 import Link from "next/link"
 import { motion, AnimatePresence } from "motion/react"
-import {
-  Bell,
-  CheckCircle2,
-  AlertCircle,
-  Clock,
-  Loader2,
-  CheckCheck,
-  XCircle,
-  AlertTriangle,
-  Shield,
-  X,
-} from "lucide-react"
+import FilledBellIcon from "@/components/icons/filled-bell-icon"
+import CheckedIcon from "@/components/icons/checked-icon"
+import TriangleAlertIcon from "@/components/icons/triangle-alert-icon"
+import ClockIcon from "@/components/icons/clock-icon"
+import XIcon from "@/components/icons/x-icon"
+import DoubleCheckIcon from "@/components/icons/double-check-icon"
+import { Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useNotifications, type Notification } from "@/lib/hooks/useNotifications"
 import { cn } from "@/lib/utils"
@@ -34,21 +29,21 @@ function timeAgo(dateStr: string): string {
 function getNotificationIcon(type: string) {
   switch (type) {
     case "payment_detected":
-      return <Clock className="h-4 w-4 text-accent-zec" />
+      return <ClockIcon size={16} className="text-accent-zec" />
     case "payment_confirmed":
-      return <CheckCircle2 className="h-4 w-4 text-accent-green" />
+      return <CheckedIcon size={16} className="text-accent-green" />
     case "utility_dispatching":
       return <Loader2 className="h-4 w-4 text-accent-zec animate-spin" />
     case "order_completed":
-      return <CheckCircle2 className="h-4 w-4 text-accent-green" />
+      return <CheckedIcon size={16} className="text-accent-green" />
     case "order_failed":
-      return <XCircle className="h-4 w-4 text-accent-red" />
+      return <XIcon size={16} className="text-accent-red" />
     case "order_expired":
-      return <AlertCircle className="h-4 w-4 text-text-muted" />
+      return <TriangleAlertIcon size={16} className="text-text-muted" />
     case "order_flagged":
-      return <AlertTriangle className="h-4 w-4 text-accent-zec" />
+      return <TriangleAlertIcon size={16} className="text-accent-zec" />
     default:
-      return <Bell className="h-4 w-4 text-text-muted" />
+      return <FilledBellIcon size={16} className="text-text-muted" />
   }
 }
 
@@ -114,7 +109,7 @@ export function NotificationDropdown() {
         className="relative text-text-secondary hover:text-text-primary transition-colors"
         aria-label="Notifications"
       >
-        <Bell className="h-5 w-5" />
+        <FilledBellIcon size={20} />
         {unreadCount > 0 && (
           <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-accent-red text-white text-[10px] font-bold px-1">
             {unreadCount > 99 ? "99+" : unreadCount}
@@ -139,7 +134,7 @@ export function NotificationDropdown() {
                     onClick={markAllRead}
                     className="text-xs text-accent-zec hover:underline flex items-center gap-1"
                   >
-                    <CheckCheck className="h-3.5 w-3.5" />
+                    <DoubleCheckIcon size={14} />
                     Mark all read
                   </button>
                 )}
@@ -147,7 +142,7 @@ export function NotificationDropdown() {
                   onClick={() => setIsOpen(false)}
                   className="text-text-muted hover:text-text-primary"
                 >
-                  <X className="h-4 w-4" />
+                  <XIcon size={16} />
                 </button>
               </div>
             </div>
@@ -159,7 +154,7 @@ export function NotificationDropdown() {
                 </div>
               ) : notifications.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 text-center">
-                  <Bell className="h-8 w-8 text-text-muted mb-2" />
+                  <FilledBellIcon size={32} className="text-text-muted mb-2" />
                   <p className="text-sm text-text-secondary">No notifications yet</p>
                   <p className="text-xs text-text-muted mt-1">We'll notify you about your orders</p>
                 </div>

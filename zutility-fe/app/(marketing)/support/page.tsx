@@ -6,7 +6,12 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { motion } from "motion/react"
-import { Mail, MessageSquare, User, Send, CheckCircle2, ArrowRight } from "lucide-react"
+import MailFilledIcon from "@/components/icons/mail-filled-icon"
+import MessageCircleIcon from "@/components/icons/message-circle-icon"
+import UserIcon from "@/components/icons/user-icon"
+import SendIcon from "@/components/icons/send-icon"
+import CheckedIcon from "@/components/icons/checked-icon"
+import ArrowNarrowRightIcon from "@/components/icons/arrow-narrow-right-icon"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -88,7 +93,7 @@ export default function SupportPage() {
             {submitted ? (
               <div className="text-center space-y-6">
                 <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-accent-zec/10 text-accent-zec">
-                  <CheckCircle2 className="h-8 w-8" />
+                  <CheckedIcon size={32} />
                 </div>
                 <h1 className="font-dela text-3xl">Message Sent</h1>
                 <p className="text-text-secondary">
@@ -96,7 +101,7 @@ export default function SupportPage() {
                 </p>
                 <Link href="/">
                   <Button variant="secondary">
-                    Back to Home <ArrowRight className="ml-2 h-4 w-4" />
+                    Back to Home <ArrowNarrowRightIcon size={16} className="ml-2" />
                   </Button>
                 </Link>
               </div>
@@ -117,7 +122,7 @@ export default function SupportPage() {
                           {...register("name")}
                           type="text"
                           placeholder="Your name"
-                          leftIcon={<User className="h-5 w-5" />}
+                          leftIcon={<UserIcon size={20} />}
                           error={errors.name?.message}
                         />
                       </div>
@@ -127,7 +132,7 @@ export default function SupportPage() {
                           {...register("email")}
                           type="email"
                           placeholder="Email address"
-                          leftIcon={<Mail className="h-5 w-5" />}
+                          leftIcon={<MailFilledIcon size={20} />}
                           error={errors.email?.message}
                         />
                       </div>
@@ -137,7 +142,7 @@ export default function SupportPage() {
                           {...register("subject")}
                           type="text"
                           placeholder="Subject (e.g. Order #abc - failed delivery)"
-                          leftIcon={<MessageSquare className="h-5 w-5" />}
+                          leftIcon={<MessageCircleIcon size={20} />}
                           error={errors.subject?.message}
                         />
                       </div>
@@ -155,7 +160,7 @@ export default function SupportPage() {
                       </div>
 
                       <Button type="submit" className="w-full h-12 text-base" loading={isLoading}>
-                        Send Message <Send className="ml-2 h-4 w-4" />
+                        Send Message <SendIcon size={16} className="ml-2" />
                       </Button>
                     </form>
                   </CardContent>

@@ -7,7 +7,9 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { motion } from "motion/react"
-import { Mail, Lock, ArrowRight } from "lucide-react"
+import MailFilledIcon from "@/components/icons/mail-filled-icon"
+import LockIcon from "@/components/icons/lock-icon"
+import ArrowNarrowRightIcon from "@/components/icons/arrow-narrow-right-icon"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useAuthStore } from "@/store/auth"
@@ -122,7 +124,7 @@ export default function LoginPage() {
                   {...register("email")}
                   type="email"
                   placeholder="Email address"
-                  leftIcon={<Mail className="h-5 w-5" />}
+                  leftIcon={<MailFilledIcon size={20} />}
                   error={errors.email?.message}
                 />
               </div>
@@ -132,7 +134,7 @@ export default function LoginPage() {
                   {...register("password")}
                   type="password"
                   placeholder="Password"
-                  leftIcon={<Lock className="h-5 w-5" />}
+                  leftIcon={<LockIcon size={20} />}
                   error={errors.password?.message}
                 />
                 <div className="flex justify-end pt-1">
@@ -143,7 +145,7 @@ export default function LoginPage() {
               </div>
 
               <Button type="submit" className="w-full h-12 text-base mt-4" loading={isLoading}>
-                Log In <ArrowRight className="ml-2 h-4 w-4" />
+                Log In <ArrowNarrowRightIcon size={16} className="ml-2" />
               </Button>
             </form>
           </motion.div>

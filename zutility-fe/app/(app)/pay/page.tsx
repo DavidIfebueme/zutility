@@ -6,7 +6,14 @@ import { motion } from "motion/react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
-import { Shield, Smartphone, Tv, Zap, ArrowRight, Info, Wifi, GraduationCap, School, Search, CheckCircle2, Loader2 } from "lucide-react"
+import ShieldCheck from "@/components/icons/shield-check"
+import InfoCircleIcon from "@/components/icons/info-circle-icon"
+import ArrowNarrowRightIcon from "@/components/icons/arrow-narrow-right-icon"
+import MagnifierIcon from "@/components/icons/magnifier-icon"
+import CheckedIcon from "@/components/icons/checked-icon"
+import { Loader2 } from "lucide-react"
+import { getCategoryIcon } from "@/lib/category-icon-map"
+import { getBrandIcon } from "@/lib/brand-icon-map"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -31,17 +38,14 @@ const orderSchema = z.object({
 
 type OrderFormValues = z.infer<typeof orderSchema>
 
-function getIconForType(type: string, className?: string) {
-  const cn = className || "h-6 w-6"
-  switch (type) {
-    case 'airtime': return <Smartphone className={cn} />
-    case 'data': return <Wifi className={cn} />
-    case 'tv': return <Tv className={cn} />
-    case 'electricity': return <Zap className={cn} />
-    case 'education': return <GraduationCap className={cn} />
-    case 'school': return <School className={cn} />
-    default: return <Zap className={cn} />
-  }
+function renderCategoryIcon(type: string, size = 16) {
+  const Icon = getCategoryIcon(type as any)
+  return <Icon size={size} />
+}
+
+function renderBrandIcon(brandIconId: string, size = 24) {
+  const Icon = getBrandIcon(brandIconId as any)
+  return <Icon size={size} />
 }
 
 export default function PayPage() {
@@ -243,7 +247,7 @@ export default function PayPage() {
                       : "border-border-subtle bg-bg-surface text-text-secondary hover:text-text-primary"
                   }`}
                 >
-                  {getIconForType(cat.type, "h-4 w-4")}
+                  {renderCategoryIcon(cat.type, 16)}
                   {cat.label}
                 </button>
               ))}
@@ -265,7 +269,7 @@ export default function PayPage() {
                     <div className={`h-10 w-10 rounded-full flex items-center justify-center ${
                       isSelected ? "bg-accent-zec text-bg-void" : "bg-bg-elevated text-text-muted"
                     }`}>
-                      {getIconForType(u.iconType)}
+                      {renderBrandIcon(u.brandIcon)}
                     </div>
                     <div>
                       <h4 className={`font-semibold text-sm ${isSelected ? "text-accent-zec" : "text-text-primary"}`}>
@@ -307,7 +311,7 @@ export default function PayPage() {
                       disabled={validating}
                       className="flex items-center gap-1.5 text-xs font-medium text-accent-zec hover:text-accent-zec/80 disabled:opacity-50"
                     >
-                      {validating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
+                      {validating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MagnifierIcon size={14} />}
                       {validated ? "Re-validate" : "Validate"}
                     </button>
                   )}
@@ -319,7 +323,7 @@ export default function PayPage() {
                 />
                 {validated && (
                   <div className={`flex items-center gap-1.5 text-xs ${validated.valid ? 'text-accent-green' : 'text-accent-red'}`}>
-                    {validated.valid ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Info className="h-3.5 w-3.5" />}
+                    {validated.valid ? <CheckedIcon size={14} /> : <InfoCircleIcon size={14} />}
                     {validated.customer_name ? `Verified: ${validated.customer_name}` : validated.valid ? 'Validated' : 'Invalid reference'}
                   </div>
                 )}
@@ -421,7 +425,7 @@ export default function PayPage() {
                   >
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
-                        <Shield className={`h-5 w-5 ${addressType === "shielded" ? "text-accent-zec" : "text-text-muted"}`} />
+                        <ShieldCheck size={20} className={addressType === "shielded" ? "text-accent-zec" : "text-text-muted"} />
                         <span className="font-medium">Shielded (z-address)</span>
                       </div>
                       <div className={`h-4 w-4 rounded-full border flex items-center justify-center ${
@@ -479,7 +483,7 @@ export default function PayPage() {
                     </p>
                   )}
                   <div className="flex items-center gap-1.5 text-xs text-text-muted mt-1">
-                    <Info className="h-3.5 w-3.5" />
+                    <InfoCircleIcon size={14} />
                     Rate locked for 15 minutes after creation
                   </div>
                 </div>
@@ -491,7 +495,7 @@ export default function PayPage() {
                   loading={isLoading}
                   disabled={!selectedUtilityId || !effectiveAmount || !!errors.serviceRef}
                 >
-                  Create Order <ArrowRight className="ml-2 h-5 w-5" />
+                  Create Order <ArrowNarrowRightIcon size={20} className="ml-2" />
                 </Button>
               </div>
             </CardContent>

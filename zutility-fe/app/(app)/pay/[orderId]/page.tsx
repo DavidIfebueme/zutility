@@ -4,7 +4,13 @@ import * as React from "react"
 import { useParams, useRouter } from "next/navigation"
 import { motion, AnimatePresence } from "motion/react"
 import { QRCodeSVG } from "qrcode.react"
-import { Copy, CheckCircle2, AlertCircle, Clock, ArrowLeft, Zap, XCircle, TimerOff } from "lucide-react"
+import CheckedIcon from "@/components/icons/checked-icon"
+import TriangleAlertIcon from "@/components/icons/triangle-alert-icon"
+import ClockIcon from "@/components/icons/clock-icon"
+import ArrowBackIcon from "@/components/icons/arrow-back-icon"
+import PlugConnectedIcon from "@/components/icons/plug-connected-icon"
+import XIcon from "@/components/icons/x-icon"
+import TimerOffIcon from "@/components/icons/timer-off-icon"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -79,7 +85,7 @@ export default function OrderPage() {
   if (!order) {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center">
-        <AlertCircle className="h-12 w-12 text-accent-red mb-4" />
+        <TriangleAlertIcon size={48} className="text-accent-red mb-4" />
         <h2 className="text-2xl font-dela mb-2">Order Not Found</h2>
         <p className="text-text-secondary mb-6">
           {recovering ? 'Loading order...' : "This order doesn't exist or you don't have access to it."}
@@ -121,7 +127,7 @@ export default function OrderPage() {
     <div className="max-w-4xl mx-auto space-y-8">
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" onClick={() => router.push('/dashboard')}>
-          <ArrowLeft className="h-5 w-5" />
+          <ArrowBackIcon size={20} />
         </Button>
         <div>
           <h1 className="font-dela text-2xl tracking-tight">Order {orderId.slice(0, 8)}...</h1>
@@ -167,7 +173,7 @@ export default function OrderPage() {
                     />
                   </div>
                   <div className="flex items-center gap-2 text-sm text-text-secondary mb-2">
-                    <Clock className="h-4 w-4" />
+                    <ClockIcon size={16} />
                     Expires in: <CountdownTimer expiresAt={order.expires_at} onExpire={handleExpire} />
                   </div>
                   <p className="text-xs text-text-muted text-center max-w-[200px]">
@@ -186,7 +192,7 @@ export default function OrderPage() {
 
                   <div className="rounded-lg bg-accent-zec/10 p-4 border border-accent-zec/20">
                     <div className="flex items-start gap-3">
-                      <AlertCircle className="h-5 w-5 text-accent-zec shrink-0 mt-0.5" />
+                      <TriangleAlertIcon size={20} className="text-accent-zec shrink-0 mt-0.5" />
                       <div className="text-sm text-text-primary">
                         <p className="font-medium text-accent-zec mb-1">Important</p>
                         <ul className="list-disc pl-4 space-y-1 text-text-secondary">
@@ -236,7 +242,7 @@ export default function OrderPage() {
               >
                 <div className="relative flex h-24 w-24 items-center justify-center rounded-full bg-accent-zec/10 mb-6">
                   <div className="absolute inset-0 rounded-full border-4 border-accent-zec border-t-transparent animate-spin" />
-                  <Zap className="h-10 w-10 text-accent-zec animate-pulse" />
+                  <PlugConnectedIcon size={40} className="text-accent-zec animate-pulse" />
                 </div>
                 <h3 className="text-2xl font-dela mb-2">Dispatching Utility</h3>
                 <p className="text-text-secondary text-center max-w-md">
@@ -255,7 +261,7 @@ export default function OrderPage() {
                 className="flex flex-col items-center justify-center py-12"
               >
                 <div className="flex h-24 w-24 items-center justify-center rounded-full bg-accent-green/10 mb-6">
-                  <CheckCircle2 className="h-12 w-12 text-accent-green" />
+                  <CheckedIcon size={48} className="text-accent-green" />
                 </div>
                 <h3 className="text-3xl font-dela text-accent-green mb-2">{info.title}</h3>
                 <p className="text-text-secondary text-center max-w-md mb-8">
@@ -295,7 +301,7 @@ export default function OrderPage() {
                 className="flex flex-col items-center justify-center py-12"
               >
                 <div className="flex h-24 w-24 items-center justify-center rounded-full bg-accent-amber/10 mb-6">
-                  <TimerOff className="h-12 w-12 text-accent-amber" />
+                  <TimerOffIcon size={48} className="text-accent-amber" />
                 </div>
                 <h3 className="text-2xl font-dela text-accent-amber mb-2">Order Expired</h3>
                 <p className="text-text-secondary text-center max-w-md mb-8">
@@ -323,7 +329,7 @@ export default function OrderPage() {
                 className="flex flex-col items-center justify-center py-12"
               >
                 <div className="flex h-24 w-24 items-center justify-center rounded-full bg-accent-red/10 mb-6">
-                  <XCircle className="h-12 w-12 text-accent-red" />
+                  <XIcon size={48} className="text-accent-red" />
                 </div>
                 <h3 className="text-2xl font-dela text-accent-red mb-2">Order Failed</h3>
                 <p className="text-text-secondary text-center max-w-md mb-8">

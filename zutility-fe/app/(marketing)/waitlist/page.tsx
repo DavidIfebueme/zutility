@@ -8,7 +8,15 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { Suspense } from "react"
 import { motion } from "motion/react"
-import { Mail, User, ArrowRight, Copy, Check, Users, Shield, Zap, Clock } from "lucide-react"
+import MailFilledIcon from "@/components/icons/mail-filled-icon"
+import UserIcon from "@/components/icons/user-icon"
+import ArrowNarrowRightIcon from "@/components/icons/arrow-narrow-right-icon"
+import CopyIcon from "@/components/icons/copy-icon"
+import CheckedIcon from "@/components/icons/checked-icon"
+import UsersGroupIcon from "@/components/icons/users-group-icon"
+import ShieldCheck from "@/components/icons/shield-check"
+import PlugConnectedIcon from "@/components/icons/plug-connected-icon"
+import ClockIcon from "@/components/icons/clock-icon"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -132,15 +140,15 @@ function WaitlistContent() {
         <div className="relative z-10">
           <div className="flex items-center gap-6 text-sm text-text-muted">
             <div className="flex items-center gap-2">
-              <Shield className="h-4 w-4 text-accent-zec" />
+              <ShieldCheck size={16} className="text-accent-zec" />
               <span>No KYC</span>
             </div>
             <div className="flex items-center gap-2">
-              <Zap className="h-4 w-4 text-accent-zec" />
+              <PlugConnectedIcon size={16} className="text-accent-zec" />
               <span>Instant delivery</span>
             </div>
             <div className="flex items-center gap-2">
-              <Clock className="h-4 w-4 text-accent-zec" />
+              <ClockIcon size={16} className="text-accent-zec" />
               <span>3 confs ~4min</span>
             </div>
           </div>
@@ -172,7 +180,7 @@ function WaitlistContent() {
                 <Card className="border-accent-zec/30 bg-bg-elevated">
                   <CardHeader className="pb-3">
                     <CardTitle className="text-base flex items-center gap-2">
-                      <Users className="h-4 w-4 text-accent-zec" />
+                       <UsersGroupIcon size={16} className="text-accent-zec" />
                       Your referral link
                     </CardTitle>
                     <CardDescription>Share to move up the list</CardDescription>
@@ -183,7 +191,7 @@ function WaitlistContent() {
                         {shareUrl}
                       </code>
                       <Button variant="secondary" size="sm" onClick={handleCopy} className="shrink-0">
-                        {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                        {copied ? <CheckedIcon size={16} /> : <CopyIcon size={16} />}
                       </Button>
                     </div>
                     <p className="text-xs text-text-muted mt-3">
@@ -205,7 +213,7 @@ function WaitlistContent() {
                       {...register("email")}
                       type="email"
                       placeholder="Email address"
-                      leftIcon={<Mail className="h-5 w-5" />}
+                       leftIcon={<MailFilledIcon size={20} />}
                       error={errors.email?.message}
                     />
                   </div>
@@ -215,13 +223,13 @@ function WaitlistContent() {
                       {...register("displayName")}
                       type="text"
                       placeholder="Name (optional)"
-                      leftIcon={<User className="h-5 w-5" />}
+                       leftIcon={<UserIcon size={20} />}
                       error={errors.displayName?.message}
                     />
                   </div>
 
                   <Button type="submit" className="w-full h-12 text-base mt-4" loading={isLoading}>
-                    Join Waitlist <ArrowRight className="ml-2 h-4 w-4" />
+                     Join Waitlist <ArrowNarrowRightIcon size={16} className="ml-2" />
                   </Button>
 
                   {refCode && (

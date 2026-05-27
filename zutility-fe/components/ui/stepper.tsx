@@ -1,6 +1,6 @@
 import * as React from "react"
 import { cn } from "@/lib/utils"
-import { Check } from "lucide-react"
+import CheckedIcon from "@/components/icons/checked-icon"
 
 interface StepperProps extends React.HTMLAttributes<HTMLDivElement> {
   steps: { label: string }[]
@@ -27,7 +27,7 @@ export function Stepper({ steps, currentStep, className, ...props }: StepperProp
                     : "border-border-subtle bg-bg-surface text-text-muted"
                 )}
               >
-                {isCompleted ? <Check className="h-4 w-4" /> : index + 1}
+                {isCompleted ? <CheckedIcon size={16} /> : index + 1}
               </div>
               <span
                 className={cn(

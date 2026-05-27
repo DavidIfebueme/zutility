@@ -5,7 +5,9 @@ import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Suspense } from "react"
 import { motion } from "motion/react"
-import { Mail, ArrowRight, RefreshCw } from "lucide-react"
+import MailFilledIcon from "@/components/icons/mail-filled-icon"
+import ArrowNarrowRightIcon from "@/components/icons/arrow-narrow-right-icon"
+import RefreshIcon from "@/components/icons/refresh-icon"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { useAuthStore } from "@/store/auth"
@@ -86,7 +88,7 @@ function VerifyContent() {
     <Card className="border-border-subtle shadow-2xl">
       <CardHeader className="text-center pb-2">
         <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-accent-zec/10 text-accent-zec">
-          <Mail className="h-8 w-8" />
+          <MailFilledIcon size={32} />
         </div>
         <CardTitle className="text-2xl font-dela">Check your email</CardTitle>
         <CardDescription className="text-base mt-2">
@@ -98,17 +100,17 @@ function VerifyContent() {
       <CardContent className="flex flex-col items-center gap-6 pt-6">
         {verified ? (
           <div className="flex items-center gap-2 text-sm text-accent-green">
-            <ArrowRight className="h-4 w-4" />
+            <ArrowNarrowRightIcon size={16} />
             Redirecting to dashboard...
           </div>
         ) : isVerifying ? (
           <div className="flex items-center gap-2 text-sm text-text-muted">
-            <RefreshCw className="h-4 w-4 animate-spin" />
+            <RefreshIcon size={16} className="animate-spin" />
             Verifying your email...
           </div>
         ) : (
           <div className="flex items-center gap-2 text-sm text-text-muted">
-            <RefreshCw className="h-4 w-4 animate-spin" />
+            <RefreshIcon size={16} className="animate-spin" />
             Waiting for verification...
           </div>
         )}

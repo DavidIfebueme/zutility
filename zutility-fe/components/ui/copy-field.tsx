@@ -1,7 +1,8 @@
 "use client"
 
 import * as React from "react"
-import { Check, Copy } from "lucide-react"
+import CheckedIcon from "@/components/icons/checked-icon"
+import CopyIcon from "@/components/icons/copy-icon"
 import { cn } from "@/lib/utils"
 
 interface CopyFieldProps extends React.HTMLAttributes<HTMLDivElement> {
@@ -36,9 +37,9 @@ export function CopyField({ value, label, className, ...props }: CopyFieldProps)
           title="Copy"
         >
           {copied ? (
-            <Check className="h-4 w-4 text-accent-green" />
+            <CheckedIcon size={16} className="text-accent-green" />
           ) : (
-            <Copy className="h-4 w-4" />
+            <CopyIcon size={16} />
           )}
         </button>
         {copied && (

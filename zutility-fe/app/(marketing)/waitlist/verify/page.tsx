@@ -8,7 +8,10 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { motion } from "motion/react"
-import { Mail, ArrowRight, RefreshCw, CheckCircle2 } from "lucide-react"
+import MailFilledIcon from "@/components/icons/mail-filled-icon"
+import ArrowNarrowRightIcon from "@/components/icons/arrow-narrow-right-icon"
+import RefreshIcon from "@/components/icons/refresh-icon"
+import CheckedIcon from "@/components/icons/checked-icon"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -101,9 +104,9 @@ function WaitlistVerifyContent() {
           <CardHeader className="text-center pb-2">
             <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-accent-zec/10 text-accent-zec">
               {verified ? (
-                <CheckCircle2 className="h-8 w-8" />
+                <CheckedIcon size={32} />
               ) : (
-                <Mail className="h-8 w-8" />
+                <MailFilledIcon size={32} />
               )}
             </div>
             <CardTitle className="text-2xl font-dela">
@@ -133,13 +136,13 @@ function WaitlistVerifyContent() {
                 </div>
                 <Link href="/signup">
                   <Button variant="primary" className="w-full mt-2">
-                    Create Account <ArrowRight className="ml-2 h-4 w-4" />
+                    Create Account <ArrowNarrowRightIcon size={16} className="ml-2" />
                   </Button>
                 </Link>
               </div>
             ) : isVerifying ? (
               <div className="flex items-center gap-2 text-sm text-text-muted">
-                <RefreshCw className="h-4 w-4 animate-spin" />
+                <RefreshIcon size={16} className="animate-spin" />
                 Verifying your email...
               </div>
             ) : (
@@ -152,7 +155,7 @@ function WaitlistVerifyContent() {
                     {...register("email")}
                     type="email"
                     placeholder="Your email address"
-                    leftIcon={<Mail className="h-5 w-5" />}
+                     leftIcon={<MailFilledIcon size={20} />}
                     error={errors.email?.message}
                   />
                   <Button

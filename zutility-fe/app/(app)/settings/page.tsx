@@ -6,17 +6,17 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { motion } from "motion/react"
+import UserIcon from "@/components/icons/user-icon"
+import MailFilledIcon from "@/components/icons/mail-filled-icon"
+import LockIcon from "@/components/icons/lock-icon"
+import ShieldCheck from "@/components/icons/shield-check"
+import GlobeIcon from "@/components/icons/globe-icon"
+import TrashIcon from "@/components/icons/trash-icon"
+import TriangleAlertIcon from "@/components/icons/triangle-alert-icon"
+import CheckedIcon from "@/components/icons/checked-icon"
+import RightChevron from "@/components/icons/right-chevron"
 import {
-  User,
-  Mail,
-  Lock,
-  Shield,
-  Globe,
-  Trash2,
-  AlertTriangle,
-  CheckCircle2,
   Loader2,
-  ChevronRight,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -191,7 +191,7 @@ export default function SettingsPage() {
           <CardHeader>
             <div className="flex items-center gap-3">
               <div className="h-10 w-10 rounded-full bg-accent-zec/10 text-accent-zec flex items-center justify-center">
-                <User className="h-5 w-5" />
+                <UserIcon size={20} />
               </div>
               <div>
                 <CardTitle className="text-xl">Profile</CardTitle>
@@ -204,10 +204,10 @@ export default function SettingsPage() {
               <div className="space-y-2">
                 <label className="text-sm font-medium text-text-secondary">Email</label>
                 <div className="flex items-center gap-3">
-                  <Input value={user.email} disabled leftIcon={<Mail className="h-5 w-5" />} />
+                  <Input value={user.email} disabled leftIcon={<MailFilledIcon size={20} />} />
                   {user.email_verified ? (
                     <Badge variant="success" className="shrink-0">
-                      <CheckCircle2 className="h-3 w-3 mr-1" />
+                       <CheckedIcon size={12} className="mr-1" />
                       Verified
                     </Badge>
                   ) : (
@@ -231,7 +231,7 @@ export default function SettingsPage() {
                 <Input
                   {...profileForm.register("display_name")}
                   placeholder="Enter your display name"
-                  leftIcon={<User className="h-5 w-5" />}
+                   leftIcon={<UserIcon size={20} />}
                   error={profileForm.formState.errors.display_name?.message}
                 />
               </div>
@@ -251,7 +251,7 @@ export default function SettingsPage() {
           <CardHeader>
             <div className="flex items-center gap-3">
               <div className="h-10 w-10 rounded-full bg-accent-zec/10 text-accent-zec flex items-center justify-center">
-                <Lock className="h-5 w-5" />
+                <LockIcon size={20} />
               </div>
               <div>
                 <CardTitle className="text-xl">Security</CardTitle>
@@ -267,7 +267,7 @@ export default function SettingsPage() {
                   type="password"
                   {...passwordForm.register("current_password")}
                   placeholder="Enter current password"
-                  leftIcon={<Shield className="h-5 w-5" />}
+                   leftIcon={<ShieldCheck size={20} />}
                   error={passwordForm.formState.errors.current_password?.message}
                 />
               </div>
@@ -277,8 +277,8 @@ export default function SettingsPage() {
                 <Input
                   type="password"
                   {...passwordForm.register("new_password")}
-                  placeholder="At least 8 characters"
-                  leftIcon={<Lock className="h-5 w-5" />}
+                   placeholder="At least 8 characters"
+                   leftIcon={<LockIcon size={20} />}
                   error={passwordForm.formState.errors.new_password?.message}
                 />
               </div>
@@ -288,8 +288,8 @@ export default function SettingsPage() {
                 <Input
                   type="password"
                   {...passwordForm.register("confirm_password")}
-                  placeholder="Repeat new password"
-                  leftIcon={<Lock className="h-5 w-5" />}
+                   placeholder="Repeat new password"
+                   leftIcon={<LockIcon size={20} />}
                   error={passwordForm.formState.errors.confirm_password?.message}
                 />
               </div>
@@ -309,7 +309,7 @@ export default function SettingsPage() {
           <CardHeader>
             <div className="flex items-center gap-3">
               <div className="h-10 w-10 rounded-full bg-accent-zec/10 text-accent-zec flex items-center justify-center">
-                <Globe className="h-5 w-5" />
+                <GlobeIcon size={20} />
               </div>
               <div>
                 <CardTitle className="text-xl">Preferences</CardTitle>
@@ -337,7 +337,7 @@ export default function SettingsPage() {
                     >
                       <span className="text-base">{currency.symbol}</span>
                       <span>{code}</span>
-                      {isSelected && <CheckCircle2 className="h-4 w-4 ml-auto" />}
+                      {isSelected && <CheckedIcon size={16} className="ml-auto" />}
                     </button>
                   )
                 })}
@@ -355,7 +355,7 @@ export default function SettingsPage() {
           <CardHeader>
             <div className="flex items-center gap-3">
               <div className="h-10 w-10 rounded-full bg-accent-red/10 text-accent-red flex items-center justify-center">
-                <Trash2 className="h-5 w-5" />
+                <TrashIcon size={20} />
               </div>
               <div>
                 <CardTitle className="text-xl text-accent-red">Danger Zone</CardTitle>
@@ -366,7 +366,7 @@ export default function SettingsPage() {
           <CardContent>
             <div className="flex items-center justify-between p-4 rounded-lg bg-accent-red/5 border border-accent-red/20">
               <div className="flex items-center gap-3">
-                <AlertTriangle className="h-5 w-5 text-accent-red shrink-0" />
+                <TriangleAlertIcon size={20} className="text-accent-red shrink-0" />
                 <div>
                   <p className="text-sm font-medium text-text-primary">Delete Account</p>
                   <p className="text-xs text-text-muted">
@@ -394,7 +394,7 @@ export default function SettingsPage() {
                         type="password"
                         {...deleteForm.register("password")}
                         placeholder="Enter your password"
-                        leftIcon={<Lock className="h-5 w-5" />}
+                         leftIcon={<LockIcon size={20} />}
                         error={deleteForm.formState.errors.password?.message}
                       />
                     </div>

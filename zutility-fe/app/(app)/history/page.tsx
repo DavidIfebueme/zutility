@@ -3,7 +3,11 @@
 import * as React from "react"
 import Link from "next/link"
 import { motion } from "motion/react"
-import { Clock, CheckCircle2, AlertCircle, History, Loader2, ArrowRight } from "lucide-react"
+import ClockIcon from "@/components/icons/clock-icon"
+import CheckedIcon from "@/components/icons/checked-icon"
+import TriangleAlertIcon from "@/components/icons/triangle-alert-icon"
+import HistoryCircleIcon from "@/components/icons/history-circle-icon"
+import { Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -60,7 +64,7 @@ export default function HistoryPage() {
       ) : orders.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <div className="h-16 w-16 rounded-full bg-bg-elevated flex items-center justify-center mb-4 text-text-muted">
-            <History className="h-8 w-8" />
+            <HistoryCircleIcon size={32} />
           </div>
           <h4 className="text-lg font-medium mb-2">No transactions yet</h4>
           <p className="text-text-secondary mb-6 max-w-sm">
@@ -84,11 +88,11 @@ export default function HistoryPage() {
                   <div className="flex items-center gap-4 min-w-0">
                     <div className="h-10 w-10 rounded-full bg-bg-surface flex items-center justify-center shrink-0">
                       {order.status === "Completed" ? (
-                        <CheckCircle2 className="h-5 w-5 text-accent-green" />
+                        <CheckedIcon size={20} className="text-accent-green" />
                       ) : order.status === "Failed" || order.status === "Cancelled" ? (
-                        <AlertCircle className="h-5 w-5 text-accent-red" />
+                        <TriangleAlertIcon size={20} className="text-accent-red" />
                       ) : (
-                        <Clock className="h-5 w-5 text-accent-zec" />
+                        <ClockIcon size={20} className="text-accent-zec" />
                       )}
                     </div>
                     <div className="min-w-0">

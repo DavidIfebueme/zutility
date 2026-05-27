@@ -3,7 +3,16 @@
 import * as React from "react"
 import Link from "next/link"
 import { motion, useScroll, useTransform } from "motion/react"
-import { ArrowRight, Shield, Zap, Lock, ChevronDown, Menu, X, ArrowRightLeft, Store } from "lucide-react"
+import ArrowNarrowRightIcon from "@/components/icons/arrow-narrow-right-icon"
+import ShieldCheck from "@/components/icons/shield-check"
+import PlugConnectedIcon from "@/components/icons/plug-connected-icon"
+import LockIcon from "@/components/icons/lock-icon"
+import DownChevron from "@/components/icons/down-chevron"
+import MenuIcon from "@/components/icons/menu-icon"
+import XIcon from "@/components/icons/x-icon"
+import ArrowBackUpIcon from "@/components/icons/arrow-back-up-icon"
+import ShoppingCartIcon from "@/components/icons/shopping-cart-icon"
+import { getBrandIcon } from "@/lib/brand-icon-map"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -67,7 +76,7 @@ export default function LandingPage() {
             className="md:hidden text-text-secondary hover:text-text-primary"
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
           >
-            {isMobileMenuOpen ? <X /> : <Menu />}
+            {isMobileMenuOpen ? <XIcon /> : <MenuIcon />}
           </button>
         </div>
       </motion.nav>
@@ -139,15 +148,15 @@ export default function LandingPage() {
 
               <div className="mt-12 flex flex-wrap items-center gap-x-8 gap-y-4 text-sm font-medium text-text-muted">
                 <div className="flex items-center gap-2">
-                  <Shield className="h-4 w-4 text-accent-zec" />
+                  <ShieldCheck size={16} className="text-accent-zec" />
                   No KYC Required
                 </div>
                 <div className="flex items-center gap-2">
-                  <Zap className="h-4 w-4 text-accent-zec" />
+                  <PlugConnectedIcon size={16} className="text-accent-zec" />
                   ~4min Settlement
                 </div>
                 <div className="flex items-center gap-2">
-                  <Lock className="h-4 w-4 text-accent-zec" />
+                  <LockIcon size={16} className="text-accent-zec" />
                   Shielded ZEC Supported
                 </div>
               </div>
@@ -177,7 +186,7 @@ export default function LandingPage() {
                 <CardHeader>
                   <div className="mb-4 flex items-center justify-between">
                     <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-accent-zec/10 text-accent-zec">
-                      <Zap className="h-6 w-6" />
+                      <PlugConnectedIcon size={24} />
                     </div>
                     <Badge variant="live">LIVE</Badge>
                   </div>
@@ -199,7 +208,7 @@ export default function LandingPage() {
                 <CardHeader>
                   <div className="mb-4 flex items-center justify-between">
                     <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-text-muted/20 text-text-secondary">
-                      <ArrowRightLeft className="h-6 w-6" />
+                      <ArrowBackUpIcon size={24} />
                     </div>
                     <Badge variant="coming-soon">COMING SOON</Badge>
                   </div>
@@ -221,7 +230,7 @@ export default function LandingPage() {
                 <CardHeader>
                   <div className="mb-4 flex items-center justify-between">
                     <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-text-muted/20 text-text-secondary">
-                      <Store className="h-6 w-6" />
+                      <ShoppingCartIcon size={24} />
                     </div>
                     <Badge variant="coming-soon">COMING SOON</Badge>
                   </div>
@@ -303,13 +312,13 @@ export default function LandingPage() {
             </div>
             <Link href="/signup">
               <Button variant="secondary" className="border-accent-zec text-accent-zec hover:bg-accent-zec hover:text-bg-void">
-                View All Services <ArrowRight className="ml-2 h-4 w-4" />
+                View All Services <ArrowNarrowRightIcon size={16} className="ml-2" />
               </Button>
             </Link>
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {UTILITIES.filter((_, i) => [0, 4, 8, 12, 26, 28].includes(i)).map((u, i) => (
+            {UTILITIES.filter((_, i) => [0, 4, 8, 12, 26, 27].includes(i)).map((u, i) => (
               <motion.div
                 key={u.id}
                 initial={{ opacity: 0, scale: 0.95 }}
@@ -319,8 +328,8 @@ export default function LandingPage() {
               >
                 <Card className="h-full hover:-translate-y-1 transition-transform duration-300 cursor-pointer border-border-subtle hover:border-accent-zec/50 bg-bg-elevated">
                   <CardContent className="p-6 flex flex-col items-center text-center gap-4">
-                    <div className="h-12 w-12 rounded-full bg-bg-surface flex items-center justify-center text-xl font-bold text-text-muted">
-                      {u.name.charAt(0)}
+                    <div className="h-12 w-12 rounded-full bg-bg-surface flex items-center justify-center text-text-muted">
+                      {(() => { const Icon = getBrandIcon(u.brandIcon); return <Icon size={28} /> })()}
                     </div>
                     <div>
                       <h4 className="font-semibold text-text-primary">{u.name}</h4>
@@ -360,7 +369,7 @@ export default function LandingPage() {
                   onClick={() => setOpenFaq(openFaq === i ? null : i)}
                 >
                   <span className="text-lg">{faq.q}</span>
-                  <ChevronDown className={cn("h-5 w-5 text-text-muted transition-transform duration-200", openFaq === i && "rotate-180")} />
+                  <DownChevron size={20} className={cn("text-text-muted transition-transform duration-200", openFaq === i && "rotate-180")} />
                 </button>
                 <motion.div
                   initial={false}
