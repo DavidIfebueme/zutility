@@ -22,7 +22,7 @@ import { RateTicker } from "@/components/ui/rate-ticker"
 import { UTILITIES, TOKENS } from "@/lib/constants"
 import dynamic from "next/dynamic"
 
-const ZecCoinScene = dynamic(() => import("@/components/3d/ZecCoin").then(mod => mod.ZecCoinScene), { ssr: false })
+import { PaymentFlow } from "@/components/ui/payment-flow"
 const ParticleField = dynamic(() => import("@/components/3d/ParticleField").then(mod => mod.ParticleField), { ssr: false })
 const WireframeSphere = dynamic(() => import("@/components/3d/WireframeSphere").then(mod => mod.WireframeSphere), { ssr: false })
 const Canvas = dynamic(() => import("@react-three/fiber").then(mod => mod.Canvas), { ssr: false })
@@ -165,9 +165,7 @@ export default function LandingPage() {
 
           <div className="relative hidden h-[600px] w-full items-center justify-center lg:flex">
             <div className="absolute inset-0 bg-gradient-to-r from-bg-void via-transparent to-transparent z-10 pointer-events-none" />
-            <Canvas camera={{ position: [0, 0, 5], fov: 45 }} className="z-0">
-              <ZecCoinScene />
-            </Canvas>
+            <PaymentFlow />
           </div>
         </div>
       </section>
