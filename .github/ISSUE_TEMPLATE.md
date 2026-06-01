@@ -1,30 +1,26 @@
 ---
-name: Bug report
-about: Create a report to help us improve
+name: bug report
+about: something's broken
 title: ''
 labels: bug
 assignees: ''
 ---
 
-**Describe the bug**
-A clear description of what the bug is.
+**what happened**
+describe the bug.
 
-**To Reproduce**
-Steps to reproduce:
-1. Go to '...'
-2. Click on '...'
-3. Scroll down to '...'
-4. See error
+**how to reproduce**
+1. go to '...'
+2. do '...'
+3. see error
 
-**Expected behavior**
-What you expected to happen.
+**what i expected**
+what should have happened.
 
-**Screenshots**
-If applicable, add screenshots.
+**environment**
+- device/os:
+- browser:
+- url:
 
-**Environment**
-- OS: [e.g. Ubuntu 22.04]
-- Version: [e.g. 0.1.0]
-
-**Additional context**
-Any other context about the problem.
+**extra context**
+anything else that helps.

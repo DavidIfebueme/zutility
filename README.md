@@ -1,32 +1,46 @@
 # zutility
 
-Zcash utility toolkit and wallet interface
+pay for everyday african utilities with zcash
 
-## Overview
+## what is this
 
-Full-stack application with Go backend and JavaScript frontend for Zcash operations
+zutility lets you pay for airtime, data, cable tv, electricity, and education fees across nigeria using zec (zcash). currently on testnet. mainnet coming soon.
 
-## Tech Stack
+## tech stack
 
-- **Language:** Go/JavaScript
-- **Architecture:** See Project Structure below
+- **backend:** rust / axum / sqlx / postgresql
+- **frontend:** next.js / typescript / tailwind
+- **zcash:** zingolib (light client) + zcashd (full node fallback)
+- **providers:** inlomax (primary), vtpass (fallback), remita (school fees)
+- **infra:** linode / nginx / systemd
 
-## Project Structure
+## project structure
 
 ```
-- `zutility-be/`
-- `zutility-fe/`
-- `.gitignore`
+zutility-be/    → rust backend (api, order engine, payment detection)
+zutility-fe/    → next.js frontend (dashboard, pay flow, auth)
 ```
 
-## Getting Started
+## getting started
 
-Prerequisites and setup instructions for this project.
+check `setup.md` (gitignored) for full deployment instructions.
 
-## Usage
+```bash
+# backend
+cd zutility-be
+cp .env.example .env   # fill in your keys
+cargo run
 
-Basic usage examples and API endpoints.
+# frontend
+cd zutility-fe
+npm install
+npm run dev
+```
 
-## License
+## status
 
-This project is licensed under the MIT License.
+work in progress. testnet only. registration is currently closed — join the waitlist.
+
+## license
+
+mit

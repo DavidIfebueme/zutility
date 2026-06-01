@@ -1,21 +1,31 @@
-# Contributing to zutility
+# contributing to zutility
 
-Thank you for your interest in contributing to zutility!
+## how to contribute
 
-## How to Contribute
+1. fork the repo
+2. create a branch (`git checkout -b feat(scope)/short-description`)
+3. commit your changes (`git commit -m 'feat(fe): add thing'`)
+4. push (`git push origin feat(scope)/short-description`)
+5. open a pull request
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'docs: add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+## commit convention
 
-## Code Style
+use conventional commits with scope prefix:
 
-- Follow existing conventions in the codebase
-- Write clear commit messages
-- Test your changes before submitting
+```
+feat(fe): add new utility card
+fix(be): handle indexer timeout gracefully
+feat(provider): add inlomax airtime support
+fix(auth): prevent unauthenticated flash
+```
 
-## Reporting Issues
+## code style
 
-Please use GitHub Issues to report bugs or request features.
+- no comments in code
+- match existing patterns and conventions
+- run typecheck and lint before pushing
+- test your changes
+
+## reporting issues
+
+use github issues. include steps to reproduce, expected behavior, and environment details.
