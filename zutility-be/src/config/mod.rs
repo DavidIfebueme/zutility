@@ -61,6 +61,8 @@ pub struct AppConfig {
     pub zcash_backend: ZcashBackend,
     pub zingo_indexer_uri: String,
     pub zingo_wallet_dir: String,
+    pub zingo_sync_retries: u8,
+    pub zingo_sync_retry_delay_ms: u64,
     pub required_confs_transparent: u16,
     pub required_confs_shielded: u16,
     pub order_expiry_minutes: u16,

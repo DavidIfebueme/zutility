@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use anyhow::{Context, Result};
@@ -14,14 +15,65 @@ use super::{
     WalletBalanceInfo, ZATOSHI_PER_ZEC,
 };
 
+#[derive(Clone)]
+struct RetryPolicy {
+    max_retries: u8,
+    delay: Duration,
+}
+
+impl RetryPolicy {
+    fn new(max_retries: u8, delay_ms: u64) -> Self {
+        Self {
+            max_retries,
+            delay: Duration::from_millis(delay_ms),
+        }
+    }
+}
+
+async fn retry<F, Fut>(policy: &RetryPolicy, label: &str, mut f: F) -> Result<()>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<()>>,
+{
+    let mut last_err = None;
+    for attempt in 0..=policy.max_retries {
+        match f().await {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                let is_last = attempt == policy.max_retries;
+                if is_last {
+                    last_err = Some(e);
+                } else {
+                    tracing::warn!(
+                        attempt,
+                        max_retries = policy.max_retries,
+                        delay_ms = policy.delay.as_millis(),
+                        error = %e,
+                        "{label} failed, retrying"
+                    );
+                    tokio::time::sleep(policy.delay).await;
+                }
+            }
+        }
+    }
+    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("{label} failed without explicit error")))
+}
+
 pub struct ZingoClient {
     client: Arc<RwLock<LightClient>>,
     chain_type: ChainType,
     chain_tip: Arc<RwLock<u64>>,
+    retry_policy: RetryPolicy,
 }
 
 impl ZingoClient {
-    pub async fn new(indexer_uri: &str, wallet_dir: &str, chain_type: ChainType) -> Result<Self> {
+    pub async fn new(
+        indexer_uri: &str,
+        wallet_dir: &str,
+        chain_type: ChainType,
+        sync_retries: u8,
+        sync_retry_delay_ms: u64,
+    ) -> Result<Self> {
         let uri = indexer_uri
             .parse::<axum::http::Uri>()
             .context("invalid zingolib indexer URI")?;
@@ -56,13 +108,39 @@ impl ZingoClient {
             client.save_task().await;
         }
 
-        client.sync_and_await().await
-            .map_err(|e| anyhow::anyhow!("zingolib initial sync failed: {e}"))?;
+        let retry_policy = RetryPolicy::new(sync_retries, sync_retry_delay_ms);
+        {
+            let mut last_err = None;
+            for attempt in 0..=retry_policy.max_retries {
+                match client.sync_and_await().await {
+                    Ok(_) => break,
+                    Err(e) => {
+                        let is_last = attempt == retry_policy.max_retries;
+                        if is_last {
+                            last_err = Some(e);
+                        } else {
+                            tracing::warn!(
+                                attempt,
+                                max_retries = retry_policy.max_retries,
+                                delay_ms = retry_policy.delay.as_millis(),
+                                error = %e,
+                                "initial sync failed, retrying"
+                            );
+                            tokio::time::sleep(retry_policy.delay).await;
+                        }
+                    }
+                }
+            }
+            if let Some(e) = last_err {
+                return Err(anyhow::anyhow!("zingolib initial sync failed after {} retries: {e}", retry_policy.max_retries));
+            }
+        }
 
         let zingo = Self {
             client: Arc::new(RwLock::new(client)),
             chain_type,
             chain_tip: Arc::new(RwLock::new(0)),
+            retry_policy,
         };
 
         zingo.update_chain_tip().await?;
@@ -71,21 +149,41 @@ impl ZingoClient {
     }
 
     pub async fn sync(&self) -> Result<()> {
-        let mut client = self.client.write().await;
-        match client.sync_and_await().await {
-            Ok(_) => {}
-            Err(e) => {
-                let msg = format!("{e}");
-                if msg.contains("sync is already running") {
-                    tracing::debug!("zingolib sync skipped — already in progress");
-                } else {
-                    return Err(anyhow::anyhow!("zingolib sync failed: {e}"));
+        let retry_policy = self.retry_policy.clone();
+        let client = self.client.clone();
+        let chain_tip = self.chain_tip.clone();
+
+        retry(&retry_policy, "sync", || {
+            let client = client.clone();
+            let chain_tip = chain_tip.clone();
+            async move {
+                let mut cl = client.write().await;
+                match cl.sync_and_await().await {
+                    Ok(_) => {}
+                    Err(e) => {
+                        let msg = format!("{e}");
+                        if msg.contains("sync is already running") {
+                            tracing::debug!("zingolib sync skipped — already in progress");
+                        } else {
+                            return Err(anyhow::anyhow!("zingolib sync failed: {e}"));
+                        }
+                    }
                 }
+                drop(cl);
+
+                let cl = client.read().await;
+                let info_str = cl.do_info().await;
+                drop(cl);
+
+                if let Some(height) = parse_chain_tip_from_info(&info_str) {
+                    let mut tip = chain_tip.write().await;
+                    *tip = height;
+                }
+
+                Ok(())
             }
-        }
-        drop(client);
-        self.update_chain_tip().await?;
-        Ok(())
+        })
+        .await
     }
 
     pub async fn save_wallet(&self) -> Result<()> {
@@ -95,16 +193,27 @@ impl ZingoClient {
     }
 
     async fn update_chain_tip(&self) -> Result<()> {
-        let client = self.client.read().await;
-        let info_str = client.do_info().await;
-        drop(client);
+        let retry_policy = self.retry_policy.clone();
+        let client = self.client.clone();
+        let chain_tip = self.chain_tip.clone();
 
-        if let Some(height) = parse_chain_tip_from_info(&info_str) {
-            let mut tip = self.chain_tip.write().await;
-            *tip = height;
-        }
+        retry(&retry_policy, "update_chain_tip", || {
+            let client = client.clone();
+            let chain_tip = chain_tip.clone();
+            async move {
+                let cl = client.read().await;
+                let info_str = cl.do_info().await;
+                drop(cl);
 
-        Ok(())
+                if let Some(height) = parse_chain_tip_from_info(&info_str) {
+                    let mut tip = chain_tip.write().await;
+                    *tip = height;
+                }
+
+                Ok(())
+            }
+        })
+        .await
     }
 
     pub async fn get_wallet_balance(&self) -> Result<WalletBalanceInfo> {
@@ -398,5 +507,19 @@ impl ZcashClient for ZingoClient {
 
     fn as_any(&self) -> &dyn std::any::Any {
         self
+    }
+
+    async fn health_check(&self) -> Result<()> {
+        let client = self.client.read().await;
+        let info_str = client.do_info().await;
+        drop(client);
+
+        match parse_chain_tip_from_info(&info_str) {
+            Some(height) if height > 0 => {
+                tracing::debug!(chain_tip = height, "zingolib health check passed");
+                Ok(())
+            }
+            _ => anyhow::bail!("zingolib health check failed — indexer returned no block height"),
+        }
     }
 }

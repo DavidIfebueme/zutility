@@ -42,6 +42,8 @@ async fn main() -> Result<()> {
                 &config.zingo_indexer_uri,
                 &config.zingo_wallet_dir,
                 chain_type,
+                config.zingo_sync_retries,
+                config.zingo_sync_retry_delay_ms,
             )
             .await
             {

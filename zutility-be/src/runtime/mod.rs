@@ -90,6 +90,7 @@ fn start_order_orchestrator(state: HttpState, config: AppConfig, pool: PgPool) {
         let dispatcher = ProviderDispatcher::new(vtpass, remita, inlomax);
 
         let mut ticker = interval(Duration::from_secs(60));
+        let mut consecutive_sync_failures: u32 = 0;
         loop {
             ticker.tick().await;
             jobs.mark_alive("confirmation_watcher");
@@ -97,8 +98,32 @@ fn start_order_orchestrator(state: HttpState, config: AppConfig, pool: PgPool) {
             jobs.mark_alive("order_timeout_reaper");
 
             if let Some(client) = state.zcash_client.as_ref() {
-                if let Err(error) = client.sync().await {
-                    tracing::warn!(error = %error, "zingolib sync failed during order processing cycle");
+                match client.sync().await {
+                    Ok(()) => {
+                        if consecutive_sync_failures > 0 {
+                            tracing::info!(
+                                previous_failures = consecutive_sync_failures,
+                                "zingolib sync recovered after failures"
+                            );
+                        }
+                        consecutive_sync_failures = 0;
+                    }
+                    Err(error) => {
+                        consecutive_sync_failures += 1;
+                        if consecutive_sync_failures >= 3 {
+                            tracing::error!(
+                                consecutive_failures = consecutive_sync_failures,
+                                error = %error,
+                                "zingolib sync has failed consecutively — indexer may be down"
+                            );
+                        } else {
+                            tracing::warn!(
+                                consecutive_failures = consecutive_sync_failures,
+                                error = %error,
+                                "zingolib sync failed during order processing cycle"
+                            );
+                        }
+                    }
                 }
             }
 

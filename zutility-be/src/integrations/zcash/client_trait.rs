@@ -30,4 +30,8 @@ pub trait ZcashClient: Send + Sync {
     ) -> Result<Vec<ReceivedNote>>;
 
     fn as_any(&self) -> &dyn std::any::Any;
+
+    async fn health_check(&self) -> Result<()> {
+        Ok(())
+    }
 }
