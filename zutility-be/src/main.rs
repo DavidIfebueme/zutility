@@ -3,6 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use std::net::SocketAddr;
 use sqlx::postgres::PgPoolOptions;
+use tokio::time::{timeout, Duration};
 
 use zutility_be::{
     config::AppConfig,
@@ -38,21 +39,28 @@ async fn main() -> Result<()> {
                 zutility_be::config::ZcashNetwork::Testnet => zingolib::config::ChainType::Testnet,
                 zutility_be::config::ZcashNetwork::Mainnet => zingolib::config::ChainType::Mainnet,
             };
-            match ZingoClient::new(
-                &config.zingo_indexer_uri,
-                &config.zingo_wallet_dir,
-                chain_type,
-                config.zingo_sync_retries,
-                config.zingo_sync_retry_delay_ms,
+            match timeout(
+                Duration::from_secs(90),
+                ZingoClient::new(
+                    &config.zingo_indexer_uri,
+                    &config.zingo_wallet_dir,
+                    chain_type,
+                    config.zingo_sync_retries,
+                    config.zingo_sync_retry_delay_ms,
+                ),
             )
             .await
             {
-                Ok(client) => {
+                Ok(Ok(client)) => {
                     tracing::info!("zingolib client initialized and synced successfully");
                     Some(Arc::new(client))
                 }
-                Err(error) => {
+                Ok(Err(error)) => {
                     tracing::error!(error = %error, "zingolib client initialization failed — starting without zcash client");
+                    None
+                }
+                Err(_) => {
+                    tracing::error!("zingolib client initialization timed out after 90s — starting without zcash client");
                     None
                 }
             }
