@@ -148,13 +148,13 @@ impl RemitaClient {
         )
     }
 
-    pub fn compute_hash(&self, order_id: &str, amount_kobo: i64) -> String {
+    pub fn compute_hash(&self, order_id: &str, amount_ngn: i64) -> String {
         let concat = format!(
             "{}{}{}{}{}",
             self.merchant_id,
             self.service_type_id,
             order_id,
-            amount_kobo,
+            amount_ngn,
             self.api_key.expose_secret()
         );
         let result = Sha512::digest(concat.as_bytes());
@@ -336,7 +336,7 @@ impl UtilityProvider for RemitaClient {
             "merchantId": self.merchant_id,
             "serviceTypeId": self.service_type_id,
             "orderId": request.order_id.to_string(),
-            "amount": request.amount_ngn / 100,
+            "amount": request.amount_ngn,
             "payerName": request.metadata.get("customer_name").and_then(Value::as_str).unwrap_or("Zutility User"),
             "payerEmail": request.metadata.get("payer_email").and_then(Value::as_str).unwrap_or("noreply@zutility.xyz"),
             "payerPhone": request.metadata.get("payer_phone").and_then(Value::as_str).unwrap_or(&request.billers_code),

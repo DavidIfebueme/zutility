@@ -362,7 +362,15 @@ async fn dispatch_utility(
     let provider_kind = dispatcher.provider_kind_for(&order.utility_type);
     let provider_name = format!("{provider_kind:?}").to_lowercase();
 
-    let request_id = format!("inl-{}", order.id.as_simple());
+    let request_id = match provider_kind {
+        crate::integrations::utility_provider::ProviderKind::Remita => {
+            format!("rm-{}", order.id.as_simple())
+        }
+        crate::integrations::utility_provider::ProviderKind::Inlomax => {
+            format!("inl-{}", order.id.as_simple())
+        }
+        _ => format!("vp-{}", order.id.as_simple()),
+    };
 
     let transitioned = db::set_order_dispatching(pool, order.id, &provider_name, Some(&request_id)).await?;
     if !transitioned {
