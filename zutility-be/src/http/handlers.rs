@@ -14,7 +14,7 @@ use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use crate::{
-    config::AppConfig,
+    config::{AppConfig, ZcashNetwork},
     db::{self, CreateOrderInput, OrderRow},
     http::auth,
     integrations::provider_dispatcher::ProviderDispatcher,
@@ -49,6 +49,7 @@ pub struct HttpState {
     pub service_ref_velocity: Arc<RwLock<HashMap<String, Vec<chrono::DateTime<Utc>>>>>,
     pub observability: ObservabilityState,
     pub zcash_client: Option<Arc<dyn ZcashClient>>,
+    pub zcash_network: ZcashNetwork,
     pub zcash_expected_chain: String,
     pub required_confs_transparent: u16,
     pub required_confs_shielded: u16,
@@ -83,6 +84,7 @@ impl HttpState {
             service_ref_velocity: Arc::new(RwLock::new(HashMap::new())),
             observability: ObservabilityState::new(),
             zcash_client: None,
+            zcash_network: ZcashNetwork::Testnet,
             zcash_expected_chain: String::from("test"),
             required_confs_transparent: 3,
             required_confs_shielded: 3,
@@ -103,9 +105,10 @@ impl HttpState {
     }
 
     pub fn with_ops_context(mut self, config: &AppConfig) -> Self {
+        self.zcash_network = config.zcash_network.clone();
         self.zcash_expected_chain = match config.zcash_network {
-            crate::config::ZcashNetwork::Testnet => String::from("test"),
-            crate::config::ZcashNetwork::Mainnet => String::from("main"),
+            ZcashNetwork::Testnet => String::from("test"),
+            ZcashNetwork::Mainnet => String::from("main"),
         };
         self.required_confs_transparent = config.required_confs_transparent;
         self.required_confs_shielded = config.required_confs_shielded;
@@ -207,8 +210,9 @@ pub async fn create_order(
         variation_code: payload.variation_code.clone(),
     };
 
+    let network = state.zcash_network.as_str();
     let mut tx = db::begin_tx(&state.pool).await.map_err(internal_err)?;
-    let (order_id, deposit_address) = db::insert_order_with_claimed_address(&mut tx, &input)
+    let (order_id, deposit_address) = db::insert_order_with_claimed_address(&mut tx, &input, network)
         .await
         .map_err(internal_err)?;
     db::set_order_user_id_tx(&mut tx, order_id, auth_user.user_id)

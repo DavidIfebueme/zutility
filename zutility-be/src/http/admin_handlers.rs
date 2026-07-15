@@ -42,16 +42,19 @@ pub async fn wallet_balance(
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("balance query failed: {e}")))?
     };
 
+    let network = state.zcash_network.as_str();
     let shielded_unused = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM deposit_addresses WHERE address_type = 'shielded' AND order_id IS NULL",
+        "SELECT COUNT(*) FROM deposit_addresses WHERE address_type = 'shielded' AND order_id IS NULL AND network = $1",
     )
+    .bind(network)
     .fetch_one(&state.pool)
     .await
     .unwrap_or(0);
 
     let transparent_unused = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM deposit_addresses WHERE address_type = 'transparent' AND order_id IS NULL",
+        "SELECT COUNT(*) FROM deposit_addresses WHERE address_type = 'transparent' AND order_id IS NULL AND network = $1",
     )
+    .bind(network)
     .fetch_one(&state.pool)
     .await
     .unwrap_or(0);

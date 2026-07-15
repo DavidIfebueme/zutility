@@ -27,6 +27,15 @@ pub enum ZcashNetwork {
     Testnet,
 }
 
+impl ZcashNetwork {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Mainnet => "mainnet",
+            Self::Testnet => "testnet",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ZcashBackend {
