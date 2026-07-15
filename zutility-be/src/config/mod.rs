@@ -32,6 +32,15 @@ pub enum ZcashNetwork {
 pub enum ZcashBackend {
     Rpc,
     Zingolib,
+    Mock,
+}
+
+fn default_zcash_backend() -> ZcashBackend {
+    ZcashBackend::Mock
+}
+
+fn default_mock_zcash_auto_confirm() -> bool {
+    false
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -58,7 +67,10 @@ pub struct AppConfig {
     pub zcash_rpc_user: SecretString,
     pub zcash_rpc_password: SecretString,
     pub zcash_network: ZcashNetwork,
+    #[serde(default = "default_zcash_backend")]
     pub zcash_backend: ZcashBackend,
+    #[serde(default = "default_mock_zcash_auto_confirm")]
+    pub mock_zcash_auto_confirm: bool,
     pub zingo_indexer_uri: String,
     pub zingo_wallet_dir: String,
     pub zingo_sync_retries: u8,
@@ -159,7 +171,6 @@ impl AppConfig {
         }
 
         if matches!(self.zcash_backend, ZcashBackend::Zingolib) {
-            ensure_non_empty("ZINGO_INDEXER_URI", &self.zingo_indexer_uri)?;
             ensure_non_empty("ZINGO_WALLET_DIR", &self.zingo_wallet_dir)?;
         }
 
@@ -217,6 +228,16 @@ impl AppConfig {
         ensure_non_empty("APP_BASE_URL", &self.app_base_url)?;
 
         Ok(self)
+    }
+
+    pub fn zingo_indexer_uri(&self) -> String {
+        if !self.zingo_indexer_uri.trim().is_empty() {
+            return self.zingo_indexer_uri.clone();
+        }
+        match self.zcash_network {
+            ZcashNetwork::Mainnet => String::from("https://zec.rocks"),
+            ZcashNetwork::Testnet => String::from("https://testnet.zec.rocks"),
+        }
     }
 }
 

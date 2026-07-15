@@ -1,4 +1,5 @@
 pub mod client_trait;
+pub mod mock_client;
 pub mod rpc_adapter;
 pub mod zingo_client;
 
@@ -13,6 +14,7 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 pub use client_trait::ZcashClient;
+pub use mock_client::MockZcashClient;
 pub use rpc_adapter::ZcashRpcAdapter;
 pub use zingo_client::ZingoClient;
 
@@ -508,14 +510,18 @@ impl ZcashRpcClient {
 pub fn validate_runtime_network_policy(config: &AppConfig) -> Result<()> {
     let is_dev_or_staging = matches!(config.app_env, AppEnv::Dev | AppEnv::Staging);
     let is_testnet = matches!(config.zcash_network, crate::config::ZcashNetwork::Testnet);
-    if is_dev_or_staging && !is_testnet {
-        anyhow::bail!("dev and staging environments must run with ZCASH_NETWORK=testnet");
+    let is_mock = matches!(config.zcash_backend, crate::config::ZcashBackend::Mock);
+    if is_dev_or_staging && !is_testnet && !is_mock {
+        anyhow::bail!("dev and staging environments must run with ZCASH_NETWORK=testnet unless ZCASH_BACKEND=mock");
     }
     Ok(())
 }
 
 pub fn validate_rpc_socket_policy(config: &AppConfig) -> Result<()> {
-    if matches!(config.zcash_backend, crate::config::ZcashBackend::Zingolib) {
+    if matches!(
+        config.zcash_backend,
+        crate::config::ZcashBackend::Zingolib | crate::config::ZcashBackend::Mock
+    ) {
         return Ok(());
     }
     if matches!(config.app_env, AppEnv::Prod)
