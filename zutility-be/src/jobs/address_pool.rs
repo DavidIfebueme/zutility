@@ -82,8 +82,8 @@ impl AddressPoolManager {
         }
     }
 
-    pub async fn metrics(&self, pool: &PgPool) -> Result<AddressPoolMetrics> {
-        let depths = db::load_address_pool_depths(pool).await?;
+    pub async fn metrics(&self, pool: &PgPool, network: &str) -> Result<AddressPoolMetrics> {
+        let depths = db::load_address_pool_depths(pool, network).await?;
         let shielded_unused = depths
             .iter()
             .find(|item| item.address_type == "shielded")
@@ -105,6 +105,7 @@ impl AddressPoolManager {
         &self,
         pool: &PgPool,
         zcash: &Arc<dyn ZcashClient>,
+        network: &str,
         shielded_count: usize,
     ) -> Result<u64> {
         if shielded_count == 0 {
@@ -116,15 +117,16 @@ impl AddressPoolManager {
             let address = zcash.generate_shielded_address().await?;
             addresses.push(address);
         }
-        db::insert_deposit_addresses(pool, "shielded", &addresses).await
+        db::insert_deposit_addresses(pool, "shielded", network, &addresses).await
     }
 
     pub async fn run_shielded_refill(
         &self,
         pool: &PgPool,
         zcash: &dyn ZcashClient,
+        network: &str,
     ) -> Result<RefillOutcome> {
-        let before = db::count_unused_deposit_addresses(pool, "shielded").await?;
+        let before = db::count_unused_deposit_addresses(pool, "shielded", network).await?;
         let planned = self.refill_plan(before).unwrap_or(0);
 
         let inserted = if planned > 0 {
@@ -139,7 +141,7 @@ impl AddressPoolManager {
                 }
             }
             if !addresses.is_empty() {
-                db::insert_deposit_addresses(pool, "shielded", &addresses).await?
+                db::insert_deposit_addresses(pool, "shielded", network, &addresses).await?
             } else {
                 0
             }
@@ -147,7 +149,7 @@ impl AddressPoolManager {
             0
         };
 
-        let after = db::count_unused_deposit_addresses(pool, "shielded").await?;
+        let after = db::count_unused_deposit_addresses(pool, "shielded", network).await?;
         let alert_level = self.classify_alert(after);
 
         match alert_level {

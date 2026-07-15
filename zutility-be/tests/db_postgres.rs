@@ -56,7 +56,7 @@ async fn atomic_transition_updates_order_and_audit_log() {
 
     let address = format!("ztestsapling1{}", Uuid::new_v4().simple());
     let _ = sqlx::query(
-        "INSERT INTO deposit_addresses (address, address_type, used) VALUES ($1, 'shielded', false)",
+        "INSERT INTO deposit_addresses (address, address_type, network, used) VALUES ($1, 'shielded', 'testnet', false)",
     )
     .bind(address)
     .execute(&pool)
@@ -81,6 +81,7 @@ async fn atomic_transition_updates_order_and_audit_log() {
             metadata: serde_json::json!({"source":"test"}),
             variation_code: None,
         },
+        "testnet",
     )
     .await
     .expect("insert order");
@@ -133,7 +134,7 @@ async fn guarded_transition_fails_when_current_status_mismatches() {
 
     let address = format!("ztestsapling1{}", Uuid::new_v4().simple());
     let _ = sqlx::query(
-        "INSERT INTO deposit_addresses (address, address_type, used) VALUES ($1, 'shielded', false)",
+        "INSERT INTO deposit_addresses (address, address_type, network, used) VALUES ($1, 'shielded', 'testnet', false)",
     )
     .bind(address)
     .execute(&pool)
@@ -158,6 +159,7 @@ async fn guarded_transition_fails_when_current_status_mismatches() {
             metadata: serde_json::json!({"source":"test"}),
             variation_code: None,
         },
+        "testnet",
     )
     .await
     .expect("insert order");

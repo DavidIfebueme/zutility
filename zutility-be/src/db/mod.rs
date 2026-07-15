@@ -115,6 +115,7 @@ pub async fn claim_unused_deposit_address(
     tx: &mut Transaction<'_, Postgres>,
     order_id: Uuid,
     address_type: &str,
+    network: &str,
 ) -> Result<String> {
     let claimed = sqlx::query_scalar::<_, String>(
         "UPDATE deposit_addresses
@@ -122,7 +123,7 @@ pub async fn claim_unused_deposit_address(
          WHERE address = (
             SELECT address
             FROM deposit_addresses
-            WHERE used = false AND address_type = $2
+            WHERE used = false AND address_type = $2 AND network = $3
             ORDER BY created_at ASC
             LIMIT 1
             FOR UPDATE SKIP LOCKED
@@ -131,31 +132,42 @@ pub async fn claim_unused_deposit_address(
     )
     .bind(order_id)
     .bind(address_type)
+    .bind(network)
     .fetch_optional(tx.as_mut())
     .await?;
 
-    claimed.ok_or_else(|| anyhow!("no unused deposit address available for {address_type}"))
+    claimed.ok_or_else(|| anyhow!("no unused deposit address available for {address_type} on {network}"))
 }
 
-pub async fn count_unused_deposit_addresses(pool: &PgPool, address_type: &str) -> Result<i64> {
+pub async fn count_unused_deposit_addresses(
+    pool: &PgPool,
+    address_type: &str,
+    network: &str,
+) -> Result<i64> {
     let count = sqlx::query_scalar::<_, i64>(
         "SELECT COUNT(*)
          FROM deposit_addresses
-         WHERE used = false AND address_type = $1",
+         WHERE used = false AND address_type = $1 AND network = $2",
     )
     .bind(address_type)
+    .bind(network)
     .fetch_one(pool)
     .await?;
 
     Ok(count)
 }
 
-pub async fn load_address_pool_depths(pool: &PgPool) -> Result<Vec<AddressPoolDepth>> {
+pub async fn load_address_pool_depths(
+    pool: &PgPool,
+    network: &str,
+) -> Result<Vec<AddressPoolDepth>> {
     let rows = sqlx::query_as::<_, (String, i64)>(
         "SELECT address_type, COUNT(*) FILTER (WHERE used = false) AS unused_count
          FROM deposit_addresses
+         WHERE network = $1
          GROUP BY address_type",
     )
+    .bind(network)
     .fetch_all(pool)
     .await?;
 
@@ -171,6 +183,7 @@ pub async fn load_address_pool_depths(pool: &PgPool) -> Result<Vec<AddressPoolDe
 pub async fn insert_deposit_addresses(
     pool: &PgPool,
     address_type: &str,
+    network: &str,
     addresses: &[String],
 ) -> Result<u64> {
     if addresses.is_empty() {
@@ -180,12 +193,13 @@ pub async fn insert_deposit_addresses(
     let mut inserted = 0_u64;
     for address in addresses {
         let affected = sqlx::query(
-            "INSERT INTO deposit_addresses (address, address_type, used)
-             VALUES ($1, $2, false)
+            "INSERT INTO deposit_addresses (address, address_type, network, used)
+             VALUES ($1, $2, $3, false)
              ON CONFLICT (address) DO NOTHING",
         )
         .bind(address)
         .bind(address_type)
+        .bind(network)
         .execute(pool)
         .await?
         .rows_affected();
@@ -256,9 +270,11 @@ pub async fn persist_rate_snapshot(
 pub async fn insert_order_with_claimed_address(
     tx: &mut Transaction<'_, Postgres>,
     input: &CreateOrderInput,
+    network: &str,
 ) -> Result<(Uuid, String)> {
     let order_id = Uuid::new_v4();
-    let deposit_address = claim_unused_deposit_address(tx, order_id, &input.address_type).await?;
+    let deposit_address =
+        claim_unused_deposit_address(tx, order_id, &input.address_type, network).await?;
 
     sqlx::query(
         "INSERT INTO orders (

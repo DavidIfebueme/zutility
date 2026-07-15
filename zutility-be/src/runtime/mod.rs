@@ -548,6 +548,7 @@ async fn fail_order(state: &HttpState, pool: &PgPool, order_id: Uuid, reason: &s
 
 fn start_address_pool_refill(state: HttpState, _config: AppConfig, pool: PgPool) {
     let jobs = state.observability.jobs();
+    let network = state.zcash_network.as_str().to_owned();
     tokio::spawn(async move {
         let Some(client) = state.zcash_client.as_ref().cloned() else {
             tracing::info!("no zcash client — address pool refill disabled");
@@ -561,7 +562,7 @@ fn start_address_pool_refill(state: HttpState, _config: AppConfig, pool: PgPool)
             ticker.tick().await;
             jobs.mark_alive("address_pool_refill");
 
-            match manager.run_shielded_refill(&pool, &*client).await {
+            match manager.run_shielded_refill(&pool, &*client, &network).await {
                 Ok(outcome) => {
                     state.observability.metrics().set_address_pool_depth(
                         "shielded",
