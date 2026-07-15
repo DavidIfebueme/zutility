@@ -1,0 +1,33 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'zutility-be/**'
+      - '.github/workflows/deploy-backend.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          timeout: 30s
+          command_timeout: 15m
+          script: |
+            set -euo pipefail
+            export PATH="/root/.cargo/bin:$PATH"
+            cd /opt/zutility
+            git fetch origin
+            git reset --hard origin/master
+            cd zutility-be
+            cargo build --release
+            systemctl restart zutility-be
+            systemctl is-active zutility-be
