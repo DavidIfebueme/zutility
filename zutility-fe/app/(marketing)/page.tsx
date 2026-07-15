@@ -402,7 +402,7 @@ export default function LandingPage() {
           </div>
         </div>
         <div className="mx-auto max-w-7xl px-6 mt-12 pt-8 border-t border-border-subtle flex flex-col md:flex-row justify-between items-center gap-4 text-xs text-text-muted">
-          <p>© 2025 zutility. All rights reserved.</p>
+          <p>© 2026 zutility. All rights reserved.</p>
           <p>Disclaimer: zutility is a non-custodial platform and not a registered bank.</p>
         </div>
       </footer>
