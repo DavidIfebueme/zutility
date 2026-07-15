@@ -6,11 +6,11 @@ use sqlx::postgres::PgPoolOptions;
 use tokio::time::{timeout, Duration};
 
 use zutility_be::{
-    config::AppConfig,
+    config::{AppConfig, ZcashBackend},
     http,
     integrations::zcash::{
         validate_runtime_network_policy, validate_rpc_socket_policy,
-        ZcashClient, ZcashRpcAdapter, ZcashRpcClient, ZingoClient,
+        MockZcashClient, ZcashClient, ZcashRpcAdapter, ZcashRpcClient, ZingoClient,
     },
     observability, runtime,
 };
@@ -29,7 +29,7 @@ async fn main() -> Result<()> {
         .await?;
 
     let zcash_client: Option<Arc<dyn ZcashClient>> = match config.zcash_backend {
-        zutility_be::config::ZcashBackend::Zingolib => {
+        ZcashBackend::Zingolib => {
             tracing::info!(
                 indexer = %config.zingo_indexer_uri,
                 wallet_dir = %config.zingo_wallet_dir,
@@ -42,7 +42,7 @@ async fn main() -> Result<()> {
             match timeout(
                 Duration::from_secs(90),
                 ZingoClient::new(
-                    &config.zingo_indexer_uri,
+                    &config.zingo_indexer_uri(),
                     &config.zingo_wallet_dir,
                     chain_type,
                     config.zingo_sync_retries,
@@ -65,7 +65,7 @@ async fn main() -> Result<()> {
                 }
             }
         }
-        zutility_be::config::ZcashBackend::Rpc => {
+        ZcashBackend::Rpc => {
             tracing::info!("initializing zcashd RPC backend");
             match ZcashRpcClient::from_app_config(&config) {
                 Ok(rpc_client) => Some(Arc::new(ZcashRpcAdapter::new(rpc_client))),
@@ -74,6 +74,17 @@ async fn main() -> Result<()> {
                     None
                 }
             }
+        }
+        ZcashBackend::Mock => {
+            tracing::info!(
+                network = ?config.zcash_network,
+                auto_confirm = config.mock_zcash_auto_confirm,
+                "initializing mock zcash backend"
+            );
+            Some(Arc::new(MockZcashClient::new(
+                config.zcash_network.clone(),
+                config.mock_zcash_auto_confirm,
+            )))
         }
     };
 

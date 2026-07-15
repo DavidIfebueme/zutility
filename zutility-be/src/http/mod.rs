@@ -259,6 +259,7 @@ pub fn router() -> Router {
         zcash_rpc_password: secrecy::SecretString::from(String::from("rpc_password")),
         zcash_network: crate::config::ZcashNetwork::Testnet,
         zcash_backend: crate::config::ZcashBackend::Rpc,
+        mock_zcash_auto_confirm: false,
         zingo_indexer_uri: String::from("https://testnet.zec.rocks"),
         zingo_wallet_dir: String::from("/tmp/zingo-wallet"),
         zingo_sync_retries: 3,

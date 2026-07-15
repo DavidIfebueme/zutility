@@ -78,7 +78,16 @@ impl ZingoClient {
             .parse::<axum::http::Uri>()
             .context("invalid zingolib indexer URI")?;
 
-        let wallet_path = std::path::PathBuf::from(wallet_dir).join("zingo-wallet.dat");
+        let network_name = match chain_type {
+            ChainType::Testnet => "testnet",
+            ChainType::Mainnet => "mainnet",
+            _ => "unknown",
+        };
+        let wallet_dir = std::path::PathBuf::from(wallet_dir).join(network_name);
+        std::fs::create_dir_all(&wallet_dir)
+            .with_context(|| format!("failed to create wallet directory {}", wallet_dir.display()))?;
+
+        let wallet_path = wallet_dir.join("zingo-wallet.dat");
         let wallet_exists = wallet_path.exists();
 
         let wallet_config = if wallet_exists {
@@ -96,7 +105,7 @@ impl ZingoClient {
         let config = ClientConfig::builder()
             .set_indexer_uri(uri)
             .set_chain_type(chain_type)
-            .set_wallet_dir(std::path::PathBuf::from(wallet_dir))
+            .set_wallet_dir(wallet_dir)
             .set_wallet_config(wallet_config)
             .build();
 
