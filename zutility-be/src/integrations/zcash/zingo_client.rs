@@ -105,7 +105,7 @@ impl ZingoClient {
         let config = ClientConfig::builder()
             .set_indexer_uri(uri)
             .set_chain_type(chain_type)
-            .set_wallet_dir(wallet_dir)
+            .set_wallet_dir(wallet_dir.clone())
             .set_wallet_config(wallet_config)
             .build();
 
@@ -115,6 +115,21 @@ impl ZingoClient {
 
         if !wallet_exists {
             client.save_task().await;
+            if let Some(seed) = client.mnemonic_phrase() {
+                let seed_path = wallet_dir.join("seed.txt");
+                if let Err(error) = std::fs::write(&seed_path, &seed) {
+                    tracing::error!(path = %seed_path.display(), error = %error, "failed to write wallet seed backup");
+                } else {
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt;
+                        let _ = std::fs::set_permissions(&seed_path, std::fs::Permissions::from_mode(0o600));
+                    }
+                    tracing::warn!(path = %seed_path.display(), "new zingolib wallet created — seed phrase written to file; back it up securely and remove from server if possible");
+                }
+            } else {
+                tracing::warn!("new zingolib wallet created but no mnemonic phrase was available — ensure wallet is recoverable");
+            }
         }
 
         let retry_policy = RetryPolicy::new(sync_retries, sync_retry_delay_ms);
