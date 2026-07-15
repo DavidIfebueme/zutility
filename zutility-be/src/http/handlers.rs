@@ -58,6 +58,7 @@ pub struct HttpState {
     pub refresh_token_ttl_hours: i64,
     pub email_client: Option<crate::integrations::email::EmailClient>,
     pub app_base_url: String,
+    pub frontend_url: Option<String>,
     pub admin_secret: Option<secrecy::SecretString>,
 }
 
@@ -91,6 +92,7 @@ impl HttpState {
             refresh_token_ttl_hours,
             email_client: None,
             app_base_url,
+            frontend_url: None,
             admin_secret: None,
         }
     }
@@ -136,6 +138,7 @@ impl HttpState {
             tracing::warn!("admin secret not configured — admin endpoints disabled");
         }
         self.admin_secret = config.admin_secret.clone();
+        self.frontend_url = config.frontend_url.clone();
 
         self
     }

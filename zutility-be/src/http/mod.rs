@@ -86,6 +86,7 @@ pub fn build_router_from_state(state: HttpState, enable_rate_limits: bool) -> Ro
 fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool) -> Router {
     let jwt_secret_for_mw = state.jwt_secret.clone();
     let app_base_url = state.app_base_url.clone();
+    let frontend_url = state.frontend_url.clone();
 
     let public_routes = Router::new()
         .route("/api/v1/auth/register", post(register))
@@ -169,15 +170,7 @@ fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool
                 ])
                 .allow_credentials(true)
                 .expose_headers([HeaderName::from_str("x-request-id").expect("valid header name")]);
-            let allowed_origins = [
-                app_base_url.clone(),
-                app_base_url.replace("https://", "https://www."),
-                app_base_url.replace("http://", "http://www."),
-            ];
-            let origins: Vec<HeaderValue> = allowed_origins
-                .iter()
-                .filter_map(|o| o.parse::<HeaderValue>().ok())
-                .collect();
+            let origins = build_allowed_origins(&app_base_url, frontend_url.as_deref());
             cors.allow_origin(origins)
         })
         .layer(PropagateRequestIdLayer::new(HeaderName::from_static(
@@ -212,20 +205,31 @@ fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool
                 ])
                 .allow_credentials(true)
                 .expose_headers([HeaderName::from_str("x-request-id").expect("valid header name")]);
-            let allowed_origins = [
-                app_base_url.clone(),
-                app_base_url.replace("https://", "https://www."),
-                app_base_url.replace("http://", "http://www."),
-            ];
-            let origins: Vec<HeaderValue> = allowed_origins
-                .iter()
-                .filter_map(|o| o.parse::<HeaderValue>().ok())
-                .collect();
+            let origins = build_allowed_origins(&app_base_url, frontend_url.as_deref());
             cors.allow_origin(origins)
         });
     }
 
     router
+}
+
+fn build_allowed_origins(app_base_url: &str, frontend_url: Option<&str>) -> Vec<HeaderValue> {
+    let mut origins = vec![
+        app_base_url.to_owned(),
+        app_base_url.replace("https://", "https://www."),
+        app_base_url.replace("http://", "http://www."),
+    ];
+    if let Some(frontend_url) = frontend_url {
+        if !frontend_url.is_empty() {
+            origins.push(frontend_url.to_owned());
+            origins.push(frontend_url.replace("https://", "https://www."));
+            origins.push(frontend_url.replace("http://", "http://www."));
+        }
+    }
+    origins
+        .into_iter()
+        .filter_map(|o| o.parse::<HeaderValue>().ok())
+        .collect()
 }
 
 pub fn router() -> Router {
@@ -274,6 +278,7 @@ pub fn router() -> Router {
         brevo_sender_email: None,
         brevo_sender_name: None,
         app_base_url: String::from("http://localhost:3000"),
+        frontend_url: None,
         admin_secret: Some(secrecy::SecretString::from(String::from("dev_admin_secret"))),
     };
 
