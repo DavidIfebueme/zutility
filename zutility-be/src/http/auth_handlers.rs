@@ -82,8 +82,13 @@ fn cookie_domain_from_base_url(base_url: &str) -> Option<String> {
         .split(':')
         .next()
         .unwrap_or("");
-    if host.contains('.') && host != "localhost" && host != "127.0.0.1" {
-        Some(host.to_owned())
+    if host == "localhost" || host == "127.0.0.1" {
+        return None;
+    }
+    let parts: Vec<&str> = host.split('.').collect();
+    if parts.len() >= 2 {
+        let domain = parts[parts.len() - 2..].join(".");
+        Some(domain)
     } else {
         None
     }
