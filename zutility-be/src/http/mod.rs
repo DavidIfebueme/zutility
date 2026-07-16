@@ -262,6 +262,8 @@ pub fn router() -> Router {
         mock_zcash_auto_confirm: false,
         zingo_indexer_uri: String::from("https://testnet.zec.rocks"),
         zingo_wallet_dir: String::from("/tmp/zingo-wallet"),
+        zingo_wallet_birthday: 0,
+        zingo_init_timeout_seconds: 90,
         zingo_sync_retries: 3,
         zingo_sync_retry_delay_ms: 2000,
         required_confs_transparent: 3,

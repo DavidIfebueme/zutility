@@ -39,12 +39,14 @@ async fn main() -> Result<()> {
                 zutility_be::config::ZcashNetwork::Testnet => zingolib::config::ChainType::Testnet,
                 zutility_be::config::ZcashNetwork::Mainnet => zingolib::config::ChainType::Mainnet,
             };
+            let timeout_secs = config.zingo_init_timeout_seconds;
             match timeout(
-                Duration::from_secs(90),
+                Duration::from_secs(timeout_secs),
                 ZingoClient::new(
                     &config.zingo_indexer_uri(),
                     &config.zingo_wallet_dir,
                     chain_type,
+                    config.zingo_wallet_birthday,
                     config.zingo_sync_retries,
                     config.zingo_sync_retry_delay_ms,
                 ),
@@ -60,7 +62,7 @@ async fn main() -> Result<()> {
                     None
                 }
                 Err(_) => {
-                    tracing::error!("zingolib client initialization timed out after 90s — starting without zcash client");
+                    tracing::error!(timeout_secs, "zingolib client initialization timed out — starting without zcash client");
                     None
                 }
             }

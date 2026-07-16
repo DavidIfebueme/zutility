@@ -71,6 +71,7 @@ impl ZingoClient {
         indexer_uri: &str,
         wallet_dir: &str,
         chain_type: ChainType,
+        wallet_birthday: u32,
         sync_retries: u8,
         sync_retry_delay_ms: u64,
     ) -> Result<Self> {
@@ -97,7 +98,7 @@ impl ZingoClient {
             tracing::info!("creating new zingolib wallet at {}", wallet_path.display());
             WalletConfig::NewSeed {
                 no_of_accounts: std::num::NonZeroU32::new(1).context("invalid account count")?,
-                chain_height: 0,
+                chain_height: wallet_birthday,
                 wallet_settings: Default::default(),
             }
         };

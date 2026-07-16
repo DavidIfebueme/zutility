@@ -52,6 +52,10 @@ fn default_mock_zcash_auto_confirm() -> bool {
     false
 }
 
+fn default_zingo_init_timeout_seconds() -> u64 {
+    90
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct AppConfig {
     pub app_env: AppEnv,
@@ -82,6 +86,10 @@ pub struct AppConfig {
     pub mock_zcash_auto_confirm: bool,
     pub zingo_indexer_uri: String,
     pub zingo_wallet_dir: String,
+    #[serde(default)]
+    pub zingo_wallet_birthday: u32,
+    #[serde(default = "default_zingo_init_timeout_seconds")]
+    pub zingo_init_timeout_seconds: u64,
     pub zingo_sync_retries: u8,
     pub zingo_sync_retry_delay_ms: u64,
     pub required_confs_transparent: u16,
