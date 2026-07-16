@@ -111,6 +111,7 @@ impl ZingoClient {
 
         let overwrite = !wallet_exists;
         let mut client = LightClient::new(config, overwrite)
+            .await
             .map_err(|e| anyhow::anyhow!("zingolib LightClient init failed: {e}"))?;
 
         if !wallet_exists {
@@ -193,9 +194,7 @@ impl ZingoClient {
                         }
                     }
                 }
-                drop(cl);
 
-                let cl = client.read().await;
                 let info_str = cl.do_info().await;
                 drop(cl);
 
@@ -225,7 +224,7 @@ impl ZingoClient {
             let client = client.clone();
             let chain_tip = chain_tip.clone();
             async move {
-                let cl = client.read().await;
+                let mut cl = client.write().await;
                 let info_str = cl.do_info().await;
                 drop(cl);
 
@@ -317,7 +316,7 @@ impl ZcashClient for ZingoClient {
     }
 
     async fn get_blockchain_info(&self) -> Result<BlockchainInfo> {
-        let client = self.client.read().await;
+        let mut client = self.client.write().await;
         let _info_str = client.do_info().await;
         drop(client);
 
@@ -534,7 +533,7 @@ impl ZcashClient for ZingoClient {
     }
 
     async fn health_check(&self) -> Result<()> {
-        let client = self.client.read().await;
+        let mut client = self.client.write().await;
         let info_str = client.do_info().await;
         drop(client);
 

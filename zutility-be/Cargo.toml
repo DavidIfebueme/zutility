@@ -45,9 +45,9 @@ utoipa = { version = "5.4.0", features = ["axum_extras", "chrono", "uuid"] }
 uuid = { version = "1.22.0", features = ["v4", "v7", "serde"] }
 futures-util = "0.3.31"
 hex = "0.4.3"
-zingolib = { git = "https://github.com/DavidIfebueme/zingolib-notor", branch = "main" }
-pepper-sync = { git = "https://github.com/DavidIfebueme/zingolib-notor", branch = "main" }
-zingo-status = { git = "https://github.com/DavidIfebueme/zingolib-notor", branch = "main" }
+zingolib = { git = "https://github.com/DavidIfebueme/zingolib-notor", rev = "aa9990a5" }
+pepper-sync = { git = "https://github.com/DavidIfebueme/zingolib-notor", rev = "aa9990a5" }
+zingo-status = { git = "https://github.com/DavidIfebueme/zingolib-notor", rev = "aa9990a5" }
 zip32 = "0.2"
 
 [dev-dependencies]
