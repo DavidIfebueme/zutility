@@ -1,35 +1,52 @@
 import type { Metadata } from 'next';
-import { Dela_Gothic_One, DM_Sans, JetBrains_Mono } from 'next/font/google';
+import { Fraunces, Geist, Geist_Mono } from 'next/font/google';
 import { Toaster } from 'sonner';
 import './globals.css';
 
-const delaGothicOne = Dela_Gothic_One({
-  weight: '400',
+const fraunces = Fraunces({
   subsets: ['latin'],
-  variable: '--font-dela',
+  variable: '--font-fraunces',
+  display: 'swap',
 });
 
-const dmSans = DM_Sans({
+const geist = Geist({
   subsets: ['latin'],
-  variable: '--font-dm',
+  variable: '--font-geist',
+  display: 'swap',
 });
 
-const jetbrainsMono = JetBrains_Mono({
+const geistMono = Geist_Mono({
   subsets: ['latin'],
-  variable: '--font-mono',
+  variable: '--font-geist-mono',
+  display: 'swap',
 });
 
 export const metadata: Metadata = {
-  title: 'zutility | Privacy Tokens to Utilities',
-  description: 'African platform bridging privacy tokens to local currency and utility payments. No KYC required.',
+  title: 'zutility | Pay utilities with Zcash',
+  description:
+    'Pay electricity, airtime, data, and TV with ZEC. No KYC. Pay from any Zcash wallet.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${delaGothicOne.variable} ${dmSans.variable} ${jetbrainsMono.variable}`}>
-      <body className="font-dm bg-bg-void text-text-primary antialiased" suppressHydrationWarning>
+    <html
+      lang="en"
+      className={`${fraunces.variable} ${geist.variable} ${geistMono.variable}`}
+    >
+      <body className="font-sans bg-paper text-ink antialiased" suppressHydrationWarning>
         {children}
-        <Toaster theme="dark" position="bottom-right" />
+        <Toaster
+          theme="light"
+          position="bottom-right"
+          toastOptions={{
+            style: {
+              background: '#fffdf7',
+              border: '1px solid #d3c9b8',
+              color: '#14130f',
+              borderRadius: '8px',
+            },
+          }}
+        />
       </body>
     </html>
   );

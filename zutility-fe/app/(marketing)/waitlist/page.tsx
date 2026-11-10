@@ -2,27 +2,17 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useSearchParams } from "next/navigation"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { Suspense } from "react"
-import { motion } from "motion/react"
-import MailFilledIcon from "@/components/icons/mail-filled-icon"
-import UserIcon from "@/components/icons/user-icon"
-import ArrowNarrowRightIcon from "@/components/icons/arrow-narrow-right-icon"
-import CopyIcon from "@/components/icons/copy-icon"
-import CheckedIcon from "@/components/icons/checked-icon"
-import UsersGroupIcon from "@/components/icons/users-group-icon"
-import ShieldCheck from "@/components/icons/shield-check"
-import PlugConnectedIcon from "@/components/icons/plug-connected-icon"
-import ClockIcon from "@/components/icons/clock-icon"
+import { ArrowRight, Check, Copy } from "lucide-react"
+import { SiteHeader } from "@/components/marketing/site-header"
+import { SiteFooter } from "@/components/marketing/site-footer"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { apiPost, apiGet } from "@/lib/api"
-import { toast } from "sonner"
-import { PaymentFlow } from "@/components/ui/payment-flow"
 
 const waitlistSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -42,13 +32,13 @@ interface WaitlistStats {
 }
 
 function WaitlistContent() {
-  const router = useRouter()
   const searchParams = useSearchParams()
   const refCode = searchParams.get("ref")
   const [isLoading, setIsLoading] = React.useState(false)
   const [joined, setJoined] = React.useState<WaitlistJoinResponse | null>(null)
   const [copied, setCopied] = React.useState(false)
   const [stats, setStats] = React.useState<WaitlistStats | null>(null)
+  const [error, setError] = React.useState<string | null>(null)
 
   const {
     register,
@@ -64,6 +54,7 @@ function WaitlistContent() {
 
   const onSubmit = async (data: WaitlistFormValues) => {
     setIsLoading(true)
+    setError(null)
     try {
       const utmParams: Record<string, string> = {}
       for (const key of ["utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term"]) {
@@ -78,10 +69,9 @@ function WaitlistContent() {
         ...utmParams,
       })
       setJoined(result)
-      toast.success("You're on the list!")
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Failed to join waitlist"
-      toast.error(message)
+      setError(message)
     } finally {
       setIsLoading(false)
     }
@@ -99,155 +89,210 @@ function WaitlistContent() {
   }
 
   return (
-    <div className="flex min-h-screen bg-bg-void text-text-primary">
-      <div className="hidden w-1/2 flex-col justify-between border-r border-border-subtle bg-bg-surface p-12 lg:flex relative overflow-hidden">
-        <div className="absolute inset-0 z-0 opacity-30 pointer-events-none">
-          <PaymentFlow />
-        </div>
-        <div className="relative z-10">
-          <Link href="/" className="font-dela text-2xl tracking-tight">
-            <span className="text-accent-zec">z</span>utility
-          </Link>
-        </div>
-        <div className="relative z-10 max-w-md">
-          <h1 className="font-dela text-4xl leading-tight mb-4">
-            Be first in line.
-          </h1>
-          <p className="text-text-secondary text-lg">
-            Join the waitlist for early access to private, ZEC-powered utility payments across Africa.
-          </p>
-          {stats && stats.total > 0 && (
-            <div className="mt-8 flex items-center gap-3">
-              <div className="flex -space-x-2">
-                {[...Array(3)].map((_, i) => (
-                  <div key={i} className="h-8 w-8 rounded-full bg-accent-zec/20 border-2 border-bg-surface flex items-center justify-center text-xs text-accent-zec font-medium">
-                    {["Z", "U", "X"][i]}
-                  </div>
-                ))}
-              </div>
-              <span className="text-sm text-text-secondary">
-                <span className="text-text-primary font-medium">{stats.verified}</span> people already verified
-              </span>
-            </div>
-          )}
-        </div>
-        <div className="relative z-10">
-          <div className="flex items-center gap-6 text-sm text-text-muted">
-            <div className="flex items-center gap-2">
-              <ShieldCheck size={16} className="text-accent-zec" />
-              <span>No KYC</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <PlugConnectedIcon size={16} className="text-accent-zec" />
-              <span>Instant delivery</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <ClockIcon size={16} className="text-accent-zec" />
-              <span>3 confs ~4min</span>
-            </div>
-          </div>
-        </div>
-      </div>
+    <div className="min-h-screen bg-paper">
+      <SiteHeader />
 
-      <div className="flex w-full flex-col justify-center px-8 sm:px-16 lg:w-1/2 xl:px-24">
-        <div className="mx-auto w-full max-w-sm">
-          <div className="mb-10 lg:hidden">
-            <Link href="/" className="font-dela text-2xl tracking-tight">
-              <span className="text-accent-zec">z</span>utility
-            </Link>
+      <main>
+        <section className="paper-grid border-b border-line">
+          <div className="mx-auto max-w-6xl px-5 py-14 lg:py-16">
+            <p className="label-xs text-gold-deep">Waitlist</p>
+            <h1 className="mt-4 max-w-2xl text-4xl leading-[1.1] text-ink sm:text-5xl">
+              Be first in line.
+            </h1>
+            <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-ink-2">
+              Early access to private utility payments in Zcash. Leave an email, confirm it, and
+              hold your place.
+            </p>
           </div>
+        </section>
 
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4 }}
-          >
-            {joined ? (
-              <div className="space-y-6">
-                <div>
-                  <h2 className="font-dela text-3xl mb-2">You&apos;re on the list!</h2>
-                  <p className="text-text-secondary">
-                    You&apos;re <span className="text-accent-zec font-semibold">#{joined.position}</span> in line. Check your email to confirm your spot.
-                  </p>
+        <section>
+          <div className="mx-auto grid max-w-6xl gap-10 px-5 py-12 lg:grid-cols-[1fr_440px] lg:gap-16 lg:py-16">
+            <div className="max-w-md">
+              <p className="label-xs text-muted">How the list works</p>
+              <dl className="mt-4 border-t border-line">
+                <div className="border-b border-line py-4">
+                  <dt className="text-[14px] font-medium text-ink">Join with an email</dt>
+                  <dd className="mt-1 text-[13px] leading-relaxed text-ink-2">
+                    The confirmation link is the only step. No documents, no account approval.
+                  </dd>
                 </div>
+                <div className="border-b border-line py-4">
+                  <dt className="text-[14px] font-medium text-ink">Confirm to hold the place</dt>
+                  <dd className="mt-1 text-[13px] leading-relaxed text-ink-2">
+                    An unconfirmed address is not counted as verified. Open the link in the message
+                    to confirm it.
+                  </dd>
+                </div>
+                <div className="border-b border-line py-4">
+                  <dt className="text-[14px] font-medium text-ink">Referrals move you up</dt>
+                  <dd className="mt-1 text-[13px] leading-relaxed text-ink-2">
+                    Share your link after joining. Each person who joins through it helps your
+                    position.
+                  </dd>
+                </div>
+              </dl>
 
-                <Card className="border-accent-zec/30 bg-bg-elevated">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base flex items-center gap-2">
-                       <UsersGroupIcon size={16} className="text-accent-zec" />
-                      Your referral link
-                    </CardTitle>
-                    <CardDescription>Share to move up the list</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex items-center gap-2">
-                      <code className="flex-1 rounded-md bg-bg-void px-3 py-2 text-xs text-accent-zec truncate border border-border-subtle">
+              {stats && stats.total > 0 && (
+                <div className="mt-8">
+                  <p className="label-xs text-muted">The list right now</p>
+                  <dl className="mt-3 rounded-lg border border-line bg-cream">
+                    <div className="flex items-baseline justify-between border-b border-line px-4 py-3">
+                      <dt className="text-[13px] text-muted">Joined</dt>
+                      <dd className="num text-[14px] text-ink">{stats.total}</dd>
+                    </div>
+                    <div className="flex items-baseline justify-between px-4 py-3">
+                      <dt className="text-[13px] text-muted">Verified</dt>
+                      <dd className="num text-[14px] text-ink">{stats.verified}</dd>
+                    </div>
+                  </dl>
+                </div>
+              )}
+
+              <p className="mt-8 text-[13px] leading-relaxed text-muted">
+                We send waitlist updates and nothing else. Read the{" "}
+                <Link
+                  href="/how-it-works"
+                  className="text-gold-deep underline underline-offset-4 hover:no-underline"
+                >
+                  payment flow
+                </Link>{" "}
+                before you join.
+              </p>
+            </div>
+
+            <div className="rounded-lg border border-line bg-cream p-6 sm:p-7">
+              {joined ? (
+                <div aria-live="polite">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-md bg-paper-2 text-green">
+                    <Check className="h-5 w-5" strokeWidth={1.8} />
+                  </span>
+                  <h2 className="mt-4 text-2xl text-ink">You are on the list.</h2>
+                  <p className="mt-2 text-[14px] leading-relaxed text-ink-2">
+                    Check the email for the confirmation link. The place holds once that link is
+                    opened.
+                  </p>
+
+                  <dl className="mt-6 rounded-md border border-line bg-paper">
+                    <div className="flex items-baseline justify-between border-b border-line px-4 py-3">
+                      <dt className="text-[13px] text-muted">Position</dt>
+                      <dd className="num text-[15px] text-ink">#{joined.position}</dd>
+                    </div>
+                    <div className="flex items-baseline justify-between px-4 py-3">
+                      <dt className="text-[13px] text-muted">Referral code</dt>
+                      <dd className="num text-[13px] text-ink">{joined.referral_code}</dd>
+                    </div>
+                  </dl>
+
+                  <div className="mt-5">
+                    <p className="text-[13px] font-medium text-ink">Your referral link</p>
+                    <div className="mt-2 flex items-stretch gap-2">
+                      <code className="num min-w-0 flex-1 truncate rounded-md border border-line bg-paper px-3 py-2 text-[12px] text-ink-2">
                         {shareUrl}
                       </code>
-                      <Button variant="secondary" size="sm" onClick={handleCopy} className="shrink-0">
-                        {copied ? <CheckedIcon size={16} /> : <CopyIcon size={16} />}
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={handleCopy}
+                        className="shrink-0"
+                        aria-label="Copy referral link"
+                      >
+                        {copied ? (
+                          <Check className="h-4 w-4 text-green" strokeWidth={1.8} />
+                        ) : (
+                          <Copy className="h-4 w-4" strokeWidth={1.6} />
+                        )}
                       </Button>
                     </div>
-                    <p className="text-xs text-text-muted mt-3">
-                      Your code: <span className="text-text-primary font-mono">{joined.referral_code}</span>
+                    <p className="mt-2 text-[12px] text-muted">
+                      Share it with anyone who wants early access.
                     </p>
-                  </CardContent>
-                </Card>
-              </div>
-            ) : (
-              <>
-                <h2 className="font-dela text-3xl mb-2">Join the Waitlist</h2>
-                <p className="text-text-secondary mb-8">
-                  Get early access to private utility payments with Zcash.
-                </p>
-
-                <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
-                  <div className="space-y-1">
-                    <Input
-                      {...register("email")}
-                      type="email"
-                      placeholder="Email address"
-                       leftIcon={<MailFilledIcon size={20} />}
-                      error={errors.email?.message}
-                    />
                   </div>
 
-                  <div className="space-y-1">
-                    <Input
-                      {...register("displayName")}
-                      type="text"
-                      placeholder="Name (optional)"
-                       leftIcon={<UserIcon size={20} />}
-                      error={errors.displayName?.message}
-                    />
+                  <div className="mt-6 border-t border-line pt-5">
+                    <Button asChild variant="secondary" className="w-full">
+                      <Link href="/">Back to the home page</Link>
+                    </Button>
                   </div>
+                </div>
+              ) : (
+                <>
+                  <h2 className="text-xl text-ink">Join the waitlist</h2>
+                  <p className="mt-1 text-[13px] text-muted">
+                    One email. A confirmation link. That is the whole step.
+                  </p>
 
-                  <Button type="submit" className="w-full h-12 text-base mt-4" loading={isLoading}>
-                     Join Waitlist <ArrowNarrowRightIcon size={16} className="ml-2" />
-                  </Button>
+                  <form onSubmit={handleSubmit(onSubmit)} className="mt-6 space-y-4" noValidate>
+                    <div className="space-y-1.5">
+                      <label htmlFor="email" className="block text-[13px] font-medium text-ink">
+                        Email
+                      </label>
+                      <Input
+                        id="email"
+                        {...register("email")}
+                        type="email"
+                        autoComplete="email"
+                        placeholder="you@example.com"
+                        error={errors.email?.message}
+                      />
+                    </div>
 
-                  {refCode && (
-                    <p className="text-xs text-text-muted text-center">
-                      Referred by <span className="font-mono text-text-secondary">{refCode}</span>
-                    </p>
-                  )}
-                </form>
+                    <div className="space-y-1.5">
+                      <label htmlFor="displayName" className="block text-[13px] font-medium text-ink">
+                        Name <span className="font-normal text-muted">(optional)</span>
+                      </label>
+                      <Input
+                        id="displayName"
+                        {...register("displayName")}
+                        type="text"
+                        autoComplete="name"
+                        placeholder="What we should call you"
+                        error={errors.displayName?.message}
+                      />
+                    </div>
 
-                <p className="text-xs text-text-muted text-center mt-6">
-                  We&apos;ll only send you waitlist updates. No spam.
-                </p>
-              </>
-            )}
-          </motion.div>
-        </div>
-      </div>
+                    {refCode && (
+                      <p className="text-[12px] text-muted">
+                        Referred by <span className="num text-ink-2">{refCode}</span>
+                      </p>
+                    )}
+
+                    {error && (
+                      <p className="text-[13px] text-rust" aria-live="polite">
+                        {error}
+                      </p>
+                    )}
+
+                    <Button type="submit" className="w-full" size="lg" loading={isLoading}>
+                      Join the waitlist
+                      <ArrowRight className="h-4 w-4" strokeWidth={1.8} />
+                    </Button>
+                  </form>
+
+                  <p className="mt-4 text-[12px] leading-relaxed text-muted">
+                    No spam. Waitlist updates only.
+                  </p>
+                </>
+              )}
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <SiteFooter />
     </div>
   )
 }
 
 export default function WaitlistPage() {
   return (
-    <Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-bg-void text-text-muted">Loading...</div>}>
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-paper text-muted">
+          Loading
+        </div>
+      }
+    >
       <WaitlistContent />
     </Suspense>
   )

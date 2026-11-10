@@ -3,40 +3,132 @@
 import * as React from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { motion, AnimatePresence } from "motion/react"
-import HomeIcon from "@/components/icons/home-icon"
-import CreditCardIcon from "@/components/icons/credit-card-icon"
-import ArrowBackUpIcon from "@/components/icons/arrow-back-up-icon"
-import ShoppingCartIcon from "@/components/icons/shopping-cart-icon"
-import HistoryCircleIcon from "@/components/icons/history-circle-icon"
-import GearIcon from "@/components/icons/gear-icon"
-import LogoutIcon from "@/components/icons/logout-icon"
-import MenuIcon from "@/components/icons/menu-icon"
+import {
+  ArrowLeftRight,
+  CreditCard,
+  History,
+  Home,
+  LogOut,
+  Menu,
+  Settings,
+  Store,
+  X,
+} from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAuthStore } from "@/store/auth"
 import { useOrderStore } from "@/store/order"
 import { NotificationDropdown } from "@/components/ui/notification-dropdown"
 import { RateTicker } from "@/components/ui/rate-ticker"
+import { WordmarkLink } from "@/components/ui/wordmark"
 
 const NAV_ITEMS = [
-  { href: "/dashboard", label: "Home", icon: HomeIcon },
-  { href: "/pay", label: "Pay Utilities", icon: CreditCardIcon, badge: true },
-  { href: "/otc", label: "OTC Off-ramp", icon: ArrowBackUpIcon, soon: true },
-  { href: "/p2p", label: "P2P Market", icon: ShoppingCartIcon, soon: true },
-  { href: "/history", label: "History", icon: HistoryCircleIcon },
-  { href: "/settings", label: "Settings", icon: GearIcon },
+  { href: "/dashboard", label: "Overview", icon: Home },
+  { href: "/pay", label: "Pay a bill", icon: CreditCard, activeOrderDot: true },
+  { href: "/history", label: "History", icon: History },
+  { href: "/settings", label: "Settings", icon: Settings },
 ]
 
-export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname()
-  const router = useRouter()
-  const { user, isAuthenticated, hasHydrated, logout } = useAuthStore()
-  const { activeOrder } = useOrderStore()
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false)
+const SOON_ITEMS = [
+  { href: "/otc", label: "OTC off-ramp", icon: ArrowLeftRight },
+  { href: "/p2p", label: "P2P market", icon: Store },
+]
 
-  React.useEffect(() => {
-    setIsMobileMenuOpen(false)
-  }, [pathname])
+function NavLink({
+  href,
+  label,
+  icon: Icon,
+  soon,
+  dot,
+  onNavigate,
+}: {
+  href: string
+  label: string
+  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>
+  soon?: boolean
+  dot?: boolean
+  onNavigate?: () => void
+}) {
+  const pathname = usePathname()
+  const isActive = pathname === href || pathname.startsWith(`${href}/`)
+
+  return (
+    <Link
+      href={href}
+      onClick={onNavigate}
+      className={cn(
+        "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] transition-colors",
+        isActive
+          ? "bg-cream text-ink shadow-[inset_0_0_0_1px_var(--color-line)]"
+          : "text-ink-2 hover:bg-cream/60 hover:text-ink"
+      )}
+    >
+      <Icon
+        className={cn("h-4 w-4 shrink-0", isActive ? "text-gold-deep" : "text-muted")}
+        strokeWidth={1.7}
+      />
+      <span className="flex-1 truncate">{label}</span>
+      {soon && <span className="text-[10px] uppercase tracking-wider text-muted">Soon</span>}
+      {dot && <span className="h-1.5 w-1.5 rounded-full bg-gold" aria-label="Open order" />}
+    </Link>
+  )
+}
+
+function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
+  const { user, logout } = useAuthStore()
+  const { activeOrder } = useOrderStore()
+
+  return (
+    <>
+      <div className="flex h-16 items-center justify-between border-b border-line px-4">
+        <WordmarkLink />
+        <NotificationDropdown />
+      </div>
+
+      <div className="border-b border-line px-4 py-3">
+        <RateTicker />
+      </div>
+
+      <nav className="flex-1 space-y-1 overflow-y-auto px-2.5 py-4" aria-label="Account">
+        {NAV_ITEMS.map((item) => (
+          <NavLink
+            key={item.href}
+            {...item}
+            dot={Boolean(item.activeOrderDot && activeOrder)}
+            onNavigate={onNavigate}
+          />
+        ))}
+
+        <p className="label-xs px-2.5 pb-1 pt-5 text-muted">Coming later</p>
+        {SOON_ITEMS.map((item) => (
+          <NavLink key={item.href} {...item} soon onNavigate={onNavigate} />
+        ))}
+      </nav>
+
+      <div className="border-t border-line px-4 py-3">
+        <div className="flex items-center gap-2">
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[13px] font-medium text-ink">
+              {user?.display_name || "Account"}
+            </p>
+            <p className="truncate text-[12px] text-muted">{user?.email}</p>
+          </div>
+          <button
+            onClick={logout}
+            className="flex h-8 w-8 items-center justify-center rounded-md text-muted transition-colors hover:bg-cream hover:text-rust"
+            aria-label="Sign out"
+          >
+            <LogOut className="h-4 w-4" strokeWidth={1.7} />
+          </button>
+        </div>
+      </div>
+    </>
+  )
+}
+
+export default function AppLayout({ children }: { children: React.ReactNode }) {
+  const router = useRouter()
+  const { isAuthenticated, hasHydrated } = useAuthStore()
+  const [menuOpen, setMenuOpen] = React.useState(false)
 
   React.useEffect(() => {
     if (hasHydrated && !isAuthenticated) {
@@ -46,8 +138,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   if (!hasHydrated) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-bg-void">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-accent-zec border-t-transparent" />
+      <div className="flex min-h-screen items-center justify-center bg-paper">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-line-strong border-t-transparent" />
       </div>
     )
   }
@@ -57,213 +149,51 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="flex min-h-screen bg-bg-void text-text-primary">
-      {/* Desktop Sidebar */}
-      <aside className="hidden w-64 flex-col border-r border-border-subtle bg-bg-surface xl:flex">
-        <div className="flex h-16 items-center justify-between px-6">
-          <Link href="/dashboard" className="font-dela text-xl tracking-tight">
-            <span className="text-accent-zec">z</span>utility
-          </Link>
-          <NotificationDropdown />
-        </div>
-        
-        <div className="px-6 py-4 border-b border-border-subtle">
-          <RateTicker />
-        </div>
-
-        <nav className="flex-1 space-y-1 px-3 py-4">
-          {NAV_ITEMS.map((item) => {
-            const isActive = pathname.startsWith(item.href)
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={cn(
-                  "group flex items-center rounded-md px-3 py-2.5 text-sm font-medium transition-colors",
-                  isActive
-                    ? "bg-bg-elevated text-text-primary border-l-2 border-accent-zec"
-                    : "text-text-secondary hover:bg-bg-elevated/50 hover:text-text-primary"
-                )}
-              >
-                <item.icon
-                  size={20}
-                  className={cn(
-                    "mr-3 flex-shrink-0",
-                    isActive ? "text-accent-zec" : "text-text-muted group-hover:text-text-secondary"
-                  )}
-                />
-                <span className="flex-1">{item.label}</span>
-                {item.badge && activeOrder && (
-                  <span className="ml-auto inline-block h-2 w-2 rounded-full bg-accent-zec" />
-                )}
-                {item.soon && (
-                  <span className="ml-auto rounded bg-accent-zec/10 px-1.5 py-0.5 text-[10px] font-semibold text-accent-zec uppercase tracking-wider">
-                    Soon
-                  </span>
-                )}
-              </Link>
-            )
-          })}
-        </nav>
-
-        <div className="border-t border-border-subtle p-4">
-          <div className="flex items-center justify-between px-3 py-2">
-            <div className="flex flex-col truncate">
-              <span className="text-sm font-medium text-text-primary truncate">
-                {user?.display_name || 'User'}
-              </span>
-              <span className="text-xs text-text-muted truncate">
-                {user?.email}
-              </span>
-            </div>
-            <button
-              onClick={logout}
-              className="text-text-muted hover:text-accent-red transition-colors"
-              aria-label="Logout"
-            >
-              <LogoutIcon size={20} />
-            </button>
-          </div>
-        </div>
+    <div className="min-h-screen bg-paper">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col border-r border-line bg-paper-2 lg:flex">
+        <SidebarBody />
       </aside>
 
-      {/* Mobile Header */}
-      <div className="flex flex-1 flex-col xl:hidden">
-        <header className="sticky top-0 z-40 flex h-16 items-center justify-between border-b border-border-subtle bg-bg-surface/80 px-4 backdrop-blur-md">
-          <div className="flex items-center gap-3">
+      <div className="lg:pl-60">
+        <header className="sticky top-0 z-20 flex h-16 items-center justify-between gap-3 border-b border-line bg-paper/90 px-4 backdrop-blur-sm lg:hidden">
+          <div className="flex items-center gap-2">
             <button
-              onClick={() => setIsMobileMenuOpen(true)}
-              className="text-text-secondary hover:text-text-primary"
+              onClick={() => setMenuOpen(true)}
+              className="flex h-9 w-9 items-center justify-center rounded-md text-ink"
+              aria-label="Open menu"
             >
-              <MenuIcon size={24} />
+              <Menu className="h-5 w-5" strokeWidth={1.7} />
             </button>
-            <Link href="/dashboard" className="font-dela text-lg tracking-tight">
-              <span className="text-accent-zec">z</span>utility
-            </Link>
+            <WordmarkLink />
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
             <RateTicker className="hidden sm:flex" />
             <NotificationDropdown />
           </div>
         </header>
 
-        {/* Mobile Menu Overlay */}
-        <AnimatePresence>
-          {isMobileMenuOpen && (
-            <>
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="fixed inset-0 z-40 bg-bg-void/80 backdrop-blur-sm"
-                onClick={() => setIsMobileMenuOpen(false)}
-              />
-              <motion.div
-                initial={{ x: "-100%" }}
-                animate={{ x: 0 }}
-                exit={{ x: "-100%" }}
-                transition={{ type: "spring", bounce: 0, duration: 0.3 }}
-                className="fixed inset-y-0 left-0 z-50 w-64 bg-bg-surface border-r border-border-subtle flex flex-col"
+        {menuOpen && (
+          <div className="fixed inset-0 z-50 lg:hidden">
+            <button
+              className="absolute inset-0 bg-vault/40"
+              onClick={() => setMenuOpen(false)}
+              aria-label="Close menu"
+            />
+            <div className="relative flex h-full w-64 flex-col border-r border-line bg-paper-2">
+              <button
+                onClick={() => setMenuOpen(false)}
+                className="absolute right-3 top-4 z-10 flex h-8 w-8 items-center justify-center rounded-md text-muted"
+                aria-label="Close menu"
               >
-                <div className="flex h-16 items-center px-6 border-b border-border-subtle">
-                  <span className="font-dela text-xl tracking-tight">
-                    <span className="text-accent-zec">z</span>utility
-                  </span>
-                </div>
-                
-                <div className="px-6 py-4 border-b border-border-subtle sm:hidden">
-                  <RateTicker />
-                </div>
-
-                <nav className="flex-1 space-y-1 px-3 py-4 overflow-y-auto">
-                  {NAV_ITEMS.map((item) => {
-                    const isActive = pathname.startsWith(item.href)
-                    return (
-                      <Link
-                        key={item.href}
-                        href={item.href}
-                        className={cn(
-                          "group flex items-center rounded-md px-3 py-3 text-sm font-medium transition-colors",
-                          isActive
-                            ? "bg-bg-elevated text-text-primary border-l-2 border-accent-zec"
-                            : "text-text-secondary hover:bg-bg-elevated/50 hover:text-text-primary"
-                        )}
-                      >
-                        <item.icon
-                          size={20}
-                          className={cn(
-                            "mr-3 flex-shrink-0",
-                            isActive ? "text-accent-zec" : "text-text-muted"
-                          )}
-                        />
-                        <span className="flex-1">{item.label}</span>
-                        {item.soon && (
-                          <span className="ml-auto rounded bg-accent-zec/10 px-1.5 py-0.5 text-[10px] font-semibold text-accent-zec uppercase tracking-wider">
-                            Soon
-                          </span>
-                        )}
-                      </Link>
-                    )
-                  })}
-                </nav>
-
-                <div className="border-t border-border-subtle p-4">
-                  <div className="flex items-center justify-between px-3 py-2">
-                    <div className="flex flex-col truncate">
-                      <span className="text-sm font-medium text-text-primary truncate">
-                        {user?.display_name || 'User'}
-                      </span>
-                      <span className="text-xs text-text-muted truncate">
-                        {user?.email}
-                      </span>
-                    </div>
-                    <button
-                      onClick={logout}
-                      className="text-text-muted hover:text-accent-red transition-colors"
-                    >
-                      <LogoutIcon size={20} />
-                    </button>
-                  </div>
-                </div>
-              </motion.div>
-            </>
-          )}
-        </AnimatePresence>
-
-        {/* Main Content */}
-        <main className="flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-5xl p-4 sm:p-6 lg:p-8">
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={pathname}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                transition={{ duration: 0.2 }}
-              >
-                {children}
-              </motion.div>
-            </AnimatePresence>
+                <X className="h-4 w-4" strokeWidth={1.7} />
+              </button>
+              <SidebarBody onNavigate={() => setMenuOpen(false)} />
+            </div>
           </div>
-        </main>
-      </div>
+        )}
 
-      {/* Desktop Main Content */}
-      <main className="hidden xl:flex flex-1 flex-col overflow-y-auto">
-        <div className="mx-auto w-full max-w-5xl p-8">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={pathname}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              transition={{ duration: 0.2 }}
-            >
-              {children}
-            </motion.div>
-          </AnimatePresence>
-        </div>
-      </main>
+        <main className="mx-auto w-full max-w-4xl px-5 py-8 sm:px-8 sm:py-10">{children}</main>
+      </div>
     </div>
   )
 }

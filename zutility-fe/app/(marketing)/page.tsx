@@ -1,411 +1,364 @@
-"use client"
-
-import * as React from "react"
 import Link from "next/link"
-import { motion, useScroll, useTransform } from "motion/react"
-import ArrowNarrowRightIcon from "@/components/icons/arrow-narrow-right-icon"
-import ShieldCheck from "@/components/icons/shield-check"
-import PlugConnectedIcon from "@/components/icons/plug-connected-icon"
-import LockIcon from "@/components/icons/lock-icon"
-import DownChevron from "@/components/icons/down-chevron"
-import MenuIcon from "@/components/icons/menu-icon"
-import XIcon from "@/components/icons/x-icon"
-import ArrowBackUpIcon from "@/components/icons/arrow-back-up-icon"
-import ShoppingCartIcon from "@/components/icons/shopping-cart-icon"
-import { getBrandIcon } from "@/lib/brand-icon-map"
-import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { ArrowRight, Check, Clock, Lock, Wallet } from "lucide-react"
+import { SiteHeader } from "@/components/marketing/site-header"
+import { SiteFooter } from "@/components/marketing/site-footer"
+import { BrandTile } from "@/components/marketing/brand-tile"
 import { Badge } from "@/components/ui/badge"
-import { TokenBadge } from "@/components/ui/token-badge"
+import { Button } from "@/components/ui/button"
 import { RateTicker } from "@/components/ui/rate-ticker"
-import { UTILITIES, TOKENS } from "@/lib/constants"
-import dynamic from "next/dynamic"
+import { UTILITIES } from "@/lib/constants"
 
-import { PaymentFlow } from "@/components/ui/payment-flow"
-const ParticleField = dynamic(() => import("@/components/3d/ParticleField").then(mod => mod.ParticleField), { ssr: false })
-const WireframeSphere = dynamic(() => import("@/components/3d/WireframeSphere").then(mod => mod.WireframeSphere), { ssr: false })
-const Canvas = dynamic(() => import("@react-three/fiber").then(mod => mod.Canvas), { ssr: false })
+const HERO_FACTS = [
+  { icon: Clock, label: "Settlement", value: "About 4 minutes after broadcast" },
+  { icon: Wallet, label: "Payment", value: "Shielded or transparent ZEC" },
+  { icon: Lock, label: "Identity", value: "No documents, no account approval" },
+]
 
-export default function LandingPage() {
-  const { scrollY } = useScroll()
-  const navBackground = useTransform(scrollY, [0, 50], ["rgba(5, 5, 8, 0)", "rgba(5, 5, 8, 0.8)"])
-  const navBorder = useTransform(scrollY, [0, 50], ["rgba(30, 30, 46, 0)", "rgba(30, 30, 46, 1)"])
-  const navBlur = useTransform(scrollY, [0, 50], ["blur(0px)", "blur(12px)"])
+const STEPS = [
+  {
+    number: "01",
+    title: "Pick the bill",
+    body: "Choose a service and enter the meter, smartcard, or phone number. We check the account with the provider before you send anything.",
+  },
+  {
+    number: "02",
+    title: "Send the exact amount",
+    body: "The order gets one Zcash deposit address and one ZEC amount, quoted at the current rate. Pay from any Zcash wallet, shielded or transparent.",
+  },
+  {
+    number: "03",
+    title: "Collect the receipt",
+    body: "We watch that address, wait for confirmations, then dispatch the top-up, token, or subscription. The receipt stays on the order page.",
+  },
+]
 
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false)
-  const [openFaq, setOpenFaq] = React.useState<number | null>(null)
+const FAQ = [
+  {
+    q: "Do I need to create an account?",
+    a: "No. You can create an order and pay from any Zcash wallet. An account only keeps your order history in one place.",
+  },
+  {
+    q: "How long does delivery take?",
+    a: "The network confirmation window is about four minutes at the current block target, then the provider dispatch is usually instant. Some meters and exam PINs take a little longer.",
+  },
+  {
+    q: "What happens if I send the wrong amount?",
+    a: "Send the exact amount shown on the order. If you underpay, the order stays open until it expires and support can help you recover the funds. If you overpay, the surplus is returned to the sending address when possible.",
+  },
+  {
+    q: "Can I pay from a shielded address?",
+    a: "Yes. The order accepts shielded or transparent ZEC. A shielded payment needs one more confirmation than a transparent one.",
+  },
+  {
+    q: "Which utilities are covered?",
+    a: "Airtime and data on MTN, Airtel, Glo, and 9mobile. DSTV, GOtv, Startimes, and Showmax. Prepaid electricity across twelve distribution companies. WAEC, JAMB, and school fees.",
+  },
+]
 
-  const faqs = [
-    { q: "Do I need an account?", a: "Yes, a simple email signup is required to track your orders and history. However, no KYC or identity verification is needed for utility payments." },
-    { q: "What wallets are supported?", a: "Any wallet that supports Zcash (ZEC). We recommend Zashi or Nighthawk Wallet for the best shielded transaction experience." },
-    { q: "Shielded vs Transparent?", a: "Shielded (z-addresses) offer full privacy and confirm in about 4 minutes at 10 confirmations. Transparent (t-addresses) are public and confirm in about 4 minutes at 9 confirmations." },
-    { q: "How long does payment take?", a: "Once we detect your transaction on the blockchain (usually within seconds), we wait for the required confirmations. Then your utility is delivered instantly." },
-    { q: "What if I send the wrong amount?", a: "Our system expects the exact ZEC amount shown. If you send a different amount, the order will be flagged for manual review and may take up to 24 hours to resolve." },
-    { q: "Is this available in my country?", a: "zutility supports utility payments across Africa — Nigeria, Kenya, Ghana, South Africa, Egypt and more. As long as the utility is in our supported list, you can pay from anywhere." },
-    { q: "Are other tokens coming?", a: "Yes. We are starting with Zcash (ZEC) to establish the privacy-first foundation, but will be adding other ZK and privacy-preserving tokens soon." },
-  ]
+const FEATURED_NAMES = [
+  "MTN",
+  "Airtel",
+  "Glo",
+  "9mobile",
+  "DSTV",
+  "GOtv",
+  "Startimes",
+  "Showmax",
+  "Ikeja Electric",
+  "Eko Electric",
+  "Abuja Electric",
+  "WAEC",
+  "JAMB",
+]
+
+function SampleReceipt() {
+  return (
+    <div className="w-full max-w-md">
+      <div className="rounded-lg border border-line bg-cream">
+        <div className="flex items-center justify-between border-b border-line px-5 py-3">
+          <p className="label-xs text-muted">Order 8F2C-41A9</p>
+          <Badge variant="warning">Awaiting payment</Badge>
+        </div>
+        <div className="space-y-5 p-5">
+          <div className="flex items-start gap-3">
+            <BrandTile id="mtn" />
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-ink">MTN Airtime</p>
+              <p className="num text-[13px] text-muted">0803 555 0142</p>
+            </div>
+            <p className="num ml-auto text-lg text-ink">₦2,000.00</p>
+          </div>
+
+          <div className="rounded-md border border-line bg-paper px-4 py-3">
+            <p className="label-xs text-muted">Send exactly</p>
+            <p className="num mt-1 text-2xl text-ink">0.08430000 ZEC</p>
+            <p className="num mt-1 truncate text-[12px] text-muted">
+              u1q9x4v7k2m8p3n6r5t0w1y2z3a4b5c6d7e8f9g0h
+            </p>
+          </div>
+
+          <dl className="space-y-2 text-[13px]">
+            <div className="flex items-center justify-between">
+              <dt className="text-muted">Network fee</dt>
+              <dd className="text-ink">Paid by sender</dd>
+            </div>
+            <div className="flex items-center justify-between">
+              <dt className="text-muted">Confirmations</dt>
+              <dd className="num text-ink">0 of 9</dd>
+            </div>
+            <div className="flex items-center justify-between">
+              <dt className="text-muted">Expires in</dt>
+              <dd className="num text-ink">29:59</dd>
+            </div>
+          </dl>
+        </div>
+        <div className="border-t border-line px-5 py-3">
+          <p className="text-[12px] leading-relaxed text-muted">
+            We credit the order when a payment reaches this address. Nothing is credited from a
+            wallet scan.
+          </p>
+        </div>
+      </div>
+      <p className="mt-3 px-1 text-[12px] text-muted">
+        Sample receipt. A live order shows the current rate and its own address.
+      </p>
+    </div>
+  )
+}
+
+export default function HomePage() {
+  const counts = UTILITIES.reduce<Record<string, number>>((acc, utility) => {
+    acc[utility.type] = (acc[utility.type] ?? 0) + 1
+    return acc
+  }, {})
 
   return (
-    <div className="min-h-screen bg-bg-void text-text-primary selection:bg-accent-zec/30">
-      {/* Navigation */}
-      <motion.nav
-        style={{ backgroundColor: navBackground, borderBottomColor: navBorder, backdropFilter: navBlur }}
-        className="fixed top-0 left-0 right-0 z-50 border-b border-transparent transition-colors"
-      >
-        <div className="mx-auto flex h-20 max-w-7xl items-center justify-between px-6">
-          <Link href="/" className="font-dela text-2xl tracking-tight">
-            <span className="text-accent-zec">z</span>utility
-          </Link>
+    <div className="min-h-screen bg-paper">
+      <SiteHeader />
 
-          <div className="hidden items-center gap-8 md:flex">
-            <Link href="/how-it-works" className="text-sm font-medium text-text-secondary transition-colors hover:text-text-primary">
-              How it works
-            </Link>
-            <div className="flex items-center gap-4">
-              <Link href="/login">
-                <Button variant="ghost">Login</Button>
-              </Link>
-              <Link href="/signup">
-                <Button variant="primary">Get Started</Button>
-              </Link>
-            </div>
-          </div>
-
-          <button
-            className="md:hidden text-text-secondary hover:text-text-primary"
-            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-          >
-            {isMobileMenuOpen ? <XIcon /> : <MenuIcon />}
-          </button>
-        </div>
-      </motion.nav>
-
-      {/* Mobile Menu Overlay */}
-      {isMobileMenuOpen && (
-        <div className="fixed inset-0 z-40 bg-bg-void/95 pt-24 px-6 backdrop-blur-md md:hidden">
-          <div className="flex flex-col gap-6">
-            <Link href="/how-it-works" className="text-lg font-medium text-text-secondary" onClick={() => setIsMobileMenuOpen(false)}>
-              How it works
-            </Link>
-            <div className="h-px bg-border-subtle" />
-            <Link href="/login" onClick={() => setIsMobileMenuOpen(false)}>
-              <Button variant="ghost" className="w-full justify-start text-lg">Login</Button>
-            </Link>
-            <Link href="/signup" onClick={() => setIsMobileMenuOpen(false)}>
-              <Button variant="primary" className="w-full text-lg">Get Started</Button>
-            </Link>
-          </div>
-        </div>
-      )}
-
-      {/* Hero Section */}
-      <section className="relative flex min-h-screen items-center pt-20 overflow-hidden">
-        {/* 3D Background */}
-        <div className="absolute inset-0 z-0 opacity-50">
-          <Canvas camera={{ position: [0, 0, 15], fov: 60 }}>
-            <ParticleField />
-          </Canvas>
-        </div>
-
-        <div className="mx-auto grid w-full max-w-7xl grid-cols-1 gap-12 px-6 lg:grid-cols-2 lg:gap-8 relative z-10">
-          <div className="flex flex-col justify-center pt-12 lg:pt-0">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, ease: "easeOut" }}
-            >
-              <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-accent-zec/20 bg-accent-zec/5 px-3 py-1 text-xs font-medium tracking-widest text-accent-zec uppercase">
-                <span className="relative flex h-2 w-2">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent-zec opacity-75"></span>
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-accent-zec"></span>
-                </span>
-                ZK Tokens → Local Currency & Utilities
-              </div>
-              
-              <h1 className="font-dela text-5xl leading-[1.1] tracking-tight sm:text-6xl lg:text-7xl">
-                Privacy Crypto.<br />
-                Real Life.<br />
-                <span className="text-text-muted">Africa.</span>
-              </h1>
-              
-              <p className="mt-6 max-w-lg text-lg text-text-secondary sm:text-xl">
-                Pay airtime, data, TV, electricity with Zcash. No KYC. No middlemen. The bridge between shielded tokens and everyday utility across Africa.
-              </p>
-              
-              <div className="mt-10 flex flex-col gap-4 sm:flex-row sm:items-center">
-                <Link href="/signup">
-                  <Button size="lg" className="w-full sm:w-auto text-base h-14 px-8">
-                    Pay a Utility
-                  </Button>
-                </Link>
-                <Link href="/how-it-works">
-                  <Button variant="secondary" size="lg" className="w-full sm:w-auto text-base h-14 px-8">
-                    See How It Works
-                  </Button>
-                </Link>
-              </div>
-
-              <div className="mt-12 flex flex-wrap items-center gap-x-8 gap-y-4 text-sm font-medium text-text-muted">
-                <div className="flex items-center gap-2">
-                  <ShieldCheck size={16} className="text-accent-zec" />
-                  No KYC Required
-                </div>
-                <div className="flex items-center gap-2">
-                  <PlugConnectedIcon size={16} className="text-accent-zec" />
-                  ~4min Settlement
-                </div>
-                <div className="flex items-center gap-2">
-                  <LockIcon size={16} className="text-accent-zec" />
-                  Shielded ZEC Supported
-                </div>
-              </div>
-            </motion.div>
-          </div>
-
-          <div className="relative hidden h-[600px] w-full items-center justify-center lg:flex">
-            <div className="absolute inset-0 bg-gradient-to-r from-bg-void via-transparent to-transparent z-10 pointer-events-none" />
-            <PaymentFlow />
-          </div>
-        </div>
-      </section>
-
-      {/* Products Section */}
-      <section className="border-t border-border-subtle bg-bg-surface py-24 relative z-10">
-        <div className="mx-auto max-w-7xl px-6">
-          <div className="grid gap-8 md:grid-cols-3">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.5, delay: 0.1 }}
-            >
-              <Card glow className="h-full bg-bg-elevated border-border-subtle hover:border-accent-zec/50 transition-colors">
-                <CardHeader>
-                  <div className="mb-4 flex items-center justify-between">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-accent-zec/10 text-accent-zec">
-                      <PlugConnectedIcon size={24} />
-                    </div>
-                    <Badge variant="live">LIVE</Badge>
-                  </div>
-                  <CardTitle className="text-xl">Utility Payments</CardTitle>
-                  <CardDescription className="text-base mt-2">
-                    Pay for airtime, data, DSTV, GOtv, electricity, WAEC, JAMB, and school fees directly with ZEC. Instant delivery upon confirmation.
-                  </CardDescription>
-                </CardHeader>
-              </Card>
-            </motion.div>
-
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.5, delay: 0.2 }}
-            >
-              <Card className="h-full bg-bg-elevated border-border-subtle opacity-80">
-                <CardHeader>
-                  <div className="mb-4 flex items-center justify-between">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-text-muted/20 text-text-secondary">
-                      <ArrowBackUpIcon size={24} />
-                    </div>
-                    <Badge variant="coming-soon">COMING SOON</Badge>
-                  </div>
-                  <CardTitle className="text-xl">OTC Off-ramp</CardTitle>
-                  <CardDescription className="text-base mt-2">
-                    Directly swap ZEC for local currency at our system rate. Fast settlement directly to your bank account.
-                  </CardDescription>
-                </CardHeader>
-              </Card>
-            </motion.div>
-
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.5, delay: 0.3 }}
-            >
-              <Card className="h-full bg-bg-elevated border-border-subtle opacity-80">
-                <CardHeader>
-                  <div className="mb-4 flex items-center justify-between">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-text-muted/20 text-text-secondary">
-                      <ShoppingCartIcon size={24} />
-                    </div>
-                    <Badge variant="coming-soon">COMING SOON</Badge>
-                  </div>
-                  <CardTitle className="text-xl">P2P Marketplace</CardTitle>
-                  <CardDescription className="text-base mt-2">
-                    Peer-to-peer ZEC escrow trading. Set your own rates and trade securely with other users.
-                  </CardDescription>
-                </CardHeader>
-              </Card>
-            </motion.div>
-          </div>
-        </div>
-      </section>
-
-      {/* ZK Tokens Section */}
-      <section className="py-24 relative z-10">
-        <div className="mx-auto max-w-4xl px-6 text-center">
-          <h2 className="font-dela text-3xl sm:text-4xl mb-12">Starting with Zcash. Built for the ZK ecosystem.</h2>
-          
-          <div className="flex flex-wrap items-center justify-center gap-4 mb-12">
-            {TOKENS.map((token) => (
-              <TokenBadge key={token.id} token={token.status === 'live' ? 'ZEC' : 'COMING_SOON'} />
-            ))}
-          </div>
-
-          <p className="text-lg text-text-secondary max-w-2xl mx-auto">
-            We believe financial privacy is a fundamental right. By bridging shielded ZK tokens to real-world utility, we enable Africans to transact freely without surveillance.
-          </p>
-        </div>
-      </section>
-
-      {/* How It Works Section */}
-      <section className="relative py-32 overflow-hidden bg-bg-surface border-y border-border-subtle z-10">
-        <div className="absolute inset-0 z-0 opacity-30 pointer-events-none hidden md:block">
-          <Canvas camera={{ position: [0, 0, 5], fov: 45 }}>
-            <ambientLight intensity={0.5} />
-            <WireframeSphere />
-          </Canvas>
-        </div>
-
-        <div className="mx-auto max-w-7xl px-6 relative z-10">
-          <div className="text-center mb-20">
-            <h2 className="font-dela text-4xl sm:text-5xl mb-6">How It Works</h2>
-            <p className="text-xl text-text-secondary">Three simple steps to bridge your privacy tokens to reality.</p>
-          </div>
-
-          <div className="grid gap-12 md:grid-cols-3">
-            {[
-              { step: "01", title: "Choose Utility", desc: "Select what you want to pay for (Airtime, Data, TV, Electricity, Education, School Fees) and enter your details." },
-              { step: "02", title: "Send ZEC", desc: "Send the exact ZEC amount to the unique deposit address provided. Shielded or transparent." },
-              { step: "03", title: "Service Delivered", desc: "Our system detects the payment on-chain and instantly delivers your utility or token." }
-            ].map((item, i) => (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.5, delay: i * 0.2 }}
-                className="relative"
-              >
-                <div className="text-6xl font-dela text-bg-elevated mb-6 select-none">{item.step}</div>
-                <div className="absolute top-6 left-4">
-                  <h3 className="text-2xl font-semibold mb-3 font-dela text-accent-zec">{item.title}</h3>
-                  <p className="text-text-secondary leading-relaxed">{item.desc}</p>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Utilities Grid */}
-      <section className="py-32 relative z-10">
-        <div className="mx-auto max-w-7xl px-6">
-          <div className="flex flex-col md:flex-row md:items-end justify-between mb-16 gap-6">
+      <main>
+        <section className="paper-grid border-b border-line">
+          <div className="mx-auto grid max-w-6xl items-center gap-12 px-5 py-16 lg:grid-cols-[1.02fr_0.98fr] lg:gap-16 lg:py-24">
             <div>
-              <h2 className="font-dela text-4xl mb-4">Supported Utilities</h2>
-              <p className="text-text-secondary text-lg">Pay for everyday services directly with Zcash.</p>
-            </div>
-            <Link href="/signup">
-              <Button variant="secondary" className="border-accent-zec text-accent-zec hover:bg-accent-zec hover:text-bg-void">
-                View All Services <ArrowNarrowRightIcon size={16} className="ml-2" />
-              </Button>
-            </Link>
-          </div>
+              <p className="label-xs text-gold-deep">Utility payments on Zcash</p>
+              <h1 className="mt-4 max-w-xl text-4xl leading-[1.05] text-ink sm:text-5xl lg:text-[56px]">
+                Pay electricity, airtime, and TV with ZEC.
+              </h1>
+              <p className="mt-5 max-w-lg text-[15px] leading-relaxed text-ink-2">
+                Send ZEC from any wallet and get a prepaid meter token, a phone top-up, or a TV
+                renewal. One address, one amount, one receipt. No identity documents.
+              </p>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {UTILITIES.filter((_, i) => [0, 4, 8, 12, 26, 27].includes(i)).map((u, i) => (
-              <motion.div
-                key={u.id}
-                initial={{ opacity: 0, scale: 0.95 }}
-                whileInView={{ opacity: 1, scale: 1 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.4, delay: i * 0.05 }}
-              >
-                <Card className="h-full hover:-translate-y-1 transition-transform duration-300 cursor-pointer border-border-subtle hover:border-accent-zec/50 bg-bg-elevated">
-                  <CardContent className="p-6 flex flex-col items-center text-center gap-4">
-                    <div className="h-12 w-12 rounded-full bg-bg-surface flex items-center justify-center text-text-muted">
-                      {(() => { const Icon = getBrandIcon(u.brandIcon); return <Icon size={28} /> })()}
-                    </div>
-                    <div>
-                      <h4 className="font-semibold text-text-primary">{u.name}</h4>
-                      <p className="text-xs text-text-secondary mt-1">{u.descriptor}</p>
-                    </div>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Live Rate Section */}
-      <section className="bg-bg-elevated py-24 border-y border-border-subtle relative z-10">
-        <div className="mx-auto max-w-3xl px-6 text-center">
-          <h2 className="font-dela text-3xl mb-8">Live Exchange Rate</h2>
-          <div className="inline-flex items-center justify-center p-6 rounded-2xl bg-bg-void border border-border-subtle shadow-xl mb-6">
-            <RateTicker className="text-2xl sm:text-4xl" />
-          </div>
-          <p className="text-text-muted text-sm">
-            Rates are updated every 60 seconds. When you create an order, the rate is locked for 15 minutes.
-          </p>
-        </div>
-      </section>
-
-      {/* FAQ Section */}
-      <section className="py-32 relative z-10">
-        <div className="mx-auto max-w-3xl px-6">
-          <h2 className="font-dela text-4xl mb-16 text-center">Frequently Asked Questions</h2>
-          
-          <div className="space-y-4">
-            {faqs.map((faq, i) => (
-              <div key={i} className="border border-border-subtle rounded-lg bg-bg-surface overflow-hidden">
-                <button
-                  className="w-full px-6 py-4 flex items-center justify-between text-left font-medium focus:outline-none"
-                  onClick={() => setOpenFaq(openFaq === i ? null : i)}
-                >
-                  <span className="text-lg">{faq.q}</span>
-                  <DownChevron size={20} className={cn("text-text-muted transition-transform duration-200", openFaq === i && "rotate-180")} />
-                </button>
-                <motion.div
-                  initial={false}
-                  animate={{ height: openFaq === i ? "auto" : 0, opacity: openFaq === i ? 1 : 0 }}
-                  className="overflow-hidden"
-                >
-                  <div className="px-6 pb-4 text-text-secondary leading-relaxed">
-                    {faq.a}
-                  </div>
-                </motion.div>
+              <div className="mt-7 flex flex-wrap items-center gap-3">
+                <Button asChild size="lg">
+                  <Link href="/pay">
+                    Pay a bill
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
+                </Button>
+                <Button asChild variant="secondary" size="lg">
+                  <Link href="/how-it-works">See how it works</Link>
+                </Button>
               </div>
-            ))}
-          </div>
-        </div>
-      </section>
 
-      {/* Footer */}
-      <footer className="border-t border-border-subtle bg-bg-surface py-12 relative z-10">
-        <div className="mx-auto max-w-7xl px-6 flex flex-col md:flex-row justify-between items-center gap-6">
-          <div className="flex flex-col items-center md:items-start gap-2">
-            <Link href="/" className="font-dela text-2xl tracking-tight">
-              <span className="text-accent-zec">z</span>utility
-            </Link>
-            <p className="text-sm text-text-muted">ZK tokens. African utilities. No compromise.</p>
+              <dl className="mt-10 grid gap-5 border-t border-line pt-6 sm:grid-cols-3">
+                {HERO_FACTS.map((fact) => (
+                  <div key={fact.label}>
+                    <dt className="label-xs flex items-center gap-1.5 text-muted">
+                      <fact.icon className="h-3.5 w-3.5" strokeWidth={1.6} />
+                      {fact.label}
+                    </dt>
+                    <dd className="mt-1.5 text-[13px] leading-snug text-ink">{fact.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+
+            <div className="flex justify-center lg:justify-end">
+              <SampleReceipt />
+            </div>
           </div>
-          
-          <div className="flex gap-6 text-sm font-medium text-text-secondary">
-            <Link href="/how-it-works" className="hover:text-text-primary transition-colors">How it works</Link>
-            <Link href="/login" className="hover:text-text-primary transition-colors">Login</Link>
-            <Link href="/support" className="hover:text-text-primary transition-colors">Support</Link>
-            <a href="#" className="hover:text-text-primary transition-colors">Terms</a>
+        </section>
+
+        <section className="border-b border-line bg-cream">
+          <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-3 px-5 py-7">
+            <p className="label-xs text-muted">Pay for</p>
+            <ul className="flex flex-wrap items-center gap-x-5 gap-y-2">
+              {FEATURED_NAMES.map((name) => (
+                <li key={name} className="text-[13px] text-ink-2">
+                  {name}
+                </li>
+              ))}
+              <li className="text-[13px] text-muted">and more</li>
+            </ul>
           </div>
-        </div>
-        <div className="mx-auto max-w-7xl px-6 mt-12 pt-8 border-t border-border-subtle flex flex-col md:flex-row justify-between items-center gap-4 text-xs text-text-muted">
-          <p>© 2026 zutility. All rights reserved.</p>
-          <p>Disclaimer: zutility is a non-custodial platform and not a registered bank.</p>
-        </div>
-      </footer>
+        </section>
+
+        <section className="border-b border-line">
+          <div className="mx-auto max-w-6xl px-5 py-16 lg:py-20">
+            <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+              <div>
+                <p className="label-xs text-muted">Three steps</p>
+                <h2 className="mt-3 text-3xl text-ink sm:text-4xl">From wallet to meter in one sitting.</h2>
+              </div>
+              <Link
+                href="/how-it-works"
+                className="inline-flex items-center gap-1.5 text-[13px] text-gold-deep underline underline-offset-4 hover:no-underline"
+              >
+                Read the full flow
+                <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
+            </div>
+
+            <div className="mt-10 grid gap-0 border-t border-line md:grid-cols-3">
+              {STEPS.map((step, index) => (
+                <div
+                  key={step.number}
+                  className={
+                    index === 0
+                      ? "py-7 md:pr-8"
+                      : "border-t border-line py-7 md:border-l md:border-t-0 md:px-8"
+                  }
+                >
+                  <p className="num text-[12px] text-gold-deep">{step.number}</p>
+                  <h3 className="mt-3 text-xl text-ink">{step.title}</h3>
+                  <p className="mt-2 text-[14px] leading-relaxed text-ink-2">{step.body}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section id="rates" className="border-b border-line bg-paper-2">
+          <div className="mx-auto grid max-w-6xl gap-12 px-5 py-16 lg:grid-cols-2 lg:py-20">
+            <div>
+              <p className="label-xs text-muted">Rates and coverage</p>
+              <h2 className="mt-3 text-3xl text-ink sm:text-4xl">
+                The rate you see is the rate the order quotes.
+              </h2>
+              <p className="mt-4 max-w-md text-[14px] leading-relaxed text-ink-2">
+                Rates refresh every minute from the market feed. When you create an order, the ZEC
+                amount is locked for the life of that order, so a moving market does not change
+                what you owe.
+              </p>
+
+              <div className="mt-8 inline-flex flex-col gap-1 rounded-lg border border-line bg-cream px-5 py-4">
+                <span className="label-xs text-muted">Current rate</span>
+                <RateTicker className="text-[22px]" />
+                <span className="text-[12px] text-muted">
+                  Refreshed every minute. Orders keep their quoted amount.
+                </span>
+              </div>
+
+              <ul className="mt-8 space-y-2.5">
+                {[
+                  "Prepaid tokens from twelve distribution companies",
+                  "Airtime and data on the four major networks",
+                  "TV renewals and exam PINs",
+                  "Payment accepted from shielded or transparent addresses",
+                ].map((line) => (
+                  <li key={line} className="flex items-start gap-2 text-[14px] text-ink-2">
+                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-green" strokeWidth={2} />
+                    {line}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="rounded-lg border border-line bg-cream">
+              <div className="border-b border-line px-5 py-4">
+                <p className="label-xs text-muted">Live coverage</p>
+                <p className="mt-1 text-[13px] text-ink-2">
+                  {UTILITIES.length} services enabled on this deployment.
+                </p>
+              </div>
+              <dl>
+                {[
+                  { label: "Airtime", type: "airtime" },
+                  { label: "Data", type: "data" },
+                  { label: "TV", type: "tv" },
+                  { label: "Electricity", type: "electricity" },
+                  { label: "Education", type: "education" },
+                  { label: "School fees", type: "school" },
+                ].map((row) => (
+                  <div
+                    key={row.type}
+                    className="flex items-center justify-between border-b border-line px-5 py-3 last:border-b-0"
+                  >
+                    <dt className="text-[14px] text-ink">{row.label}</dt>
+                    <dd className="num text-[13px] text-muted">
+                      {String(counts[row.type] ?? 0).padStart(2, "0")}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          </div>
+        </section>
+
+        <section className="border-b border-line">
+          <div className="mx-auto grid max-w-6xl gap-10 px-5 py-16 lg:grid-cols-[0.9fr_1.1fr] lg:py-20">
+            <div>
+              <p className="label-xs text-muted">Privacy</p>
+              <h2 className="mt-3 text-3xl text-ink sm:text-4xl">
+                What we see, and what we never ask for.
+              </h2>
+              <p className="mt-4 max-w-md text-[14px] leading-relaxed text-ink-2">
+                A utility payment needs a meter number. It does not need your name, your ID, or a
+                photograph of your face. We keep the order data required to deliver the service and
+                nothing else.
+              </p>
+            </div>
+
+            <div className="grid gap-6 sm:grid-cols-2">
+              <div className="rounded-lg border border-line bg-cream p-5">
+                <p className="label-xs text-muted">We hold</p>
+                <ul className="mt-4 space-y-2.5 text-[14px] text-ink-2">
+                  <li>The order amount and the service reference</li>
+                  <li>The deposit address for that order</li>
+                  <li>The transaction that pays it</li>
+                </ul>
+              </div>
+              <div className="rounded-lg border border-line bg-cream p-5">
+                <p className="label-xs text-muted">We do not hold</p>
+                <ul className="mt-4 space-y-2.5 text-[14px] text-ink-2">
+                  <li>Your wallet balance or seed</li>
+                  <li>Your other addresses</li>
+                  <li>Your identity documents</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <div className="mx-auto max-w-3xl px-5 py-16 lg:py-20">
+            <p className="label-xs text-muted">Questions</p>
+            <h2 className="mt-3 text-3xl text-ink sm:text-4xl">The short answers.</h2>
+            <div className="mt-8 border-t border-line">
+              {FAQ.map((item) => (
+                <details key={item.q} className="group border-b border-line py-4">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-[15px] text-ink">
+                    {item.q}
+                    <span className="text-muted transition-transform group-open:rotate-45">+</span>
+                  </summary>
+                  <p className="mt-3 max-w-2xl text-[14px] leading-relaxed text-ink-2">{item.a}</p>
+                </details>
+              ))}
+            </div>
+            <div className="mt-10 flex flex-wrap items-center gap-3">
+              <Button asChild size="lg">
+                <Link href="/pay">Start an order</Link>
+              </Button>
+              <Button asChild variant="secondary" size="lg">
+                <Link href="/support">Talk to support</Link>
+              </Button>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <SiteFooter />
     </div>
   )
 }

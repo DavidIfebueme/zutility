@@ -2,17 +2,12 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { motion } from "motion/react"
-import ClockIcon from "@/components/icons/clock-icon"
-import CheckedIcon from "@/components/icons/checked-icon"
-import TriangleAlertIcon from "@/components/icons/triangle-alert-icon"
-import HistoryCircleIcon from "@/components/icons/history-circle-icon"
-import { Loader2 } from "lucide-react"
+import { ArrowRight, Download, Loader2, Receipt } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
 import { apiGet } from "@/lib/api"
 import { formatNGN, formatZEC } from "@/lib/utils"
+import { getStatusMeta, STATUS_TONE_CLASS } from "@/lib/order-status"
+import { cn } from "@/lib/utils"
 
 interface OrderHistoryItem {
   order_id: string
@@ -25,96 +20,164 @@ interface OrderHistoryItem {
   completed_at: string | null
 }
 
-function statusBadge(status: string) {
-  switch (status) {
-    case "Completed":
-      return <Badge variant="success">Completed</Badge>
-    case "Failed":
-    case "Cancelled":
-      return <Badge variant="error">{status}</Badge>
-    case "Pending":
-      return <Badge variant="warning">Pending</Badge>
-    default:
-      return <Badge variant="outline">{status}</Badge>
-  }
+const FILTERS = [
+  { id: "all", label: "All" },
+  { id: "open", label: "Open" },
+  { id: "delivered", label: "Delivered" },
+  { id: "failed", label: "Failed" },
+] as const
+
+type FilterId = (typeof FILTERS)[number]["id"]
+
+function matchesFilter(status: string, filter: FilterId): boolean {
+  const key = getStatusMeta(status).key
+  if (filter === "all") return true
+  if (filter === "delivered") return key === "completed"
+  if (filter === "failed") return ["failed", "expired", "cancelled"].includes(key)
+  return ["awaiting_payment", "payment_detected", "payment_confirmed", "utility_dispatching", "pending"].includes(key)
 }
 
 export default function HistoryPage() {
   const [orders, setOrders] = React.useState<OrderHistoryItem[]>([])
   const [loading, setLoading] = React.useState(true)
+  const [filter, setFilter] = React.useState<FilterId>("all")
 
   React.useEffect(() => {
     apiGet<OrderHistoryItem[]>("/api/v1/orders/history")
       .then(setOrders)
-      .catch(() => {})
+      .catch(() => setOrders([]))
       .finally(() => setLoading(false))
   }, [])
 
+  const visible = orders.filter((order) => matchesFilter(order.status, filter))
+
   return (
-    <div className="space-y-8">
-      <div>
-        <h1 className="font-dela text-3xl tracking-tight">Order History</h1>
-        <p className="text-text-secondary mt-2">All your past utility payments.</p>
+    <div className="space-y-7">
+      <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+        <div>
+          <p className="label-xs text-muted">History</p>
+          <h1 className="mt-2 text-3xl text-ink">Order history</h1>
+          <p className="mt-1.5 text-[14px] text-muted">
+            Every payment made from this account, newest first.
+          </p>
+        </div>
+        <Button asChild variant="secondary" size="sm">
+          <Link href="/pay">Pay a bill</Link>
+        </Button>
+      </header>
+
+      <div className="flex flex-wrap items-center gap-1.5">
+        {FILTERS.map((item) => (
+          <button
+            key={item.id}
+            onClick={() => setFilter(item.id)}
+            className={cn(
+              "rounded-md border px-2.5 py-1 text-[12px] transition-colors",
+              filter === item.id
+                ? "border-line-strong bg-cream text-ink"
+                : "border-transparent text-muted hover:text-ink"
+            )}
+          >
+            {item.label}
+          </button>
+        ))}
+        <span className="num ml-auto text-[11px] text-muted">
+          {visible.length} of {orders.length}
+        </span>
       </div>
 
       {loading ? (
-        <div className="flex justify-center py-20">
-          <Loader2 className="h-8 w-8 animate-spin text-text-muted" />
+        <div className="flex justify-center rounded-lg border border-line bg-cream py-20">
+          <Loader2 className="h-4 w-4 animate-spin text-muted" />
         </div>
-      ) : orders.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 text-center">
-          <div className="h-16 w-16 rounded-full bg-bg-elevated flex items-center justify-center mb-4 text-text-muted">
-            <HistoryCircleIcon size={32} />
-          </div>
-          <h4 className="text-lg font-medium mb-2">No transactions yet</h4>
-          <p className="text-text-secondary mb-6 max-w-sm">
-            Your utility payment history will appear here.
+      ) : visible.length === 0 ? (
+        <div className="flex flex-col items-center rounded-lg border border-dashed border-line-strong bg-cream/60 px-6 py-16 text-center">
+          <Receipt className="h-5 w-5 text-muted" strokeWidth={1.6} />
+          <p className="mt-3 text-[14px] text-ink">
+            {orders.length === 0 ? "No orders yet" : "Nothing in this filter"}
           </p>
-          <Link href="/pay">
-            <Button variant="secondary">Make a Payment</Button>
-          </Link>
+          <p className="mt-1 max-w-xs text-[13px] text-muted">
+            {orders.length === 0
+              ? "Start with a small top-up and the receipt will appear here."
+              : "Try another filter to see the rest of your orders."}
+          </p>
+          {orders.length === 0 && (
+            <Button asChild className="mt-5" size="sm">
+              <Link href="/pay">
+                Pay a bill
+                <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
+            </Button>
+          )}
         </div>
       ) : (
-        <div className="space-y-3">
-          {orders.map((order) => (
-            <motion.div
-              key={order.order_id}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.2 }}
-            >
-              <Card className="hover:border-border-default transition-colors">
-                <CardContent className="p-4 sm:p-6 flex items-center justify-between gap-4">
-                  <div className="flex items-center gap-4 min-w-0">
-                    <div className="h-10 w-10 rounded-full bg-bg-surface flex items-center justify-center shrink-0">
-                      {order.status === "Completed" ? (
-                        <CheckedIcon size={20} className="text-accent-green" />
-                      ) : order.status === "Failed" || order.status === "Cancelled" ? (
-                        <TriangleAlertIcon size={20} className="text-accent-red" />
-                      ) : (
-                        <ClockIcon size={20} className="text-accent-zec" />
-                      )}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="font-medium text-text-primary truncate">{order.utility_slug}</p>
-                        {statusBadge(order.status)}
-                      </div>
-                      <p className="text-xs text-text-muted font-mono">
-                        {order.order_id.slice(0, 8)} • {new Date(order.created_at).toLocaleDateString()} {new Date(order.created_at).toLocaleTimeString()}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <p className="font-medium text-text-primary">{formatNGN(order.amount_ngn)}</p>
-                    <p className="text-xs text-text-secondary font-mono">{formatZEC(order.zec_amount)} ZEC</p>
-                  </div>
-                </CardContent>
-              </Card>
-            </motion.div>
-          ))}
+        <div className="overflow-hidden rounded-lg border border-line bg-cream">
+          <table className="w-full text-left">
+            <thead>
+              <tr className="border-b border-line">
+                <th className="label-xs px-4 py-2.5 font-medium text-muted">Service</th>
+                <th className="label-xs hidden px-4 py-2.5 font-medium text-muted sm:table-cell">
+                  Reference
+                </th>
+                <th className="label-xs hidden px-4 py-2.5 font-medium text-muted md:table-cell">
+                  Date
+                </th>
+                <th className="label-xs px-4 py-2.5 text-right font-medium text-muted">Amount</th>
+                <th className="label-xs px-4 py-2.5 text-right font-medium text-muted">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map((order) => {
+                const meta = getStatusMeta(order.status)
+                return (
+                  <tr
+                    key={order.order_id}
+                    className="border-b border-line last:border-b-0 hover:bg-paper-2/60"
+                  >
+                    <td className="px-4 py-3">
+                      <Link
+                        href={`/pay/${order.order_id}`}
+                        className="text-[13px] text-ink hover:underline"
+                      >
+                        {order.utility_slug}
+                      </Link>
+                      <span className="block text-[11px] text-muted sm:hidden">
+                        {new Date(order.created_at).toLocaleDateString()}
+                      </span>
+                    </td>
+                    <td className="num hidden px-4 py-3 text-[12px] text-muted sm:table-cell">
+                      {order.order_id.slice(0, 8)}
+                    </td>
+                    <td className="num hidden px-4 py-3 text-[12px] text-muted md:table-cell">
+                      {new Date(order.created_at).toLocaleDateString()}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <span className="num block text-[13px] text-ink">
+                        {formatNGN(order.amount_ngn)}
+                      </span>
+                      <span className="num block text-[11px] text-muted">
+                        {formatZEC(order.zec_amount)} ZEC
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <span
+                        className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] ${STATUS_TONE_CLASS[meta.tone]}`}
+                      >
+                        {meta.label}
+                      </span>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
         </div>
       )}
+
+      <p className="flex items-center gap-1.5 text-[12px] text-muted">
+        <Download className="h-3.5 w-3.5" strokeWidth={1.6} />
+        Export and date filters arrive with the accounting release.
+      </p>
     </div>
   )
 }

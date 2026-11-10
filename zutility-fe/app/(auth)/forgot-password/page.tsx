@@ -5,18 +5,15 @@ import Link from "next/link"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
-import { motion } from "motion/react"
-import MailFilledIcon from "@/components/icons/mail-filled-icon"
-import ArrowBackIcon from "@/components/icons/arrow-back-icon"
-import ArrowNarrowRightIcon from "@/components/icons/arrow-narrow-right-icon"
+import { ArrowLeft, MailCheck } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { AuthFooterLink, AuthShell } from "@/components/auth/auth-shell"
 import { apiPostRaw } from "@/lib/api"
 import { toast } from "sonner"
-import { PaymentFlow } from "@/components/ui/payment-flow"
 
 const forgotSchema = z.object({
-  email: z.string().email("Invalid email address"),
+  email: z.string().email("Enter a valid email address"),
 })
 
 type ForgotFormValues = z.infer<typeof forgotSchema>
@@ -36,9 +33,9 @@ export default function ForgotPasswordPage() {
   const onSubmit = async (data: ForgotFormValues) => {
     setIsLoading(true)
     try {
-      const res = await apiPostRaw("/api/v1/auth/forgot-password", { email: data.email })
+      await apiPostRaw("/api/v1/auth/forgot-password", { email: data.email })
       setSent(true)
-      toast.success("If an account exists with that email, a reset link has been sent.")
+      toast.success("If the account exists, a reset link is on the way")
     } catch {
       setSent(true)
     } finally {
@@ -47,84 +44,51 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <div className="flex min-h-screen bg-bg-void text-text-primary">
-      <div className="hidden w-1/2 flex-col justify-between border-r border-border-subtle bg-bg-surface p-12 lg:flex relative overflow-hidden">
-        <div className="absolute inset-0 z-0 opacity-30 pointer-events-none">
-          <PaymentFlow />
-        </div>
-        <div className="relative z-10">
-          <Link href="/" className="font-dela text-2xl tracking-tight">
-            <span className="text-accent-zec">z</span>utility
-          </Link>
-        </div>
-        <div className="relative z-10 max-w-md">
-          <h1 className="font-dela text-4xl leading-tight mb-4">
-            Secure your account.
-          </h1>
-          <p className="text-text-secondary text-lg">
-            Reset your password and get back to managing your utility payments privately.
+    <AuthShell
+      title="Reset your password"
+      subtitle="Enter the email on the account and we will send a reset link."
+      footer={<AuthFooterLink prompt="Remembered it?" href="/login" label="Sign in" />}
+    >
+      {sent ? (
+        <div className="rounded-lg border border-line bg-paper p-5">
+          <div className="flex items-center gap-2 text-ink">
+            <MailCheck className="h-4 w-4 text-green" />
+            <p className="text-sm font-medium">Check your inbox</p>
+          </div>
+          <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
+            If an account exists for that address, a reset link is on the way. The link expires
+            after one hour.
           </p>
         </div>
-      </div>
-
-      <div className="flex w-full flex-col justify-center px-8 sm:px-16 lg:w-1/2 xl:px-24">
-        <div className="mx-auto w-full max-w-sm">
-          <div className="mb-10 lg:hidden">
-            <Link href="/" className="font-dela text-2xl tracking-tight">
-              <span className="text-accent-zec">z</span>utility
-            </Link>
+      ) : (
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+          <div className="space-y-1.5">
+            <label htmlFor="email" className="block text-[13px] font-medium text-ink">
+              Email
+            </label>
+            <Input
+              id="email"
+              {...register("email")}
+              type="email"
+              autoComplete="email"
+              placeholder="you@example.com"
+              error={errors.email?.message}
+            />
           </div>
 
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4 }}
-          >
-            <h2 className="font-dela text-3xl mb-2">Forgot Password</h2>
-            <p className="text-text-secondary mb-8">
-              Remember your password?{" "}
-              <Link href="/login" className="text-accent-zec hover:underline">
-                Log in
-              </Link>
-            </p>
+          <Button type="submit" className="mt-2 w-full" size="lg" loading={isLoading}>
+            Send reset link
+          </Button>
+        </form>
+      )}
 
-            {sent ? (
-              <div className="rounded-lg border border-border-subtle bg-bg-elevated p-6 text-center">
-                <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-accent-zec/10 text-accent-zec">
-                  <MailFilledIcon size={24} />
-                </div>
-                <h3 className="font-semibold mb-2">Check your email</h3>
-                <p className="text-sm text-text-secondary">
-                  If an account exists with that email, you&apos;ll receive a password reset link shortly.
-                </p>
-              </div>
-            ) : (
-              <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
-                <div className="space-y-1">
-                  <Input
-                    {...register("email")}
-                    type="email"
-                    placeholder="Email address"
-                    leftIcon={<MailFilledIcon size={20} />}
-                    error={errors.email?.message}
-                  />
-                </div>
-
-                <Button type="submit" className="w-full h-12 text-base mt-4" loading={isLoading}>
-                  Send Reset Link <ArrowNarrowRightIcon size={16} className="ml-2" />
-                </Button>
-              </form>
-            )}
-
-            <div className="mt-8">
-              <Link href="/login" className="inline-flex items-center gap-2 text-sm text-text-secondary hover:text-text-primary transition-colors">
-                <ArrowBackIcon size={16} />
-                Back to login
-              </Link>
-            </div>
-          </motion.div>
-        </div>
-      </div>
-    </div>
+      <Link
+        href="/login"
+        className="mt-5 inline-flex items-center gap-1.5 text-[13px] text-muted transition-colors hover:text-ink"
+      >
+        <ArrowLeft className="h-3.5 w-3.5" />
+        Back to sign in
+      </Link>
+    </AuthShell>
   )
 }

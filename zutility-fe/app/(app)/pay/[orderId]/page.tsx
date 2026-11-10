@@ -1,20 +1,12 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
-import { motion, AnimatePresence } from "motion/react"
 import { QRCodeSVG } from "qrcode.react"
-import CheckedIcon from "@/components/icons/checked-icon"
-import TriangleAlertIcon from "@/components/icons/triangle-alert-icon"
-import ClockIcon from "@/components/icons/clock-icon"
-import ArrowBackIcon from "@/components/icons/arrow-back-icon"
-import PlugConnectedIcon from "@/components/icons/plug-connected-icon"
-import XIcon from "@/components/icons/x-icon"
-import TimerOffIcon from "@/components/icons/timer-off-icon"
+import { AlertTriangle, ArrowLeft, Check, Clock, Loader2, TimerOff, X } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
 import { CopyField } from "@/components/ui/copy-field"
 import { Stepper } from "@/components/ui/stepper"
 import { CountdownTimer } from "@/components/ui/countdown-timer"
@@ -24,27 +16,64 @@ import { useOrderStream } from "@/lib/hooks/useOrderStream"
 import { apiGet } from "@/lib/api"
 import { formatZEC } from "@/lib/utils"
 import { UTILITIES } from "@/lib/constants"
+import { getStatusMeta, STATUS_TONE_CLASS } from "@/lib/order-status"
 import type { CreateOrderResponse } from "@/lib/types"
 
 function getCompletionInfo(slug: string): { title: string; description: string; tokenLabel: string } {
-  const u = UTILITIES.find(u => u.slug === slug)
-  if (!u) return { title: 'Order Complete!', description: 'Your utility has been successfully delivered.', tokenLabel: 'Token / PIN' }
-  
-  switch (u.type) {
-    case 'airtime':
-      return { title: 'Airtime Delivered!', description: 'Your phone has been topped up successfully.', tokenLabel: 'Reference' }
-    case 'data':
-      return { title: 'Data Bundle Activated!', description: 'Your data bundle has been activated on the number provided.', tokenLabel: 'Reference' }
-    case 'tv':
-      return { title: 'TV Subscription Renewed!', description: 'Your TV subscription has been renewed successfully.', tokenLabel: 'Reference' }
-    case 'electricity':
-      return { title: 'Electricity Token Delivered!', description: 'Your prepaid electricity token is ready. Enter it on your meter to load units.', tokenLabel: 'Meter Token' }
-    case 'education':
-      return { title: 'PIN Delivered!', description: u.name.includes('JAMB') ? 'Your JAMB registration PIN has been delivered.' : 'Your exam PIN has been delivered. Use it on the official portal.', tokenLabel: 'PIN' }
-    case 'school':
-      return { title: 'School Fees Paid!', description: 'Your school fees payment has been confirmed.', tokenLabel: 'Payment Reference' }
+  const utility = UTILITIES.find((item) => item.slug === slug)
+  if (!utility) {
+    return {
+      title: "Order delivered",
+      description: "The utility has been delivered.",
+      tokenLabel: "Token or PIN",
+    }
+  }
+
+  switch (utility.type) {
+    case "airtime":
+      return {
+        title: "Airtime delivered",
+        description: "The phone number has been topped up.",
+        tokenLabel: "Reference",
+      }
+    case "data":
+      return {
+        title: "Data bundle activated",
+        description: "The bundle is active on the number you provided.",
+        tokenLabel: "Reference",
+      }
+    case "tv":
+      return {
+        title: "Subscription renewed",
+        description: "The TV subscription has been renewed.",
+        tokenLabel: "Reference",
+      }
+    case "electricity":
+      return {
+        title: "Meter token ready",
+        description: "Enter the token on the meter to load the units.",
+        tokenLabel: "Meter token",
+      }
+    case "education":
+      return {
+        title: "PIN delivered",
+        description: utility.name.includes("JAMB")
+          ? "The JAMB registration PIN has been delivered."
+          : "The exam PIN has been delivered. Use it on the official portal.",
+        tokenLabel: "PIN",
+      }
+    case "school":
+      return {
+        title: "School fees paid",
+        description: "The school fees payment has been confirmed.",
+        tokenLabel: "Payment reference",
+      }
     default:
-      return { title: 'Order Complete!', description: 'Your utility has been successfully delivered.', tokenLabel: 'Token / PIN' }
+      return {
+        title: "Order delivered",
+        description: "The utility has been delivered.",
+        tokenLabel: "Token or PIN",
+      }
   }
 }
 
@@ -52,30 +81,23 @@ export default function OrderPage() {
   const params = useParams()
   const router = useRouter()
   const orderId = params.orderId as string
-  
-  const { activeOrder, setActiveOrder, clearActiveOrder } = useOrderStore()
+
+  const { activeOrder, clearActiveOrder } = useOrderStore()
   const [recoveredOrder, setRecoveredOrder] = React.useState<CreateOrderResponse | null>(null)
-  const [recovering, setRecovering] = React.useState(false)
-  
+  const requestedOrder = React.useRef(false)
+
   const isCurrentOrder = activeOrder?.order_id === orderId
   const order = isCurrentOrder ? activeOrder : recoveredOrder
 
   React.useEffect(() => {
-    if (!isCurrentOrder && !recoveredOrder && !recovering) {
-      const token = new URLSearchParams(window.location.search).get('token')
-      if (token && orderId) {
-        setRecovering(true)
-        apiGet<CreateOrderResponse>(`/api/v1/orders/${orderId}?token=${encodeURIComponent(token)}`)
-          .then((data) => {
-            setRecoveredOrder(data)
-          })
-          .catch(() => {
-            toast.error("Could not load order")
-          })
-          .finally(() => setRecovering(false))
-      }
-    }
-  }, [isCurrentOrder, recoveredOrder, recovering, orderId])
+    if (isCurrentOrder || recoveredOrder || requestedOrder.current) return
+    const token = new URLSearchParams(window.location.search).get("token")
+    if (!token || !orderId) return
+    requestedOrder.current = true
+    apiGet<CreateOrderResponse>(`/api/v1/orders/${orderId}?token=${encodeURIComponent(token)}`)
+      .then(setRecoveredOrder)
+      .catch(() => toast.error("Could not load the order"))
+  }, [isCurrentOrder, recoveredOrder, orderId])
 
   const { status, confirmations, latestEvent, isConnected } = useOrderStream(
     order ? orderId : null,
@@ -84,273 +106,277 @@ export default function OrderPage() {
 
   if (!order) {
     return (
-      <div className="flex flex-col items-center justify-center py-24 text-center">
-        <TriangleAlertIcon size={48} className="text-accent-red mb-4" />
-        <h2 className="text-2xl font-dela mb-2">Order Not Found</h2>
-        <p className="text-text-secondary mb-6">
-          {recovering ? 'Loading order...' : "This order doesn't exist or you don't have access to it."}
+      <div className="flex flex-col items-center py-24 text-center">
+        <AlertTriangle className="h-6 w-6 text-rust" strokeWidth={1.6} />
+        <h2 className="mt-4 text-2xl text-ink">Order not found</h2>
+        <p className="mt-2 max-w-sm text-[13px] text-muted">
+          This order does not exist, or this browser does not have access to it. Open it from the
+          link you were given, or from your order history.
         </p>
-        <Button onClick={() => router.push('/dashboard')}>Return to Dashboard</Button>
+        <Button className="mt-6" onClick={() => router.push("/dashboard")}>
+          Back to overview
+        </Button>
       </div>
     )
   }
 
+  const utility = UTILITIES.find((item) => item.slug === order.utility_slug)
+  const meta = getStatusMeta(status)
   const steps = [
-    { label: "Awaiting Payment" },
+    { label: "Awaiting payment" },
     { label: "Confirming" },
     { label: "Dispatching" },
-    { label: "Completed" }
+    { label: "Delivered" },
   ]
 
-  const getStepIndex = () => {
+  const stepIndex = (() => {
     switch (status) {
-      case 'awaiting_payment': return 0
-      case 'payment_detected': return 1
-      case 'payment_confirmed': return 2
-      case 'utility_dispatching': return 2
-      case 'completed': return 4
-      case 'expired': return 0
-      case 'failed': return 2
-      default: return 0
+      case "payment_detected":
+        return 1
+      case "payment_confirmed":
+        return 2
+      case "utility_dispatching":
+        return 2
+      case "completed":
+        return 4
+      case "failed":
+        return 2
+      default:
+        return 0
     }
-  }
+  })()
+
+  const addressType = order.required_confirmations > 3 ? "shielded" : "transparent"
+  const isClosed = ["completed", "expired", "failed", "cancelled"].includes(status)
 
   const handleExpire = () => {
-    if (status === 'awaiting_payment') {
-      toast.error("Order expired")
+    if (status === "awaiting_payment") {
+      toast.error("The order expired")
     }
   }
 
-  const addressType = order.required_confirmations > 3 ? 'shielded' : 'transparent'
-
   return (
-    <div className="max-w-4xl mx-auto space-y-8">
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => router.push('/dashboard')}>
-          <ArrowBackIcon size={20} />
-        </Button>
-        <div>
-          <h1 className="font-dela text-2xl tracking-tight">Order {orderId.slice(0, 8)}...</h1>
-          <p className="text-text-secondary text-sm">
-            {addressType === 'shielded' ? 'Shielded' : 'Transparent'} Payment
-            {!isConnected && status !== 'completed' && status !== 'expired' && status !== 'failed' && (
-              <span className="ml-2 text-accent-amber">&#x2022; Reconnecting...</span>
-            )}
-          </p>
+    <div className="mx-auto max-w-3xl space-y-5">
+      <Link
+        href="/dashboard"
+        className="inline-flex items-center gap-1.5 text-[12px] text-muted transition-colors hover:text-ink"
+      >
+        <ArrowLeft className="h-3.5 w-3.5" />
+        Back to overview
+      </Link>
+
+      <div className="rounded-lg border border-line bg-cream">
+        <div className="flex flex-col gap-3 border-b border-line px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="label-xs text-muted">Receipt</p>
+            <h1 className="mt-1 text-2xl text-ink">{utility?.name ?? order.utility_slug}</h1>
+            <p className="num mt-0.5 text-[11px] text-muted">{order.order_id}</p>
+          </div>
+          <div className="flex flex-col items-start gap-1 sm:items-end">
+            <span
+              className={`inline-flex rounded-full border px-2.5 py-0.5 text-[11px] ${STATUS_TONE_CLASS[meta.tone]}`}
+            >
+              {meta.label}
+            </span>
+            <span className="text-[11px] capitalize text-muted">
+              {addressType} address
+              {!isConnected && !isClosed ? " · reconnecting" : ""}
+            </span>
+          </div>
         </div>
-        <div className="ml-auto">
-          <Badge variant={
-            status === 'completed' ? 'success' :
-            status === 'failed' || status === 'expired' ? 'error' :
-            'warning'
-          }>
-            {status.replace(/_/g, ' ').toUpperCase()}
-          </Badge>
+
+        <div className="border-b border-line px-5 py-4">
+          <Stepper steps={steps} currentStep={stepIndex} />
         </div>
+
+        {status === "awaiting_payment" && (
+          <div className="grid gap-6 p-5 md:grid-cols-[200px_1fr] md:gap-8">
+            <div className="flex flex-col items-center">
+              <div className="rounded-md border border-line bg-paper p-3">
+                <QRCodeSVG
+                  value={order.qr_data}
+                  size={168}
+                  level="M"
+                  bgColor="#fffdf7"
+                  fgColor="#14130f"
+                />
+              </div>
+              <p className="mt-3 text-center text-[11px] leading-relaxed text-muted">
+                Scan with Zashi, Nighthawk, Zingo, or any Zcash wallet.
+              </p>
+              <p className="mt-2 flex items-center gap-1.5 text-[12px] text-muted">
+                <Clock className="h-3.5 w-3.5" />
+                Expires in
+                <CountdownTimer expiresAt={order.expires_at} onExpire={handleExpire} />
+              </p>
+            </div>
+
+            <div className="min-w-0 space-y-5">
+              <div className="space-y-2">
+                <CopyField label="Amount to send" value={`${formatZEC(order.zec_amount)} ZEC`} />
+                <CopyField label="Deposit address" value={order.deposit_address} />
+              </div>
+
+              <div className="rounded-md border border-line bg-paper px-4 py-3">
+                <p className="flex items-center gap-1.5 text-[12px] font-medium text-gold-deep">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  Before you send
+                </p>
+                <ul className="mt-2 space-y-1.5 text-[12px] leading-relaxed text-ink-2">
+                  <li>Send exactly the quoted amount. A short payment is not credited.</li>
+                  <li>The sender pays the network fee. Do not subtract it from the amount.</li>
+                  <li>
+                    Delivery follows {order.required_confirmations} confirmations, about four
+                    minutes.
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {(status === "payment_detected" || status === "payment_confirmed") && (
+          <div className="space-y-5 p-6">
+            <ConfirmationProgress
+              current={confirmations}
+              required={order.required_confirmations}
+              addressType={addressType}
+            />
+            <div>
+              <p className="text-lg text-ink">
+                {status === "payment_confirmed" ? "Payment confirmed" : "Confirming payment"}
+              </p>
+              <p className="mt-1 max-w-lg text-[13px] leading-relaxed text-ink-2">
+                {status === "payment_confirmed"
+                  ? "The payment is final on the Zcash network. The utility is being dispatched now."
+                  : `The payment reached the deposit address. We are waiting for ${order.required_confirmations} confirmations before dispatch.`}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {status === "utility_dispatching" && (
+          <div className="flex flex-col items-start gap-3 p-6">
+            <Loader2 className="h-5 w-5 animate-spin text-gold-deep" />
+            <p className="text-lg text-ink">Dispatching</p>
+            <p className="max-w-lg text-[13px] leading-relaxed text-ink-2">
+              The provider is processing the order. This usually takes less than a minute. Keep
+              this page open or come back from the history page.
+            </p>
+          </div>
+        )}
+
+        {status === "completed" && (() => {
+          const info = getCompletionInfo(order.utility_slug || "")
+          return (
+            <div className="space-y-5 p-6">
+              <div className="flex items-start gap-2.5">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-green/10">
+                  <Check className="h-4 w-4 text-green" />
+                </span>
+                <div>
+                  <p className="text-lg text-ink">{info.title}</p>
+                  <p className="mt-1 text-[13px] leading-relaxed text-ink-2">{info.description}</p>
+                </div>
+              </div>
+
+              {latestEvent?.event === "completed" && latestEvent.delivery_token && (
+                <div className="rounded-md border border-line bg-paper px-4 py-4">
+                  <p className="label-xs text-muted">{info.tokenLabel}</p>
+                  <p className="num mt-2 select-all break-all text-2xl tracking-wide text-ink">
+                    {latestEvent.delivery_token}
+                  </p>
+                  <CopyField value={latestEvent.delivery_token} className="mt-3" />
+                </div>
+              )}
+
+              <div className="flex flex-wrap gap-2 border-t border-line pt-4">
+                <Button onClick={() => router.push("/dashboard")}>Back to overview</Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    clearActiveOrder()
+                    router.push("/pay")
+                  }}
+                >
+                  Pay another bill
+                </Button>
+                <Button asChild variant="ghost">
+                  <Link href="/support">Get help</Link>
+                </Button>
+              </div>
+            </div>
+          )
+        })()}
+
+        {status === "expired" && (
+          <div className="space-y-5 p-6">
+            <div className="flex items-start gap-2.5">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-paper-3">
+                <TimerOff className="h-4 w-4 text-muted" />
+              </span>
+              <div>
+                <p className="text-lg text-ink">Order expired</p>
+                <p className="mt-1 max-w-lg text-[13px] leading-relaxed text-ink-2">
+                  No payment arrived before the quote expired. Create a new order for a fresh rate
+                  and a new deposit address.
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2 border-t border-line pt-4">
+              <Button
+                onClick={() => {
+                  clearActiveOrder()
+                  router.push("/pay")
+                }}
+              >
+                Create a new order
+              </Button>
+              <Button variant="secondary" onClick={() => router.push("/dashboard")}>
+                Back to overview
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {(status === "failed" || status === "cancelled") && (
+          <div className="space-y-5 p-6">
+            <div className="flex items-start gap-2.5">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-rust/10">
+                <X className="h-4 w-4 text-rust" />
+              </span>
+              <div>
+                <p className="text-lg text-ink">
+                  {status === "cancelled" ? "Order cancelled" : "Order failed"}
+                </p>
+                <p className="mt-1 max-w-lg text-[13px] leading-relaxed text-ink-2">
+                  The utility could not be delivered. If ZEC left your wallet, open a support
+                  request with the order ID and the transaction ID.
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2 border-t border-line pt-4">
+              <Button asChild>
+                <Link href="/support">Contact support</Link>
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  clearActiveOrder()
+                  router.push("/pay")
+                }}
+              >
+                Try another order
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
 
-      <Card className="border-border-subtle bg-bg-elevated">
-        <CardContent className="p-6 sm:p-8">
-          <Stepper steps={steps} currentStep={getStepIndex()} className="mb-8" />
-          
-          <AnimatePresence mode="wait">
-            {status === 'awaiting_payment' && (
-              <motion.div
-                key="awaiting"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                className="grid md:grid-cols-2 gap-8"
-              >
-                <div className="flex flex-col items-center justify-center p-6 border border-border-subtle rounded-xl bg-bg-surface relative overflow-hidden">
-                  <div className="absolute top-0 left-0 w-full h-1 bg-accent-zec" />
-                  <div className="bg-white p-4 rounded-xl mb-6">
-                    <QRCodeSVG
-                      value={order.qr_data}
-                      size={200}
-                      level="H"
-                      includeMargin={false}
-                    />
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-text-secondary mb-2">
-                    <ClockIcon size={16} />
-                    Expires in: <CountdownTimer expiresAt={order.expires_at} onExpire={handleExpire} />
-                  </div>
-                  <p className="text-xs text-text-muted text-center max-w-[200px]">
-                    Scan with Zashi, Nighthawk, Zingo, or any Zcash wallet
-                  </p>
-                </div>
-
-                <div className="space-y-6">
-                  <div>
-                    <h3 className="text-lg font-semibold mb-4">Payment Details</h3>
-                    <div className="space-y-4">
-                      <CopyField label="Amount to send" value={formatZEC(order.zec_amount)} />
-                      <CopyField label="Deposit Address" value={order.deposit_address} />
-                    </div>
-                  </div>
-
-                  <div className="rounded-lg bg-accent-zec/10 p-4 border border-accent-zec/20">
-                    <div className="flex items-start gap-3">
-                      <TriangleAlertIcon size={20} className="text-accent-zec shrink-0 mt-0.5" />
-                      <div className="text-sm text-text-primary">
-                        <p className="font-medium text-accent-zec mb-1">Important</p>
-                        <ul className="list-disc pl-4 space-y-1 text-text-secondary">
-                          <li>Send exactly <span className="font-mono text-text-primary">{formatZEC(order.zec_amount)}</span> ZEC</li>
-                          <li>Do not include transaction fees in this amount</li>
-                          <li>Takes ~4 mins to confirm ({order.required_confirmations} confirmations)</li>
-                        </ul>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-
-            {(status === 'payment_detected' || status === 'payment_confirmed') && (
-              <motion.div
-                key="confirming"
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="flex flex-col items-center justify-center py-8"
-              >
-                <ConfirmationProgress
-                  current={confirmations}
-                  required={order.required_confirmations}
-                  addressType={addressType}
-                />
-                <h3 className="text-xl font-semibold mt-6 mb-2">
-                  {status === 'payment_confirmed' ? 'Payment Confirmed!' : 'Confirming Payment...'}
-                </h3>
-                <p className="text-text-secondary text-center max-w-md">
-                  {status === 'payment_confirmed' 
-                    ? 'Your payment has been fully confirmed on the Zcash network. We are now dispatching your utility.'
-                    : `We've detected your payment on the network. Waiting for ${order.required_confirmations} confirmations to ensure finality.`}
-                </p>
-                <p className="text-sm text-text-muted mt-2">
-                  {confirmations} / {order.required_confirmations} confirmations
-                </p>
-              </motion.div>
-            )}
-
-            {status === 'utility_dispatching' && (
-              <motion.div
-                key="dispatching"
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="flex flex-col items-center justify-center py-16"
-              >
-                <div className="relative flex h-24 w-24 items-center justify-center rounded-full bg-accent-zec/10 mb-6">
-                  <div className="absolute inset-0 rounded-full border-4 border-accent-zec border-t-transparent animate-spin" />
-                  <PlugConnectedIcon size={40} className="text-accent-zec animate-pulse" />
-                </div>
-                <h3 className="text-2xl font-dela mb-2">Dispatching Utility</h3>
-                <p className="text-text-secondary text-center max-w-md">
-                  Connecting to the provider to deliver your service. This usually takes less than a minute.
-                </p>
-              </motion.div>
-            )}
-
-            {status === 'completed' && (() => {
-                const info = getCompletionInfo(order.utility_slug || '')
-                return (
-              <motion.div
-                key="completed"
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="flex flex-col items-center justify-center py-12"
-              >
-                <div className="flex h-24 w-24 items-center justify-center rounded-full bg-accent-green/10 mb-6">
-                  <CheckedIcon size={48} className="text-accent-green" />
-                </div>
-                <h3 className="text-3xl font-dela text-accent-green mb-2">{info.title}</h3>
-                <p className="text-text-secondary text-center max-w-md mb-8">
-                  {info.description}
-                </p>
-
-                {latestEvent?.event === 'completed' && latestEvent.delivery_token && (
-                  <div className="w-full max-w-md bg-bg-surface border border-border-subtle rounded-xl p-6 text-center">
-                    <p className="text-sm text-text-secondary uppercase tracking-wider mb-2">{info.tokenLabel}</p>
-                    <p className="text-3xl font-mono font-bold tracking-widest text-text-primary mb-4">
-                      {latestEvent.delivery_token}
-                    </p>
-                    <CopyField value={latestEvent.delivery_token} className="text-left" />
-                  </div>
-                )}
-
-                <div className="mt-8 flex gap-4">
-                  <Button variant="secondary" onClick={() => router.push('/dashboard')}>
-                    Back to Dashboard
-                  </Button>
-                  <Button variant="primary" onClick={() => {
-                    clearActiveOrder()
-                    router.push('/pay')
-                  }}>
-                    Make Another Payment
-                  </Button>
-                </div>
-              </motion.div>
-                )
-            })()}
-
-            {status === 'expired' && (
-              <motion.div
-                key="expired"
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="flex flex-col items-center justify-center py-12"
-              >
-                <div className="flex h-24 w-24 items-center justify-center rounded-full bg-accent-amber/10 mb-6">
-                  <TimerOffIcon size={48} className="text-accent-amber" />
-                </div>
-                <h3 className="text-2xl font-dela text-accent-amber mb-2">Order Expired</h3>
-                <p className="text-text-secondary text-center max-w-md mb-8">
-                  This order has expired because no payment was received in time. Please create a new order to try again.
-                </p>
-                <div className="flex gap-4">
-                  <Button variant="secondary" onClick={() => router.push('/dashboard')}>
-                    Back to Dashboard
-                  </Button>
-                  <Button variant="primary" onClick={() => {
-                    clearActiveOrder()
-                    router.push('/pay')
-                  }}>
-                    Create New Order
-                  </Button>
-                </div>
-              </motion.div>
-            )}
-
-            {status === 'failed' && (
-              <motion.div
-                key="failed"
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="flex flex-col items-center justify-center py-12"
-              >
-                <div className="flex h-24 w-24 items-center justify-center rounded-full bg-accent-red/10 mb-6">
-                  <XIcon size={48} className="text-accent-red" />
-                </div>
-                <h3 className="text-2xl font-dela text-accent-red mb-2">Order Failed</h3>
-                <p className="text-text-secondary text-center max-w-md mb-8">
-                  We were unable to process your utility payment. If you were charged, please contact support with your order ID.
-                </p>
-                <div className="flex gap-4">
-                  <Button variant="secondary" onClick={() => router.push('/dashboard')}>
-                    Back to Dashboard
-                  </Button>
-                  <Button variant="primary" onClick={() => {
-                    clearActiveOrder()
-                    router.push('/pay')
-                  }}>
-                    Try Again
-                  </Button>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </CardContent>
-      </Card>
+      <p className="px-1 text-[11px] leading-relaxed text-muted">
+        Keep this page open while the payment confirms. The status updates over a live connection.
+        Support can trace any order by its ID.
+      </p>
     </div>
   )
 }

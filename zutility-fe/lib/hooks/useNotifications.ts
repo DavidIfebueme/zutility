@@ -19,13 +19,6 @@ export function useNotifications() {
   const [unreadCount, setUnreadCount] = React.useState(0)
   const [loading, setLoading] = React.useState(true)
 
-  const fetchUnreadCount = React.useCallback(async () => {
-    try {
-      const res = await apiGet<{ count: number }>("/api/v1/notifications/unread-count")
-      setUnreadCount(res.count)
-    } catch {}
-  }, [])
-
   const fetchNotifications = React.useCallback(async () => {
     try {
       const res = await apiGet<Notification[]>("/api/v1/notifications")
@@ -52,11 +45,26 @@ export function useNotifications() {
   }, [])
 
   React.useEffect(() => {
-    fetchUnreadCount()
-    fetchNotifications().finally(() => setLoading(false))
-    const interval = setInterval(fetchUnreadCount, 30000)
-    return () => clearInterval(interval)
-  }, [fetchUnreadCount, fetchNotifications])
+    let active = true
+
+    const poll = async () => {
+      const [count, list] = await Promise.all([
+        apiGet<{ count: number }>("/api/v1/notifications/unread-count").catch(() => null),
+        apiGet<Notification[]>("/api/v1/notifications").catch(() => null),
+      ])
+      if (!active) return
+      if (count) setUnreadCount(count.count)
+      if (list) setNotifications(list)
+      setLoading(false)
+    }
+
+    void poll()
+    const interval = setInterval(poll, 30000)
+    return () => {
+      active = false
+      clearInterval(interval)
+    }
+  }, [])
 
   return { notifications, unreadCount, loading, markRead, markAllRead, refresh: fetchNotifications }
 }

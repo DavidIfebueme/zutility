@@ -1,42 +1,124 @@
 @import "tailwindcss";
 
 @theme {
-  --color-bg-void: #050508;
-  --color-bg-surface: #0d0d14;
-  --color-bg-elevated: #13131f;
-  --color-border-subtle: #1e1e2e;
-  --color-border-active: #2a2a45;
-  --color-accent-zec: #F4B728;
-  --color-accent-zec-dim: #a07a18;
-  --color-accent-green: #00D26A;
-  --color-accent-red: #FF4444;
-  --color-accent-blue: #4488FF;
-  --color-text-primary: #F0F0FF;
-  --color-text-secondary: #8888AA;
-  --color-text-muted: #44445A;
+  --color-paper: #f3eee3;
+  --color-paper-2: #ece5d8;
+  --color-paper-3: #ded4c2;
+  --color-cream: #fffdf7;
+  --color-ink: #14130f;
+  --color-ink-2: #3a352c;
+  --color-muted: #6d6558;
+  --color-line: #d3c9b8;
+  --color-line-strong: #b9ad98;
+  --color-gold: #f4b728;
+  --color-gold-deep: #8a5c00;
+  --color-vault: #0b0b0a;
+  --color-vault-2: #17150f;
+  --color-rust: #b6402e;
+  --color-green: #2e6b4f;
 
-  --font-dela: var(--font-dela), sans-serif;
-  --font-dm: var(--font-dm), sans-serif;
-  --font-mono: var(--font-mono), monospace;
+  --font-display: var(--font-fraunces), Georgia, "Times New Roman", serif;
+  --font-sans: var(--font-geist), system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SFMono-Regular", monospace;
 }
 
-:root {
-  --bg-void: #050508;
-  --bg-surface: #0d0d14;
-  --bg-elevated: #13131f;
-  --border-subtle: #1e1e2e;
-  --border-active: #2a2a45;
-  --accent-zec: #F4B728;
-  --accent-zec-dim: #a07a18;
-  --accent-green: #00D26A;
-  --accent-red: #FF4444;
-  --accent-blue: #4488FF;
-  --text-primary: #F0F0FF;
-  --text-secondary: #8888AA;
-  --text-muted: #44445A;
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    background-color: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.55;
+  }
+
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    pointer-events: none;
+    opacity: 0.07;
+    mix-blend-mode: multiply;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 220 220' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size: 220px 220px;
+  }
+
+  ::selection {
+    background-color: var(--color-gold);
+    color: var(--color-ink);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-gold-deep);
+    outline-offset: 2px;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+    font-weight: 500;
+    letter-spacing: -0.02em;
+  }
+
+  hr {
+    border-color: var(--color-line);
+  }
 }
 
-body {
-  background-color: var(--bg-void);
-  color: var(--text-primary);
+@utility display {
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: -0.025em;
+}
+
+@utility num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+@utility label-xs {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.paper-grid {
+  background-image:
+    linear-gradient(rgba(20, 19, 15, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(20, 19, 15, 0.045) 1px, transparent 1px);
+  background-size: 72px 72px;
+  background-position: center top;
+}
+
+.paper-rule {
+  border-top: 1px solid var(--color-line);
+}
+
+.hairline {
+  border-color: var(--color-line);
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

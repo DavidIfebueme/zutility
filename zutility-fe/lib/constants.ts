@@ -72,10 +72,3 @@ export const UTILITY_CATEGORIES: { label: string; type: UtilityType | 'school'; 
   { label: 'Education', type: 'education', icon: 'education' },
   { label: 'School Fees', type: 'school', icon: 'school' },
 ]
-
-export const TOKENS = [
-  { id: 'ZEC', name: 'Zcash', symbol: 'ZEC', status: 'live' },
-  { id: 'COMING_SOON_1', name: 'Coming Soon', symbol: 'SOON', status: 'coming_soon' },
-  { id: 'COMING_SOON_2', name: 'Coming Soon', symbol: 'SOON', status: 'coming_soon' },
-  { id: 'COMING_SOON_3', name: 'Coming Soon', symbol: 'SOON', status: 'coming_soon' },
-]
