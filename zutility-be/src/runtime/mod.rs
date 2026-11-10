@@ -26,9 +26,21 @@ use crate::{
 };
 
 pub fn start_background_workers(state: HttpState, config: AppConfig, pool: PgPool) {
+    start_http_heartbeat(&state);
     start_rate_refresher(state.clone(), config.clone(), pool.clone());
     start_order_orchestrator(state.clone(), config.clone(), pool.clone());
     start_address_pool_refill(state, config, pool);
+}
+
+pub fn start_http_heartbeat(state: &HttpState) {
+    let jobs = state.observability.jobs();
+    tokio::spawn(async move {
+        let mut ticker = interval(Duration::from_secs(60));
+        loop {
+            ticker.tick().await;
+            jobs.mark_alive("http_server");
+        }
+    });
 }
 
 fn start_rate_refresher(state: HttpState, config: AppConfig, pool: PgPool) {

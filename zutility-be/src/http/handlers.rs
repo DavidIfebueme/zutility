@@ -120,8 +120,6 @@ impl HttpState {
             self.provider_dispatcher = Some(ProviderDispatcher::new(vtpass, remita, inlomax));
         }
 
-        self.observability.jobs().mark_alive("http_server");
-
         if let (Some(api_key), Some(sender_email), Some(sender_name)) = (
             &config.brevo_api_key,
             &config.brevo_sender_email,
@@ -776,13 +774,9 @@ fn generate_token(length: usize) -> String {
 
 async fn build_readiness_report(state: &HttpState) -> ReadinessReport {
     let db_probe = match probe_db_connectivity(&state.pool).await {
-        Ok(true) => ProbeStatus {
+        Ok(()) => ProbeStatus {
             healthy: true,
             detail: String::from("database connectivity ok"),
-        },
-        Ok(false) => ProbeStatus {
-            healthy: false,
-            detail: String::from("database connectivity unavailable"),
         },
         Err(error) => ProbeStatus {
             healthy: false,
@@ -845,11 +839,11 @@ async fn build_readiness_report(state: &HttpState) -> ReadinessReport {
     }
 }
 
-async fn probe_db_connectivity(pool: &PgPool) -> anyhow::Result<bool> {
-    let ping = sqlx::query_scalar::<_, i64>("SELECT 1")
+async fn probe_db_connectivity(pool: &PgPool) -> anyhow::Result<()> {
+    sqlx::query_scalar::<_, i32>("SELECT 1")
         .fetch_one(pool)
-        .await;
-    Ok(ping.is_ok())
+        .await?;
+    Ok(())
 }
 
 fn order_matches_user(order: &OrderRow, user: &crate::http::mw::AuthenticatedUser) -> bool {
