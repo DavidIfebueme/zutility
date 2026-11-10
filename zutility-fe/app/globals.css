@@ -215,6 +215,26 @@
   }
 }
 
+@keyframes nudge {
+  0%,
+  100% {
+    transform: translateX(0) rotate(0deg);
+  }
+  20% {
+    transform: translateX(-3px) rotate(-0.2deg);
+  }
+  45% {
+    transform: translateX(3px) rotate(0.2deg);
+  }
+  70% {
+    transform: translateX(-1.5px);
+  }
+}
+
+.form-card:hover:not(.animate-shake) {
+  animation: nudge 360ms var(--ease-quart);
+}
+
 @keyframes rise {
   from {
     opacity: 0;

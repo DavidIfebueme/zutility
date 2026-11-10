@@ -13,6 +13,7 @@ import { SiteFooter } from "@/components/marketing/site-footer"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { apiPost, apiGet } from "@/lib/api"
+import { useShake } from "@/lib/hooks/useShake"
 
 const waitlistSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -39,6 +40,7 @@ function WaitlistContent() {
   const [copied, setCopied] = React.useState(false)
   const [stats, setStats] = React.useState<WaitlistStats | null>(null)
   const [error, setError] = React.useState<string | null>(null)
+  const { shaking, shake } = useShake()
 
   const {
     register,
@@ -70,6 +72,7 @@ function WaitlistContent() {
       })
       setJoined(result)
     } catch (err: unknown) {
+      shake()
       const message = err instanceof Error ? err.message : "Failed to join waitlist"
       setError(message)
     } finally {
@@ -161,7 +164,13 @@ function WaitlistContent() {
               </p>
             </div>
 
-            <div className="rounded-lg border border-line bg-cream p-6 sm:p-7">
+            <div
+              className={
+                shaking
+                  ? "form-card animate-shake rounded-lg border border-line bg-cream p-6 transition-colors duration-200 hover:border-line-strong sm:p-7"
+                  : "form-card rounded-lg border border-line bg-cream p-6 transition-colors duration-200 hover:border-line-strong sm:p-7"
+              }
+            >
               {joined ? (
                 <div aria-live="polite">
                   <span className="flex h-10 w-10 items-center justify-center rounded-md bg-paper-2 text-green">
@@ -222,7 +231,7 @@ function WaitlistContent() {
                     One email. A confirmation link. That is the whole step.
                   </p>
 
-                  <form onSubmit={handleSubmit(onSubmit)} className="mt-6 space-y-4" noValidate>
+                  <form onSubmit={handleSubmit(onSubmit, shake)} className="mt-6 space-y-4" noValidate>
                     <div className="space-y-1.5">
                       <label htmlFor="email" className="block text-[13px] font-medium text-ink">
                         Email

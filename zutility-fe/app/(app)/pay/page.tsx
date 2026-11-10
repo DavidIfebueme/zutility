@@ -6,7 +6,8 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { Check, Info, Loader2, Search, ShieldCheck } from "lucide-react"
-import { getBrandIcon } from "@/lib/brand-icon-map"
+import { BrandMark } from "@/components/ui/brand-mark"
+import { BRAND_TILE_BACKGROUND } from "@/lib/brand-logo"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { UTILITIES, UTILITY_CATEGORIES, type UtilityType } from "@/lib/constants"
@@ -37,14 +38,16 @@ const orderSchema = z.object({
 type OrderFormValues = z.infer<typeof orderSchema>
 
 function BrandTile({ brandIcon, selected }: { brandIcon: string; selected: boolean }) {
+  const id = brandIcon as never
   return (
     <span
       className={cn(
         "flex h-10 w-10 shrink-0 items-center justify-center rounded-md",
-        selected ? "bg-paper-3 text-ink" : "bg-paper-2 text-ink-2"
+        selected ? "bg-paper-3" : "bg-paper-2"
       )}
+      style={BRAND_TILE_BACKGROUND[id] ? { backgroundColor: BRAND_TILE_BACKGROUND[id] } : undefined}
     >
-      {React.createElement(getBrandIcon(brandIcon as never), { size: 24 })}
+      <BrandMark id={id} size={26} />
     </span>
   )
 }

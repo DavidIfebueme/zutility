@@ -121,7 +121,7 @@ export default function SupportPage() {
 
             <div
               className={cn(
-                "rounded-lg border border-line bg-cream p-6 sm:p-8",
+                "form-card rounded-lg border border-line bg-cream p-6 transition-colors duration-200 hover:border-line-strong sm:p-8",
                 shaking && "animate-shake"
               )}
             >

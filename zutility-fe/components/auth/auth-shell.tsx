@@ -29,7 +29,7 @@ export function AuthShell({ title, subtitle, children, footer, shake }: AuthShel
         <div className="w-full max-w-[420px]">
           <div
             className={cn(
-              "reveal-in rounded-lg border border-line bg-cream p-6 sm:p-7",
+              "form-card reveal-in rounded-lg border border-line bg-cream p-6 sm:p-7 transition-colors duration-200 hover:border-line-strong",
               shake && "animate-shake"
             )}
           >

@@ -10,7 +10,7 @@ import { Reveal } from "@/components/ui/reveal"
 import { UTILITIES } from "@/lib/constants"
 
 const HERO_FACTS = [
-  { icon: Clock, label: "Settlement", value: "About 4 minutes after broadcast" },
+  { icon: Clock, label: "Settlement", value: "9 or 10 confirmations, about 4 minutes" },
   { icon: Wallet, label: "Payment", value: "Shielded or transparent ZEC" },
   { icon: Lock, label: "Identity", value: "No documents, no account approval" },
 ]
@@ -40,7 +40,7 @@ const FAQ = [
   },
   {
     q: "How long does delivery take?",
-    a: "The network confirmation window is about four minutes at the current block target, then the provider dispatch is usually instant. Some meters and exam PINs take a little longer.",
+    a: "A transparent payment clears at 9 confirmations and a shielded payment at 10. Blocks arrive about every 25 seconds, so that is roughly four minutes, then the provider dispatch is usually instant. Some meters and exam PINs take a little longer.",
   },
   {
     q: "What happens if I send the wrong amount?",
@@ -143,7 +143,7 @@ export default function HomePage() {
             <div className="reveal-in">
               <p className="label-xs text-gold-deep">Utility payments on Zcash</p>
               <h1 className="mt-4 max-w-xl text-4xl leading-[1.05] text-ink sm:text-5xl lg:text-[56px]">
-                Pay electricity, airtime, and TV with ZEC.
+                Make payments with Zcash.
               </h1>
               <p className="mt-5 max-w-lg text-[15px] leading-relaxed text-ink-2">
                 Send ZEC from any wallet and get a prepaid meter token, a phone top-up, or a TV
@@ -337,9 +337,8 @@ export default function HomePage() {
 
         <section>
           <div className="mx-auto max-w-3xl px-5 py-16 lg:py-20">
-            <p className="label-xs text-muted">Questions</p>
-            <h2 className="mt-3 text-3xl text-ink sm:text-4xl">The short answers.</h2>
-            <Reveal className="mt-8 border-t border-line">
+            <p className="label-xs text-muted">Frequently asked questions</p>
+            <Reveal className="mt-5 border-t border-line">
               {FAQ.map((item) => (
                 <details key={item.q} className="group border-b border-line py-4">
                   <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-[15px] text-ink transition-colors duration-150 hover:text-gold-deep">

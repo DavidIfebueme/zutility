@@ -50,8 +50,7 @@ export function SiteFooter() {
         ))}
       </div>
       <div className="border-t border-line">
-        <div className="mx-auto flex max-w-6xl flex-col gap-2 px-5 py-5 text-[12px] text-muted sm:flex-row sm:items-center sm:justify-between">
-          <p>zutility. Operated from Lagos, Nigeria.</p>
+        <div className="mx-auto flex max-w-6xl px-5 py-5 text-[12px] text-muted">
           <p className="num">Zcash is a separate network. Rates move.</p>
         </div>
       </div>
