@@ -91,7 +91,8 @@ fn start_order_orchestrator(state: HttpState, config: AppConfig, pool: PgPool) {
 
         let dispatcher = ProviderDispatcher::new(vtpass, remita, inlomax);
 
-        let mut ticker = interval(Duration::from_secs(60));
+        let mut ticker = interval(Duration::from_secs(25));
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut consecutive_sync_failures: u32 = 0;
         loop {
             ticker.tick().await;

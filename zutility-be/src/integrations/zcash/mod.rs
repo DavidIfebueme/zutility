@@ -19,7 +19,7 @@ pub use mock_client::MockZcashClient;
 pub use rpc_adapter::ZcashRpcAdapter;
 pub use zingo_client::ZingoClient;
 
-use crate::config::{AppConfig, AppEnv, ZcashRpcMode as ConfigRpcMode};
+use crate::config::{AppConfig, AppEnv, ZcashBackend, ZcashRpcMode as ConfigRpcMode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ZcashNetwork {
@@ -496,6 +496,19 @@ pub fn validate_runtime_network_policy(config: &AppConfig) -> Result<()> {
         );
     }
     Ok(())
+}
+
+pub fn validate_backend(config: &AppConfig) -> Result<()> {
+    match &config.zcash_backend {
+        ZcashBackend::Zingolib => Ok(()),
+        ZcashBackend::Mock if matches!(config.app_env, AppEnv::Prod) => anyhow::bail!(
+            "production must set ZCASH_BACKEND=zingolib; the mock backend is not allowed"
+        ),
+        ZcashBackend::Mock => Ok(()),
+        ZcashBackend::Rpc => anyhow::bail!(
+            "the zcashd RPC backend cannot scan wallet payments; use ZCASH_BACKEND=zingolib"
+        ),
+    }
 }
 
 pub fn validate_rpc_socket_policy(config: &AppConfig) -> Result<()> {

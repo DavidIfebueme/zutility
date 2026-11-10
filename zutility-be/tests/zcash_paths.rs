@@ -11,7 +11,7 @@ use zutility_be::{
 };
 
 #[tokio::test]
-async fn transparent_payment_path_uses_three_confirmations() {
+async fn transparent_payment_path_uses_nine_confirmations() {
     let app = http::router();
 
     let create_req = Request::builder()
@@ -32,7 +32,7 @@ async fn transparent_payment_path_uses_three_confirmations() {
     let json: Value = serde_json::from_slice(&body).expect("json parse");
     assert_eq!(
         json.get("required_confirmations").and_then(Value::as_u64),
-        Some(3)
+        Some(9)
     );
 }
 
