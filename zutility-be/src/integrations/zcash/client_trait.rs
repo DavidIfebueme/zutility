@@ -1,7 +1,7 @@
-use async_trait::async_trait;
 use anyhow::Result;
+use async_trait::async_trait;
 
-use super::{BlockchainInfo, ReceivedNote, TransparentPaymentObservation, WalletBalanceInfo};
+use super::{BlockchainInfo, ReceivedNote};
 
 #[async_trait]
 pub trait ZcashClient: Send + Sync {
@@ -15,19 +15,7 @@ pub trait ZcashClient: Send + Sync {
 
     async fn generate_shielded_address(&self) -> Result<String>;
 
-    async fn observe_transparent_payment(
-        &self,
-        address: &str,
-        current_block_height: u64,
-        since_timestamp: u32,
-    ) -> Result<TransparentPaymentObservation>;
-
-    async fn list_received_by_address(
-        &self,
-        address: &str,
-        min_confirmations: u64,
-        since_timestamp: u32,
-    ) -> Result<Vec<ReceivedNote>>;
+    async fn scan_payments(&self, since_timestamp: u32) -> Result<Vec<ReceivedNote>>;
 
     fn as_any(&self) -> &dyn std::any::Any;
 

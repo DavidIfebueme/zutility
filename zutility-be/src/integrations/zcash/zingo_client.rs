@@ -3,17 +3,15 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use pepper_sync::wallet::{NoteInterface, OutputInterface};
 use rust_decimal::Decimal;
 use tokio::sync::RwLock;
 use zingolib::config::{ChainType, ClientConfig, WalletConfig};
 use zingolib::lightclient::LightClient;
 use zingolib::wallet::keys::unified::ReceiverSelection;
-use zingolib::wallet::summary::data::{SendType, TransactionKind};
+use zingolib::wallet::summary::data::TransactionKind;
 
-use super::{
-    BlockchainInfo, ReceivedNote, TransparentPaymentObservation, WalletBalanceInfo,
-    ZATOSHI_PER_ZEC, ZcashClient,
-};
+use super::{BlockchainInfo, ReceivedNote, WalletBalanceInfo, ZATOSHI_PER_ZEC, ZcashClient};
 
 #[derive(Clone)]
 struct RetryPolicy {
@@ -380,174 +378,90 @@ impl ZcashClient for ZingoClient {
         Ok(unified_address.encode(&self.chain_type))
     }
 
-    async fn observe_transparent_payment(
-        &self,
-        _address: &str,
-        current_block_height: u64,
-        since_timestamp: u32,
-    ) -> Result<TransparentPaymentObservation> {
+    async fn scan_payments(&self, since_timestamp: u32) -> Result<Vec<ReceivedNote>> {
         let client = self.client.read().await;
-
-        let summaries = client
-            .transaction_summaries(false)
-            .await
-            .map_err(|e| anyhow::anyhow!("zingolib transaction_summaries failed: {e}"))?;
-
-        let relevant: Vec<_> = summaries
-            .iter()
-            .filter(|tx| tx.datetime >= since_timestamp)
-            .filter(|tx| {
-                matches!(tx.kind, TransactionKind::Received)
-                    || matches!(tx.kind, TransactionKind::Sent(SendType::SendToSelf))
-            })
-            .collect();
-
-        let total_received_zat: u64 = relevant
-            .iter()
-            .map(|tx| match tx.kind {
-                TransactionKind::Sent(SendType::SendToSelf) => {
-                    tx.ironwood_notes.iter().map(|n| n.value).sum::<u64>()
-                        + tx.orchard_notes.iter().map(|n| n.value).sum::<u64>()
-                        + tx.sapling_notes.iter().map(|n| n.value).sum::<u64>()
-                        + tx.transparent_coins.iter().map(|c| c.value).sum::<u64>()
-                }
-                _ => tx.value,
-            })
-            .sum();
-        let total_received = zatoshis_to_zec(total_received_zat);
-
-        let has_mempool_tx = relevant.iter().any(|tx| {
-            matches!(
-                tx.status,
-                zingo_status::confirmation_status::ConfirmationStatus::Mempool(_)
-            )
-        });
-
-        let min_confirmed_height = relevant
-            .iter()
-            .filter_map(|tx| {
-                if let zingo_status::confirmation_status::ConfirmationStatus::Confirmed(h) =
-                    tx.status
-                {
-                    Some(u64::from(u32::from(h)))
-                } else {
-                    None
-                }
-            })
-            .min()
-            .unwrap_or(0);
-
-        let confirmations = if min_confirmed_height > 0 && current_block_height > 0 {
-            u16::try_from(current_block_height.saturating_sub(min_confirmed_height) + 1)
-                .unwrap_or(u16::MAX)
-        } else {
-            0
-        };
-
-        drop(client);
-
-        Ok(TransparentPaymentObservation {
-            total_received,
-            confirmations,
-            utxo_count: if total_received_zat > 0 { 1 } else { 0 },
-            has_mempool_tx,
-        })
-    }
-
-    async fn list_received_by_address(
-        &self,
-        _address: &str,
-        min_confirmations: u64,
-        since_timestamp: u32,
-    ) -> Result<Vec<ReceivedNote>> {
-        let client = self.client.read().await;
-
-        let summaries = client
-            .transaction_summaries(false)
-            .await
-            .map_err(|e| anyhow::anyhow!("zingolib transaction_summaries failed: {e}"))?;
-
+        let wallet = client.wallet().read().await;
         let chain_tip = self.current_chain_tip().await;
-
-        tracing::info!(
-            total_txns = summaries.0.len(),
-            since_timestamp,
-            chain_tip,
-            "list_received_by_address scanning transactions"
-        );
-
-        for tx in summaries.iter() {
-            let kind_str = format!("{:?}", tx.kind);
-            let confs = confirmation_count_from_status(&tx.status, chain_tip);
-            tracing::info!(
-                txid = %tx.txid,
-                kind = %kind_str,
-                datetime = tx.datetime,
-                value = tx.value,
-                confs,
-                "wallet tx"
-            );
-        }
-
-        let notes: Vec<ReceivedNote> = summaries
+        let received_transactions: std::collections::HashSet<_> = wallet
+            .transaction_summaries(false)
+            .await
+            .map_err(|e| anyhow::anyhow!("zingolib transaction summaries failed: {e}"))?
             .iter()
-            .filter(|tx| {
-                let passes_ts = tx.datetime >= since_timestamp;
-                let passes_kind = matches!(tx.kind, TransactionKind::Received)
-                    || matches!(tx.kind, TransactionKind::Sent(SendType::SendToSelf));
-                let confs = confirmation_count_from_status(&tx.status, chain_tip);
-                let passes_confs = confs >= min_confirmations;
-                if passes_kind && !passes_ts {
-                    tracing::info!(
-                        txid = %tx.txid,
-                        datetime = tx.datetime,
-                        since_timestamp,
-                        "filtered out by timestamp"
-                    );
-                }
-                if passes_kind && passes_ts && !passes_confs {
-                    tracing::info!(
-                        txid = %tx.txid,
-                        confs,
-                        min_confirmations,
-                        "filtered out by confirmations"
-                    );
-                }
-                passes_ts && passes_kind && passes_confs
-            })
-            .map(|tx| {
-                let confs = confirmation_count_from_status(&tx.status, chain_tip);
-                let amount = match tx.kind {
-                    TransactionKind::Received => zatoshis_to_zec(tx.value),
-                    TransactionKind::Sent(SendType::SendToSelf) => {
-                        let note_zats: u64 = tx.ironwood_notes.iter().map(|n| n.value).sum::<u64>()
-                            + tx.orchard_notes.iter().map(|n| n.value).sum::<u64>()
-                            + tx.sapling_notes.iter().map(|n| n.value).sum::<u64>()
-                            + tx.transparent_coins.iter().map(|c| c.value).sum::<u64>();
-                        tracing::info!(
-                            txid = %tx.txid,
-                            tx_value = tx.value,
-                            note_zats,
-                            "SendToSelf computing amount from individual notes"
-                        );
-                        zatoshis_to_zec(note_zats)
-                    }
-                    _ => zatoshis_to_zec(tx.value),
-                };
-                ReceivedNote {
-                    txid: tx.txid.to_string(),
-                    address: String::new(),
-                    amount,
-                    confirmations: confs,
-                    memo: None,
-                }
-            })
+            .filter(|summary| matches!(summary.kind, TransactionKind::Received))
+            .map(|summary| summary.txid)
             .collect();
 
-        tracing::info!(
-            matching_notes = notes.len(),
-            "list_received_by_address results"
-        );
+        let mut notes = Vec::new();
+        for tx in wallet.wallet_transactions.values() {
+            if tx.datetime() < since_timestamp {
+                continue;
+            }
+            if !received_transactions.contains(&tx.txid()) {
+                continue;
+            }
+
+            let confirmations = confirmation_count_from_status(&tx.status(), chain_tip);
+            for note in tx.ironwood_notes() {
+                let recipient = note.note().recipient();
+                if let Some(address) = wallet
+                    .unified_addresses()
+                    .values()
+                    .find(|address| address.orchard() == Some(&recipient))
+                    .map(|address| address.encode(&self.chain_type))
+                {
+                    notes.push(ReceivedNote {
+                        txid: tx.txid().to_string(),
+                        address,
+                        amount: zatoshis_to_zec(note.value()),
+                        confirmations,
+                        memo: None,
+                    });
+                }
+            }
+            for note in tx.orchard_notes() {
+                let recipient = note.note().recipient();
+                if let Some(address) = wallet
+                    .unified_addresses()
+                    .values()
+                    .find(|address| address.orchard() == Some(&recipient))
+                    .map(|address| address.encode(&self.chain_type))
+                {
+                    notes.push(ReceivedNote {
+                        txid: tx.txid().to_string(),
+                        address,
+                        amount: zatoshis_to_zec(note.value()),
+                        confirmations,
+                        memo: None,
+                    });
+                }
+            }
+            for note in tx.sapling_notes() {
+                let recipient = note.note().recipient();
+                if let Some(address) = wallet
+                    .unified_addresses()
+                    .values()
+                    .find(|address| address.sapling() == Some(&recipient))
+                    .map(|address| address.encode(&self.chain_type))
+                {
+                    notes.push(ReceivedNote {
+                        txid: tx.txid().to_string(),
+                        address,
+                        amount: zatoshis_to_zec(note.value()),
+                        confirmations,
+                        memo: None,
+                    });
+                }
+            }
+            for note in tx.transparent_coins() {
+                notes.push(ReceivedNote {
+                    txid: tx.txid().to_string(),
+                    address: note.address().to_owned(),
+                    amount: zatoshis_to_zec(note.value()),
+                    confirmations,
+                    memo: None,
+                });
+            }
+        }
 
         Ok(notes)
     }

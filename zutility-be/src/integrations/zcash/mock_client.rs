@@ -1,12 +1,12 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use async_trait::async_trait;
 use anyhow::Result;
+use async_trait::async_trait;
 use rust_decimal::Decimal;
 use tokio::sync::Mutex;
 
-use super::{BlockchainInfo, ReceivedNote, TransparentPaymentObservation, ZcashClient};
+use super::{BlockchainInfo, ReceivedNote, ZcashClient};
 
 #[derive(Debug, Clone)]
 pub struct MockZcashClient {
@@ -14,6 +14,7 @@ pub struct MockZcashClient {
     auto_confirm: bool,
     address_counter: Arc<AtomicU64>,
     confirmed_payments: Arc<Mutex<std::collections::HashMap<String, Decimal>>>,
+    generated_addresses: Arc<Mutex<std::collections::HashSet<String>>>,
 }
 
 impl MockZcashClient {
@@ -23,6 +24,7 @@ impl MockZcashClient {
             auto_confirm,
             address_counter: Arc::new(AtomicU64::new(1)),
             confirmed_payments: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            generated_addresses: Arc::new(Mutex::new(std::collections::HashSet::new())),
         }
     }
 
@@ -82,58 +84,49 @@ impl ZcashClient for MockZcashClient {
     }
 
     async fn generate_transparent_address(&self) -> Result<String> {
-        Ok(self.transparent_address(self.next_address_index()))
+        let address = self.transparent_address(self.next_address_index());
+        self.generated_addresses
+            .lock()
+            .await
+            .insert(address.clone());
+        Ok(address)
     }
 
     async fn generate_shielded_address(&self) -> Result<String> {
-        Ok(self.shielded_address(self.next_address_index()))
+        let address = self.shielded_address(self.next_address_index());
+        self.generated_addresses
+            .lock()
+            .await
+            .insert(address.clone());
+        Ok(address)
     }
 
-    async fn observe_transparent_payment(
-        &self,
-        address: &str,
-        _current_block_height: u64,
-        _since_timestamp: u32,
-    ) -> Result<TransparentPaymentObservation> {
-        let amount = if self.auto_confirm {
-            Decimal::new(1_000_000_000, 8)
-        } else {
-            let payments = self.confirmed_payments.lock().await;
-            payments.get(address).copied().unwrap_or(Decimal::ZERO)
-        };
-
-        Ok(TransparentPaymentObservation {
-            total_received: amount,
-            confirmations: if amount > Decimal::ZERO { 10 } else { 0 },
-            utxo_count: if amount > Decimal::ZERO { 1 } else { 0 },
-            has_mempool_tx: false,
-        })
-    }
-
-    async fn list_received_by_address(
-        &self,
-        address: &str,
-        _min_confirmations: u64,
-        _since_timestamp: u32,
-    ) -> Result<Vec<ReceivedNote>> {
-        let amount = if self.auto_confirm {
-            Decimal::new(1_000_000_000, 8)
-        } else {
-            let payments = self.confirmed_payments.lock().await;
-            payments.get(address).copied().unwrap_or(Decimal::ZERO)
-        };
-
-        if amount <= Decimal::ZERO {
-            return Ok(Vec::new());
+    async fn scan_payments(&self, _since_timestamp: u32) -> Result<Vec<ReceivedNote>> {
+        if self.auto_confirm {
+            let addresses = self.generated_addresses.lock().await;
+            return Ok(addresses
+                .iter()
+                .map(|address| ReceivedNote {
+                    txid: format!("mocktxid{address}"),
+                    address: address.clone(),
+                    amount: Decimal::new(1_000_000_000, 8),
+                    confirmations: 10,
+                    memo: None,
+                })
+                .collect());
         }
 
-        Ok(vec![ReceivedNote {
-            txid: format!("mocktxid{}", address),
-            address: address.to_owned(),
-            amount,
-            confirmations: 10,
-            memo: None,
-        }])
+        let payments = self.confirmed_payments.lock().await;
+        Ok(payments
+            .iter()
+            .map(|(address, amount)| ReceivedNote {
+                txid: format!("mocktxid{address}"),
+                address: address.clone(),
+                amount: *amount,
+                confirmations: 10,
+                memo: None,
+            })
+            .collect())
     }
 
     fn as_any(&self) -> &dyn std::any::Any {

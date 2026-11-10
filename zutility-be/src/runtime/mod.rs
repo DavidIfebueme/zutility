@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -18,6 +19,7 @@ use crate::{
         remita::RemitaClient,
         utility_provider::{ProviderTxnStatus, UtilityPurchaseRequest},
         vtpass::VtpassClient,
+        zcash::{ReceivedNote, group_notes_by_address},
     },
     jobs::{address_pool::AddressPoolManager, rate_refresher::RateRefresher},
     ws::WsOrderEvent,
@@ -129,8 +131,30 @@ fn start_order_orchestrator(state: HttpState, config: AppConfig, pool: PgPool) {
 
             match db::list_active_orders(&pool).await {
                 Ok(orders) => {
+                    let since_timestamp = orders
+                        .iter()
+                        .map(|order| order.created_at.timestamp().saturating_sub(600))
+                        .min()
+                        .unwrap_or_else(|| Utc::now().timestamp());
+                    let payments = if let Some(client) = state.zcash_client.as_ref() {
+                        match client
+                            .scan_payments(u32::try_from(since_timestamp).unwrap_or(0))
+                            .await
+                        {
+                            Ok(notes) => group_notes_by_address(notes),
+                            Err(error) => {
+                                tracing::warn!(error = %error, "wallet payment scan failed");
+                                HashMap::new()
+                            }
+                        }
+                    } else {
+                        HashMap::new()
+                    };
+
                     for order in orders {
-                        if let Err(error) = process_order(&state, &dispatcher, &pool, &order).await {
+                        if let Err(error) =
+                            process_order(&state, &dispatcher, &pool, &order, &payments).await
+                        {
                             tracing::warn!(order_id = %order.id, error = %error, "order processing iteration failed");
                         }
                     }
@@ -154,6 +178,7 @@ async fn process_order(
     dispatcher: &ProviderDispatcher,
     pool: &PgPool,
     order: &db::OrderRow,
+    payments: &HashMap<String, Vec<ReceivedNote>>,
 ) -> Result<()> {
     let now = Utc::now();
     let order_status = order.status()?;
@@ -198,7 +223,7 @@ async fn process_order(
         OrderStatus::AwaitingPayment | OrderStatus::PaymentDetected
     ) && state.zcash_client.is_some()
     {
-        detect_payment_and_progress(state, pool, order).await?;
+        detect_payment_and_progress(state, pool, order, payments).await?;
     }
 
     let refreshed = db::get_order_by_id(pool, order.id).await?;
@@ -220,37 +245,23 @@ async fn detect_payment_and_progress(
     state: &HttpState,
     pool: &PgPool,
     order: &db::OrderRow,
+    payments: &HashMap<String, Vec<ReceivedNote>>,
 ) -> Result<()> {
-    let Some(client) = state.zcash_client.as_ref() else {
-        return Ok(());
-    };
-
-    let since_ts = order.created_at.timestamp() as u32;
-
-    let (total_received, confirmations) = if order.address_type == "transparent" {
-        let chain_info = client.get_blockchain_info().await.ok();
-        let current_height = chain_info.map(|info| info.blocks).unwrap_or(0);
-        let observation = client
-            .observe_transparent_payment(&order.deposit_address, current_height, since_ts)
-            .await?;
-        (observation.total_received, observation.confirmations)
-    } else {
-        let notes = client
-            .list_received_by_address(&order.deposit_address, 0, since_ts)
-            .await?;
-        let total = notes
-            .iter()
-            .fold(Decimal::ZERO, |acc, note| acc + note.amount);
-        let confs = notes
+    let notes = payments
+        .get(&order.deposit_address)
+        .cloned()
+        .unwrap_or_default();
+    let total_received = notes
+        .iter()
+        .fold(Decimal::ZERO, |acc, note| acc + note.amount);
+    let confirmations = u16::try_from(
+        notes
             .iter()
             .map(|note| note.confirmations)
-            .max()
-            .unwrap_or(0);
-        (
-            total,
-            u16::try_from(confs).unwrap_or(u16::MAX),
-        )
-    };
+            .min()
+            .unwrap_or(0),
+    )
+    .unwrap_or(u16::MAX);
 
     if total_received <= Decimal::ZERO {
         return Ok(());
