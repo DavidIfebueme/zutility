@@ -498,17 +498,15 @@ pub fn validate_runtime_network_policy(config: &AppConfig) -> Result<()> {
     Ok(())
 }
 
-pub fn validate_production_backend(config: &AppConfig) -> Result<()> {
-    if !matches!(config.app_env, AppEnv::Prod) {
-        return Ok(());
-    }
+pub fn validate_backend(config: &AppConfig) -> Result<()> {
     match &config.zcash_backend {
         ZcashBackend::Zingolib => Ok(()),
-        ZcashBackend::Mock => anyhow::bail!(
+        ZcashBackend::Mock if matches!(config.app_env, AppEnv::Prod) => anyhow::bail!(
             "production must set ZCASH_BACKEND=zingolib; the mock backend is not allowed"
         ),
+        ZcashBackend::Mock => Ok(()),
         ZcashBackend::Rpc => anyhow::bail!(
-            "production must use ZCASH_BACKEND=zingolib; the zcashd RPC backend cannot handle Ironwood"
+            "the zcashd RPC backend cannot scan wallet payments; use ZCASH_BACKEND=zingolib"
         ),
     }
 }

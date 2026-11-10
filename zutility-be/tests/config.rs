@@ -1,5 +1,5 @@
 use zutility_be::config::{AppConfig, AppEnv, ZcashNetwork, ZcashRpcMode};
-use zutility_be::integrations::zcash::validate_production_backend;
+use zutility_be::integrations::zcash::validate_backend;
 
 fn valid_builder() -> config::ConfigBuilder<config::builder::DefaultState> {
     config::Config::builder()
@@ -148,7 +148,7 @@ fn production_rejects_mock_backend() {
         .expect("build config");
 
     let config = AppConfig::from_config(config_map).expect("deserialize config");
-    assert!(validate_production_backend(&config).is_err());
+    assert!(validate_backend(&config).is_err());
 }
 
 #[test]
@@ -162,7 +162,7 @@ fn production_rejects_rpc_backend() {
         .expect("build config");
 
     let config = AppConfig::from_config(config_map).expect("deserialize config");
-    assert!(validate_production_backend(&config).is_err());
+    assert!(validate_backend(&config).is_err());
 }
 
 #[test]
@@ -176,5 +176,33 @@ fn production_accepts_zingolib_backend() {
         .expect("build config");
 
     let config = AppConfig::from_config(config_map).expect("deserialize config");
-    assert!(validate_production_backend(&config).is_ok());
+    assert!(validate_backend(&config).is_ok());
+}
+
+#[test]
+fn dev_rejects_rpc_backend() {
+    let config_map = valid_builder()
+        .set_override("app_env", "dev")
+        .expect("set override")
+        .set_override("zcash_backend", "rpc")
+        .expect("set override")
+        .build()
+        .expect("build config");
+
+    let config = AppConfig::from_config(config_map).expect("deserialize config");
+    assert!(validate_backend(&config).is_err());
+}
+
+#[test]
+fn dev_accepts_mock_backend() {
+    let config_map = valid_builder()
+        .set_override("app_env", "dev")
+        .expect("set override")
+        .set_override("zcash_backend", "mock")
+        .expect("set override")
+        .build()
+        .expect("build config");
+
+    let config = AppConfig::from_config(config_map).expect("deserialize config");
+    assert!(validate_backend(&config).is_ok());
 }
