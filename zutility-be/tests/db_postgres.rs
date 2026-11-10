@@ -188,3 +188,17 @@ async fn guarded_transition_fails_when_current_status_mismatches() {
         .expect("fetch order count");
     assert_eq!(order_count, 0);
 }
+
+#[tokio::test]
+async fn readiness_probe_decodes_select_one() -> Result<(), sqlx::Error> {
+    let Some(pool) = test_pool().await else {
+        return Ok(());
+    };
+
+    let value = sqlx::query_scalar::<_, i32>("SELECT 1")
+        .fetch_one(&pool)
+        .await?;
+
+    assert_eq!(value, 1);
+    Ok(())
+}
