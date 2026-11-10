@@ -6,7 +6,8 @@ use serde_json::{Value, json};
 use tokio::sync::Mutex;
 use zutility_be::{
     config::{
-        AppConfig, AppEnv, ZcashNetwork as ConfigZcashNetwork, ZcashRpcMode as ConfigZcashRpcMode,
+        AppConfig, AppEnv, ZcashBackend, ZcashNetwork as ConfigZcashNetwork,
+        ZcashRpcMode as ConfigZcashRpcMode,
     },
     integrations::zcash::{
         RpcRetryPolicy, ZcashNetwork, ZcashRpcClient, ZcashRpcConfig, ZcashRpcMode,
@@ -266,7 +267,7 @@ fn runtime_network_policy_enforces_testnet_for_dev_and_staging() {
         inlomax_api_key: None,
         inlomax_base_url: None,
         inlomax_webhook_secret: None,
-        zcash_backend: crate::config::ZcashBackend::Rpc,
+        zcash_backend: ZcashBackend::Rpc,
         zingo_indexer_uri: String::new(),
         zingo_wallet_dir: String::new(),
         zingo_sync_retries: 3,
@@ -285,6 +286,18 @@ fn runtime_network_policy_enforces_testnet_for_dev_and_staging() {
         signing_service_url: String::from("http://localhost:9000"),
         signing_service_hmac_secret: SecretString::from(String::from("signing-secret")),
         rate_source_timeout_ms: 1500,
+        zingo_wallet_birthday: 0,
+        zingo_init_timeout_seconds: 90,
+        mock_zcash_auto_confirm: false,
+        jwt_secret: SecretString::from(String::from("jwt-secret")),
+        access_token_ttl_minutes: 15,
+        refresh_token_ttl_hours: 24,
+        brevo_api_key: None,
+        brevo_sender_email: None,
+        brevo_sender_name: None,
+        app_base_url: String::from("http://localhost:3000"),
+        frontend_url: None,
+        admin_secret: None,
     };
 
     let result = validate_runtime_network_policy(&dev_mainnet);
@@ -312,7 +325,7 @@ fn rpc_socket_policy_requires_unix_in_production() {
         inlomax_api_key: None,
         inlomax_base_url: None,
         inlomax_webhook_secret: None,
-        zcash_backend: crate::config::ZcashBackend::Rpc,
+        zcash_backend: ZcashBackend::Rpc,
         zingo_indexer_uri: String::new(),
         zingo_wallet_dir: String::new(),
         zingo_sync_retries: 3,
@@ -331,6 +344,18 @@ fn rpc_socket_policy_requires_unix_in_production() {
         signing_service_url: String::from("http://localhost:9000"),
         signing_service_hmac_secret: SecretString::from(String::from("signing-secret")),
         rate_source_timeout_ms: 1500,
+        zingo_wallet_birthday: 0,
+        zingo_init_timeout_seconds: 90,
+        mock_zcash_auto_confirm: false,
+        jwt_secret: SecretString::from(String::from("jwt-secret")),
+        access_token_ttl_minutes: 15,
+        refresh_token_ttl_hours: 24,
+        brevo_api_key: None,
+        brevo_sender_email: None,
+        brevo_sender_name: None,
+        app_base_url: String::from("http://localhost:3000"),
+        frontend_url: None,
+        admin_secret: None,
     };
 
     let result = validate_rpc_socket_policy(&prod_tcp);
