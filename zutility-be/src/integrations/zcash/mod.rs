@@ -3,6 +3,7 @@ pub mod mock_client;
 pub mod rpc_adapter;
 pub mod zingo_client;
 
+use std::collections::HashMap;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -336,10 +337,7 @@ impl ZcashRpcClient {
 
     pub async fn get_address_balance(&self, address: &str) -> Result<AddressBalance> {
         let value = self
-            .call(
-                "getaddressbalance",
-                json!([{"addresses": [address]}]),
-            )
+            .call("getaddressbalance", json!([{"addresses": [address]}]))
             .await?;
 
         let balance_zat = value
@@ -359,10 +357,7 @@ impl ZcashRpcClient {
 
     pub async fn get_address_utxos(&self, address: &str) -> Result<Vec<AddressUtxo>> {
         let value = self
-            .call(
-                "getaddressutxos",
-                json!([{"addresses": [address]}]),
-            )
+            .call("getaddressutxos", json!([{"addresses": [address]}]))
             .await?;
 
         let arr = value
@@ -376,18 +371,12 @@ impl ZcashRpcClient {
                 .and_then(Value::as_str)
                 .context("missing txid in utxo")?
                 .to_owned();
-            let output_index = item
-                .get("outputIndex")
-                .and_then(Value::as_u64)
-                .unwrap_or(0) as u32;
+            let output_index = item.get("outputIndex").and_then(Value::as_u64).unwrap_or(0) as u32;
             let satoshis = item
                 .get("satoshis")
                 .and_then(Value::as_u64)
                 .context("missing satoshis in utxo")?;
-            let height = item
-                .get("height")
-                .and_then(Value::as_u64)
-                .unwrap_or(0);
+            let height = item.get("height").and_then(Value::as_u64).unwrap_or(0);
 
             utxos.push(AddressUtxo {
                 txid,
@@ -402,15 +391,10 @@ impl ZcashRpcClient {
 
     pub async fn get_address_mempool(&self, address: &str) -> Result<bool> {
         let value = self
-            .call(
-                "getaddressmempool",
-                json!([{"addresses": [address]}]),
-            )
+            .call("getaddressmempool", json!([{"addresses": [address]}]))
             .await?;
 
-        Ok(value
-            .as_array()
-            .is_some_and(|arr| !arr.is_empty()))
+        Ok(value.as_array().is_some_and(|arr| !arr.is_empty()))
     }
 
     pub async fn observe_transparent_payment(
@@ -423,18 +407,13 @@ impl ZcashRpcClient {
             self.get_address_mempool(address),
         )?;
 
-        let total_received = utxos.iter().fold(Decimal::ZERO, |acc, utxo| {
-            acc + utxo.amount_zec()
-        });
+        let total_received = utxos
+            .iter()
+            .fold(Decimal::ZERO, |acc, utxo| acc + utxo.amount_zec());
 
         let confirmations = if current_block_height > 0 && !utxos.is_empty() {
-            let min_height = utxos
-                .iter()
-                .map(|utxo| utxo.height)
-                .min()
-                .unwrap_or(0);
-            u16::try_from(current_block_height.saturating_sub(min_height) + 1)
-                .unwrap_or(u16::MAX)
+            let min_height = utxos.iter().map(|utxo| utxo.height).min().unwrap_or(0);
+            u16::try_from(current_block_height.saturating_sub(min_height) + 1).unwrap_or(u16::MAX)
         } else {
             0
         };
@@ -512,7 +491,9 @@ pub fn validate_runtime_network_policy(config: &AppConfig) -> Result<()> {
     let is_testnet = matches!(config.zcash_network, crate::config::ZcashNetwork::Testnet);
     let is_mock = matches!(config.zcash_backend, crate::config::ZcashBackend::Mock);
     if is_dev_or_staging && !is_testnet && !is_mock {
-        anyhow::bail!("dev and staging environments must run with ZCASH_NETWORK=testnet unless ZCASH_BACKEND=mock");
+        anyhow::bail!(
+            "dev and staging environments must run with ZCASH_NETWORK=testnet unless ZCASH_BACKEND=mock"
+        );
     }
     Ok(())
 }
@@ -598,9 +579,20 @@ fn parse_decimal_value(value: &Value) -> Result<Decimal> {
     anyhow::bail!("unsupported decimal value type")
 }
 
+pub fn group_notes_by_address(notes: Vec<ReceivedNote>) -> HashMap<String, Vec<ReceivedNote>> {
+    let mut grouped: HashMap<String, Vec<ReceivedNote>> = HashMap::new();
+    for note in notes {
+        grouped.entry(note.address.clone()).or_default().push(note);
+    }
+    grouped
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{PaymentMatchStatus, ReceivedNote, evaluate_received_notes, parse_decimal_value, satoshis_to_zec};
+    use super::{
+        PaymentMatchStatus, ReceivedNote, evaluate_received_notes, group_notes_by_address,
+        parse_decimal_value, satoshis_to_zec,
+    };
     use rust_decimal::Decimal;
     use serde_json::json;
 
@@ -649,5 +641,49 @@ mod tests {
         assert_eq!(satoshis_to_zec(100_000_000), Decimal::new(1, 0));
         assert_eq!(satoshis_to_zec(50_000_000), Decimal::new(5, 1));
         assert_eq!(satoshis_to_zec(0), Decimal::ZERO);
+    }
+
+    #[test]
+    fn groups_notes_by_address_without_cross_credit() {
+        let notes = vec![
+            ReceivedNote {
+                txid: String::from("tx-a1"),
+                address: String::from("addr-a"),
+                amount: Decimal::new(5, 1),
+                confirmations: 3,
+                memo: None,
+            },
+            ReceivedNote {
+                txid: String::from("tx-b1"),
+                address: String::from("addr-b"),
+                amount: Decimal::new(9, 1),
+                confirmations: 3,
+                memo: None,
+            },
+            ReceivedNote {
+                txid: String::from("tx-a2"),
+                address: String::from("addr-a"),
+                amount: Decimal::new(2, 1),
+                confirmations: 3,
+                memo: None,
+            },
+        ];
+
+        let grouped = group_notes_by_address(notes);
+        let address_a = grouped.get("addr-a").cloned().unwrap_or_default();
+        let address_b = grouped.get("addr-b").cloned().unwrap_or_default();
+
+        assert_eq!(address_a.len(), 2);
+        assert_eq!(address_b.len(), 1);
+        assert_eq!(
+            address_a.iter().map(|note| note.amount).sum::<Decimal>(),
+            Decimal::new(7, 1)
+        );
+        assert_eq!(
+            address_b.iter().map(|note| note.amount).sum::<Decimal>(),
+            Decimal::new(9, 1)
+        );
+        assert!(address_a.iter().all(|note| note.txid.starts_with("tx-a")));
+        assert!(address_b.iter().all(|note| note.txid.starts_with("tx-b")));
     }
 }
