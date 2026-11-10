@@ -9,6 +9,7 @@ use tokio::sync::RwLock;
 use zingolib::config::{ChainType, ClientConfig, WalletConfig};
 use zingolib::lightclient::LightClient;
 use zingolib::wallet::keys::unified::ReceiverSelection;
+use zingolib::wallet::summary::data::TransactionKind;
 
 use super::{BlockchainInfo, ReceivedNote, WalletBalanceInfo, ZATOSHI_PER_ZEC, ZcashClient};
 
@@ -381,18 +382,21 @@ impl ZcashClient for ZingoClient {
         let client = self.client.read().await;
         let wallet = client.wallet().read().await;
         let chain_tip = self.current_chain_tip().await;
+        let received_transactions: std::collections::HashSet<_> = wallet
+            .transaction_summaries(false)
+            .await
+            .map_err(|e| anyhow::anyhow!("zingolib transaction summaries failed: {e}"))?
+            .iter()
+            .filter(|summary| matches!(summary.kind, TransactionKind::Received))
+            .map(|summary| summary.txid)
+            .collect();
 
         let mut notes = Vec::new();
         for tx in wallet.wallet_transactions.values() {
             if tx.datetime() < since_timestamp {
                 continue;
             }
-
-            let spends_wallet_funds = !tx.outpoints().is_empty()
-                || !tx.sapling_nullifiers().is_empty()
-                || !tx.orchard_nullifiers().is_empty()
-                || !tx.ironwood_nullifiers().is_empty();
-            if spends_wallet_funds {
+            if !received_transactions.contains(&tx.txid()) {
                 continue;
             }
 
