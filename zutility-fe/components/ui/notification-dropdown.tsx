@@ -118,7 +118,7 @@ export function NotificationDropdown() {
               {unreadCount > 0 && (
                 <button
                   onClick={markAllRead}
-                  className="text-[11px] text-gold-deep underline underline-offset-4 hover:no-underline"
+                  className="text-[11px] text-gold-deep u-link"
                 >
                   Mark all read
                 </button>

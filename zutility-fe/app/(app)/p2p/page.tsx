@@ -79,7 +79,7 @@ export default function P2pPage() {
             <Button asChild className="mt-4 w-full" size="sm">
               <Link href="/pay">
                 Pay a bill
-                <ArrowRight className="h-4 w-4" strokeWidth={1.8} />
+                <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover/btn:translate-x-0.5" strokeWidth={1.8} />
               </Link>
             </Button>
           </div>

@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { AuthFooterLink, AuthShell } from "@/components/auth/auth-shell"
 import { apiPostRaw } from "@/lib/api"
+import { useShake } from "@/lib/hooks/useShake"
 import { toast } from "sonner"
 
 const forgotSchema = z.object({
@@ -21,6 +22,7 @@ type ForgotFormValues = z.infer<typeof forgotSchema>
 export default function ForgotPasswordPage() {
   const [isLoading, setIsLoading] = React.useState(false)
   const [sent, setSent] = React.useState(false)
+  const { shaking, shake } = useShake()
 
   const {
     register,
@@ -48,6 +50,7 @@ export default function ForgotPasswordPage() {
       title="Reset your password"
       subtitle="Enter the email on the account and we will send a reset link."
       footer={<AuthFooterLink prompt="Remembered it?" href="/login" label="Sign in" />}
+      shake={shaking}
     >
       {sent ? (
         <div className="rounded-lg border border-line bg-paper p-5">
@@ -61,7 +64,7 @@ export default function ForgotPasswordPage() {
           </p>
         </div>
       ) : (
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+        <form onSubmit={handleSubmit(onSubmit, shake)} className="space-y-4" noValidate>
           <div className="space-y-1.5">
             <label htmlFor="email" className="block text-[13px] font-medium text-ink">
               Email

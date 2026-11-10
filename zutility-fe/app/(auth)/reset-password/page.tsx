@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { AuthShell } from "@/components/auth/auth-shell"
 import { apiPostRaw } from "@/lib/api"
+import { useShake } from "@/lib/hooks/useShake"
 import { toast } from "sonner"
 
 const resetSchema = z.object({
@@ -31,6 +32,7 @@ function ResetPasswordContent() {
   const [isLoading, setIsLoading] = React.useState(false)
   const [success, setSuccess] = React.useState(false)
   const [showPassword, setShowPassword] = React.useState(false)
+  const { shaking, shake } = useShake()
 
   const {
     register,
@@ -57,9 +59,11 @@ function ResetPasswordContent() {
         setTimeout(() => router.push("/login"), 2000)
       } else {
         const result = await res.json().catch(() => ({ error: "Reset failed" }))
+        shake()
         toast.error(result.error || "Could not reset the password")
       }
     } catch {
+      shake()
       toast.error("Could not reach the server")
     } finally {
       setIsLoading(false)
@@ -87,13 +91,14 @@ function ResetPasswordContent() {
           ? "Opening the sign in page."
           : "Use at least eight characters. A longer phrase is better than a short scramble."
       }
+      shake={shaking}
     >
       {success ? (
         <div className="rounded-lg border border-line bg-paper px-4 py-3 text-[13px] text-ink-2">
           The new password is active.
         </div>
       ) : (
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+        <form onSubmit={handleSubmit(onSubmit, shake)} className="space-y-4" noValidate>
           <div className="space-y-1.5">
             <label htmlFor="password" className="block text-[13px] font-medium text-ink">
               New password

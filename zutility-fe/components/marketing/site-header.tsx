@@ -2,6 +2,7 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { WordmarkLink } from "@/components/ui/wordmark"
 import { RateTicker } from "@/components/ui/rate-ticker"
+import { ThemeToggle } from "@/components/theme-provider"
 
 const NAV = [
   { href: "/how-it-works", label: "How it works" },
@@ -20,15 +21,16 @@ export function SiteHeader() {
               <Link
                 key={item.href}
                 href={item.href}
-                className="text-[13px] text-muted transition-colors hover:text-ink"
+                className="u-link text-[13px] text-muted transition-colors hover:text-ink"
               >
                 {item.label}
               </Link>
             ))}
           </nav>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           <RateTicker className="mr-2 hidden lg:flex" />
+          <ThemeToggle />
           <Button asChild variant="ghost" size="sm">
             <Link href="/login">Sign in</Link>
           </Button>

@@ -5,21 +5,22 @@ import { cn } from "@/lib/utils"
 import { Loader2 } from "lucide-react"
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg text-sm font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold-deep disabled:pointer-events-none disabled:opacity-45",
+  "group/btn inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg text-sm font-medium transition-[color,background-color,border-color,box-shadow,transform] duration-150 ease-out focus-visible:outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold-deep active:translate-y-px disabled:pointer-events-none disabled:opacity-45 motion-reduce:transform-none",
   {
     variants: {
       variant: {
         default:
-          "bg-ink text-cream hover:bg-ink-2 disabled:bg-paper-3 disabled:text-muted disabled:opacity-100",
+          "bg-ink text-cream shadow-[0_1px_0_0_var(--line-strong)] hover:-translate-y-0.5 hover:bg-ink-2 hover:shadow-[0_3px_0_0_var(--line-strong)] active:translate-y-0 active:shadow-[0_1px_0_0_var(--line-strong)] disabled:translate-y-0 disabled:bg-paper-3 disabled:text-muted disabled:opacity-100 disabled:shadow-none",
         primary:
-          "bg-ink text-cream hover:bg-ink-2 disabled:bg-paper-3 disabled:text-muted disabled:opacity-100",
+          "bg-ink text-cream shadow-[0_1px_0_0_var(--line-strong)] hover:-translate-y-0.5 hover:bg-ink-2 hover:shadow-[0_3px_0_0_var(--line-strong)] active:translate-y-0 active:shadow-[0_1px_0_0_var(--line-strong)] disabled:translate-y-0 disabled:bg-paper-3 disabled:text-muted disabled:opacity-100 disabled:shadow-none",
         accent:
-          "bg-gold text-ink hover:bg-gold/85 disabled:bg-paper-3 disabled:text-muted disabled:opacity-100",
+          "bg-gold text-ink shadow-[0_1px_0_0_var(--gold-deep)] hover:-translate-y-0.5 hover:bg-gold/90 hover:shadow-[0_3px_0_0_var(--gold-deep)] active:translate-y-0 active:shadow-[0_1px_0_0_var(--gold-deep)] disabled:translate-y-0 disabled:bg-paper-3 disabled:text-muted disabled:opacity-100 disabled:shadow-none",
         secondary:
-          "border border-line-strong bg-cream text-ink hover:bg-paper-2 disabled:bg-paper-3 disabled:text-muted disabled:opacity-100",
-        danger: "bg-rust text-cream hover:bg-rust/90 disabled:opacity-100 disabled:bg-paper-3 disabled:text-muted",
+          "border border-line-strong bg-cream text-ink shadow-[0_1px_0_0_var(--line)] hover:-translate-y-0.5 hover:bg-paper-2 hover:shadow-[0_3px_0_0_var(--line)] active:translate-y-0 active:shadow-[0_1px_0_0_var(--line)] disabled:translate-y-0 disabled:bg-paper-3 disabled:text-muted disabled:opacity-100 disabled:shadow-none",
+        danger:
+          "bg-rust text-cream shadow-[0_1px_0_0_color-mix(in_srgb,var(--rust)_60%,black)] hover:-translate-y-0.5 hover:bg-rust/90 active:translate-y-0 disabled:translate-y-0 disabled:bg-paper-3 disabled:text-muted disabled:opacity-100 disabled:shadow-none",
         ghost: "text-ink hover:bg-paper-3/60",
-        link: "text-gold-deep underline underline-offset-4 hover:no-underline",
+        link: "text-gold-deep u-link",
       },
       size: {
         default: "h-10 px-4",

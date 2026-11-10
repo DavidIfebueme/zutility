@@ -153,7 +153,7 @@ function WaitlistContent() {
                 We send waitlist updates and nothing else. Read the{" "}
                 <Link
                   href="/how-it-works"
-                  className="text-gold-deep underline underline-offset-4 hover:no-underline"
+                  className="text-gold-deep u-link"
                 >
                   payment flow
                 </Link>{" "}
@@ -265,7 +265,7 @@ function WaitlistContent() {
 
                     <Button type="submit" className="w-full" size="lg" loading={isLoading}>
                       Join the waitlist
-                      <ArrowRight className="h-4 w-4" strokeWidth={1.8} />
+                      <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover/btn:translate-x-0.5" strokeWidth={1.8} />
                     </Button>
                   </form>
 

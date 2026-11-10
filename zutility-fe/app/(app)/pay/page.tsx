@@ -302,13 +302,15 @@ export default function PayPage() {
                     type="button"
                     onClick={() => setValue("utilityId", utility.id, { shouldValidate: true })}
                     className={cn(
-                      "flex items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors",
+                      "group/utility flex items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-[transform,border-color,background-color] duration-200 ease-out hover:-translate-y-0.5 hover:border-line-strong",
                       isSelected
                         ? "border-ink bg-cream"
                         : "border-line bg-cream/50 hover:border-line-strong"
                     )}
                   >
-                    <BrandTile brandIcon={utility.brandIcon} selected={isSelected} />
+                    <span className="transition-transform duration-200 ease-out group-hover/utility:scale-110">
+                      <BrandTile brandIcon={utility.brandIcon} selected={isSelected} />
+                    </span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[13px] font-medium text-ink">
                         {utility.name}
@@ -349,7 +351,7 @@ export default function PayPage() {
                       type="button"
                       onClick={handleValidate}
                       disabled={validating}
-                      className="flex items-center gap-1 text-[12px] text-gold-deep underline underline-offset-4 hover:no-underline disabled:opacity-50"
+                      className="flex items-center gap-1 text-[12px] text-gold-deep u-link disabled:opacity-50"
                     >
                       {validating && <Loader2 className="h-3 w-3 animate-spin" />}
                       {validated ? "Check again" : "Check the account"}
@@ -405,10 +407,10 @@ export default function PayPage() {
                               }
                             }}
                             className={cn(
-                              "flex w-full items-baseline justify-between gap-3 rounded-md border px-3 py-2 text-left transition-colors",
+                              "flex w-full items-baseline justify-between gap-3 rounded-md border px-3 py-2 text-left transition-[border-color,background-color] duration-150",
                               isSelected
                                 ? "border-ink bg-cream"
-                                : "border-line bg-cream/50 hover:border-line-strong"
+                                : "border-line bg-cream/50 hover:border-line-strong hover:bg-cream"
                             )}
                           >
                             <span className="text-[13px] text-ink">{variation.name}</span>
@@ -511,7 +513,7 @@ export default function PayPage() {
                     disabled={!selectedUtilityId}
                     onClick={() => setValue("addressType", option.value)}
                     className={cn(
-                      "rounded-lg border px-3 py-3 text-left transition-colors",
+                      "rounded-lg border px-3 py-3 text-left transition-[border-color,background-color,transform] duration-200 hover:-translate-y-0.5",
                       isSelected ? "border-ink bg-cream" : "border-line bg-cream/50 hover:border-line-strong"
                     )}
                   >

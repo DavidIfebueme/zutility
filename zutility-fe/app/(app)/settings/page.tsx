@@ -13,6 +13,7 @@ import { useAuthStore } from "@/store/auth"
 import { apiPost } from "@/lib/api"
 import { useCurrency } from "@/lib/hooks/useCurrency"
 import { CURRENCIES, type CurrencyCode } from "@/lib/currency"
+import { ThemePicker } from "@/components/theme-provider"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 
@@ -182,7 +183,7 @@ export default function SettingsPage() {
         <p className="label-xs text-muted">Account</p>
         <h1 className="mt-2 text-3xl text-ink">Settings</h1>
         <p className="mt-1.5 max-w-lg text-[14px] text-muted">
-          Your name on receipts, the password you sign in with, and how amounts are shown.
+          Your name on receipts, the password you sign in with, and how the app looks.
         </p>
       </header>
 
@@ -202,7 +203,7 @@ export default function SettingsPage() {
                 className={cn(
                   "flex shrink-0 items-center gap-2.5 rounded-md border px-2.5 py-2 text-left text-[13px] transition-colors",
                   isActive
-                    ? "border-line bg-cream text-ink"
+                    ? "border-line bg-selected text-ink"
                     : "border-transparent text-ink-2 hover:bg-cream/60 hover:text-ink"
                 )}
               >
@@ -252,7 +253,7 @@ export default function SettingsPage() {
                         type="button"
                         onClick={onResendVerification}
                         disabled={resendLoading}
-                        className="mt-2 text-[12px] text-gold-deep underline underline-offset-4 hover:no-underline disabled:opacity-50"
+                        className="mt-2 text-[12px] text-gold-deep u-link disabled:opacity-50"
                       >
                         {resendLoading ? "Sending the email" : "Resend the verification email"}
                       </button>
@@ -379,7 +380,17 @@ export default function SettingsPage() {
                 </p>
               </div>
               <div className="p-5">
-                <p className="text-[13px] font-medium text-ink-2">Display currency</p>
+                <p className="text-[13px] font-medium text-ink-2">Theme</p>
+                <div className="mt-2.5">
+                  <ThemePicker />
+                </div>
+                <p className="mt-2 max-w-md text-[12px] leading-relaxed text-muted">
+                  System follows the setting on this device. The choice is saved in this browser.
+                </p>
+
+                <div className="mt-6 border-t border-line pt-5">
+                  <p className="text-[13px] font-medium text-ink-2">Display currency</p>
+                </div>
                 <div
                   role="group"
                   aria-label="Display currency"

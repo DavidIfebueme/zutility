@@ -105,7 +105,7 @@ export default function HistoryPage() {
             <Button asChild className="mt-5" size="sm">
               <Link href="/pay">
                 Pay a bill
-                <ArrowRight className="h-3.5 w-3.5" />
+                <ArrowRight className="h-3.5 w-3.5 transition-transform duration-200 group-hover/btn:translate-x-0.5" />
               </Link>
             </Button>
           )}

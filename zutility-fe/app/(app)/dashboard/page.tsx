@@ -92,7 +92,7 @@ export default function DashboardPage() {
             <Button asChild className="shrink-0">
               <Link href={`/pay/${activeOrder.order_id}`}>
                 View order
-                <ArrowRight className="h-4 w-4" />
+                <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover/btn:translate-x-0.5" />
               </Link>
             </Button>
           </div>
@@ -111,7 +111,7 @@ export default function DashboardPage() {
             <Button asChild className="shrink-0">
               <Link href="/pay">
                 Pay a bill
-                <ArrowRight className="h-4 w-4" />
+                <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover/btn:translate-x-0.5" />
               </Link>
             </Button>
           </div>
@@ -124,7 +124,7 @@ export default function DashboardPage() {
             <h2 className="text-lg text-ink">Recent orders</h2>
             <Link
               href="/history"
-              className="text-[12px] text-gold-deep underline underline-offset-4 hover:no-underline"
+              className="text-[12px] text-gold-deep u-link"
             >
               All orders
             </Link>

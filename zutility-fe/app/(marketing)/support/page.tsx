@@ -11,6 +11,8 @@ import { SiteFooter } from "@/components/marketing/site-footer"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { apiPost } from "@/lib/api"
+import { useShake } from "@/lib/hooks/useShake"
+import { cn } from "@/lib/utils"
 
 const supportSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -35,6 +37,7 @@ export default function SupportPage() {
   const [submitted, setSubmitted] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [sentOrderId, setSentOrderId] = React.useState<string | null>(null)
+  const { shaking, shake } = useShake()
 
   const {
     register,
@@ -58,6 +61,7 @@ export default function SupportPage() {
       setSentOrderId(orderId || null)
       setSubmitted(true)
     } catch {
+      shake()
       setError("The message did not go through. Try again, or send it once more in a moment.")
     } finally {
       setIsLoading(false)
@@ -108,14 +112,19 @@ export default function SupportPage() {
               </p>
               <Link
                 href="/history"
-                className="mt-2 inline-flex items-center gap-1.5 text-[13px] text-gold-deep underline underline-offset-4 hover:no-underline"
+                className="mt-2 inline-flex items-center gap-1.5 text-[13px] text-gold-deep u-link"
               >
                 Open order history
-                <ArrowRight className="h-4 w-4" strokeWidth={1.8} />
+                <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover/btn:translate-x-0.5" strokeWidth={1.8} />
               </Link>
             </div>
 
-            <div className="rounded-lg border border-line bg-cream p-6 sm:p-8">
+            <div
+              className={cn(
+                "rounded-lg border border-line bg-cream p-6 sm:p-8",
+                shaking && "animate-shake"
+              )}
+            >
               {submitted ? (
                 <div aria-live="polite">
                   <span className="flex h-10 w-10 items-center justify-center rounded-md bg-gold/20 text-gold-deep">
@@ -161,7 +170,7 @@ export default function SupportPage() {
                     </div>
                   </div>
 
-                  <form onSubmit={handleSubmit(onSubmit)} className="mt-6 space-y-4" noValidate>
+                  <form onSubmit={handleSubmit(onSubmit, shake)} className="mt-6 space-y-4" noValidate>
                     <div className="grid gap-4 sm:grid-cols-2">
                       <div className="space-y-1.5">
                         <label htmlFor="name" className="block text-[13px] font-medium text-ink">
@@ -244,7 +253,7 @@ export default function SupportPage() {
                     <div className="flex flex-wrap items-center gap-4 pt-1">
                       <Button type="submit" size="lg" loading={isLoading}>
                         Send message
-                        <ArrowRight className="h-4 w-4" strokeWidth={1.8} />
+                        <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover/btn:translate-x-0.5" strokeWidth={1.8} />
                       </Button>
                       <p className="text-[12px] text-muted">
                         We use the email only to answer this message.

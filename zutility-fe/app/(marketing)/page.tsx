@@ -6,6 +6,7 @@ import { BrandTile } from "@/components/marketing/brand-tile"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { RateTicker } from "@/components/ui/rate-ticker"
+import { Reveal } from "@/components/ui/reveal"
 import { UTILITIES } from "@/lib/constants"
 
 const HERO_FACTS = [
@@ -74,7 +75,7 @@ const FEATURED_NAMES = [
 function SampleReceipt() {
   return (
     <div className="w-full max-w-md">
-      <div className="rounded-lg border border-line bg-cream">
+      <div className="rounded-lg border border-line bg-cream transition-[transform,border-color] duration-300 ease-out hover:-translate-y-1 hover:border-line-strong">
         <div className="flex items-center justify-between border-b border-line px-5 py-3">
           <p className="label-xs text-muted">Order 8F2C-41A9</p>
           <Badge variant="warning">Awaiting payment</Badge>
@@ -139,7 +140,7 @@ export default function HomePage() {
       <main>
         <section className="paper-grid border-b border-line">
           <div className="mx-auto grid max-w-6xl items-center gap-12 px-5 py-16 lg:grid-cols-[1.02fr_0.98fr] lg:gap-16 lg:py-24">
-            <div>
+            <div className="reveal-in">
               <p className="label-xs text-gold-deep">Utility payments on Zcash</p>
               <h1 className="mt-4 max-w-xl text-4xl leading-[1.05] text-ink sm:text-5xl lg:text-[56px]">
                 Pay electricity, airtime, and TV with ZEC.
@@ -153,7 +154,7 @@ export default function HomePage() {
                 <Button asChild size="lg">
                   <Link href="/pay">
                     Pay a bill
-                    <ArrowRight className="h-4 w-4" />
+                    <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover/btn:translate-x-0.5" />
                   </Link>
                 </Button>
                 <Button asChild variant="secondary" size="lg">
@@ -175,7 +176,9 @@ export default function HomePage() {
             </div>
 
             <div className="flex justify-center lg:justify-end">
-              <SampleReceipt />
+              <Reveal delay={100} className="w-full max-w-md">
+                <SampleReceipt />
+              </Reveal>
             </div>
           </div>
         </section>
@@ -203,17 +206,18 @@ export default function HomePage() {
               </div>
               <Link
                 href="/how-it-works"
-                className="inline-flex items-center gap-1.5 text-[13px] text-gold-deep underline underline-offset-4 hover:no-underline"
+                className="u-link inline-flex items-center gap-1.5 text-[13px] text-gold-deep"
               >
                 Read the full flow
-                <ArrowRight className="h-3.5 w-3.5" />
+                <ArrowRight className="h-3.5 w-3.5 transition-transform duration-200 group-hover/btn:translate-x-0.5" />
               </Link>
             </div>
 
             <div className="mt-10 grid gap-0 border-t border-line md:grid-cols-3">
               {STEPS.map((step, index) => (
-                <div
+                <Reveal
                   key={step.number}
+                  delay={index * 80}
                   className={
                     index === 0
                       ? "py-7 md:pr-8"
@@ -223,7 +227,7 @@ export default function HomePage() {
                   <p className="num text-[12px] text-gold-deep">{step.number}</p>
                   <h3 className="mt-3 text-xl text-ink">{step.title}</h3>
                   <p className="mt-2 text-[14px] leading-relaxed text-ink-2">{step.body}</p>
-                </div>
+                </Reveal>
               ))}
             </div>
           </div>
@@ -231,7 +235,7 @@ export default function HomePage() {
 
         <section id="rates" className="border-b border-line bg-paper-2">
           <div className="mx-auto grid max-w-6xl gap-12 px-5 py-16 lg:grid-cols-2 lg:py-20">
-            <div>
+            <Reveal>
               <p className="label-xs text-muted">Rates and coverage</p>
               <h2 className="mt-3 text-3xl text-ink sm:text-4xl">
                 The rate you see is the rate the order quotes.
@@ -263,9 +267,9 @@ export default function HomePage() {
                   </li>
                 ))}
               </ul>
-            </div>
+            </Reveal>
 
-            <div className="rounded-lg border border-line bg-cream">
+            <Reveal delay={90} className="rounded-lg border border-line bg-cream">
               <div className="border-b border-line px-5 py-4">
                 <p className="label-xs text-muted">Live coverage</p>
                 <p className="mt-1 text-[13px] text-ink-2">
@@ -283,7 +287,7 @@ export default function HomePage() {
                 ].map((row) => (
                   <div
                     key={row.type}
-                    className="flex items-center justify-between border-b border-line px-5 py-3 last:border-b-0"
+                    className="flex items-center justify-between border-b border-line px-5 py-3 last:border-b-0 transition-colors hover:bg-paper-2/60"
                   >
                     <dt className="text-[14px] text-ink">{row.label}</dt>
                     <dd className="num text-[13px] text-muted">
@@ -292,7 +296,7 @@ export default function HomePage() {
                   </div>
                 ))}
               </dl>
-            </div>
+            </Reveal>
           </div>
         </section>
 
@@ -310,8 +314,8 @@ export default function HomePage() {
               </p>
             </div>
 
-            <div className="grid gap-6 sm:grid-cols-2">
-              <div className="rounded-lg border border-line bg-cream p-5">
+            <Reveal delay={90} className="grid gap-6 sm:grid-cols-2">
+              <div className="rounded-lg border border-line bg-cream p-5 transition-colors duration-200 hover:border-line-strong">
                 <p className="label-xs text-muted">We hold</p>
                 <ul className="mt-4 space-y-2.5 text-[14px] text-ink-2">
                   <li>The order amount and the service reference</li>
@@ -319,7 +323,7 @@ export default function HomePage() {
                   <li>The transaction that pays it</li>
                 </ul>
               </div>
-              <div className="rounded-lg border border-line bg-cream p-5">
+              <div className="rounded-lg border border-line bg-cream p-5 transition-colors duration-200 hover:border-line-strong">
                 <p className="label-xs text-muted">We do not hold</p>
                 <ul className="mt-4 space-y-2.5 text-[14px] text-ink-2">
                   <li>Your wallet balance or seed</li>
@@ -327,7 +331,7 @@ export default function HomePage() {
                   <li>Your identity documents</li>
                 </ul>
               </div>
-            </div>
+            </Reveal>
           </div>
         </section>
 
@@ -335,17 +339,17 @@ export default function HomePage() {
           <div className="mx-auto max-w-3xl px-5 py-16 lg:py-20">
             <p className="label-xs text-muted">Questions</p>
             <h2 className="mt-3 text-3xl text-ink sm:text-4xl">The short answers.</h2>
-            <div className="mt-8 border-t border-line">
+            <Reveal className="mt-8 border-t border-line">
               {FAQ.map((item) => (
                 <details key={item.q} className="group border-b border-line py-4">
-                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-[15px] text-ink">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-[15px] text-ink transition-colors duration-150 hover:text-gold-deep">
                     {item.q}
-                    <span className="text-muted transition-transform group-open:rotate-45">+</span>
+                    <span className="text-muted transition-transform duration-200 group-open:rotate-45">+</span>
                   </summary>
                   <p className="mt-3 max-w-2xl text-[14px] leading-relaxed text-ink-2">{item.a}</p>
                 </details>
               ))}
-            </div>
+            </Reveal>
             <div className="mt-10 flex flex-wrap items-center gap-3">
               <Button asChild size="lg">
                 <Link href="/pay">Start an order</Link>

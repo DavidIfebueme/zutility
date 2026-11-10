@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { Fraunces, Geist, Geist_Mono } from 'next/font/google';
-import { Toaster } from 'sonner';
+import { AppToaster, ThemeProvider } from '@/components/theme-provider';
 import './globals.css';
 
 const fraunces = Fraunces({
@@ -21,6 +21,8 @@ const geistMono = Geist_Mono({
   display: 'swap',
 });
 
+const themeScript = `(function(){try{var t=localStorage.getItem('zutility-theme')||'system';var d=t==='dark'||(t==='system'&&window.matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.classList.toggle('dark',d);document.documentElement.style.colorScheme=d?'dark':'light';}catch(e){}})();`;
+
 export const metadata: Metadata = {
   title: 'zutility | Pay utilities with Zcash',
   description:
@@ -32,21 +34,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html
       lang="en"
       className={`${fraunces.variable} ${geist.variable} ${geistMono.variable}`}
+      suppressHydrationWarning
     >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+      </head>
       <body className="font-sans bg-paper text-ink antialiased" suppressHydrationWarning>
-        {children}
-        <Toaster
-          theme="light"
-          position="bottom-right"
-          toastOptions={{
-            style: {
-              background: '#fffdf7',
-              border: '1px solid #d3c9b8',
-              color: '#14130f',
-              borderRadius: '8px',
-            },
-          }}
-        />
+        <ThemeProvider>
+          {children}
+          <AppToaster />
+        </ThemeProvider>
       </body>
     </html>
   );

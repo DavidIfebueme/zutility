@@ -20,6 +20,7 @@ import { useOrderStore } from "@/store/order"
 import { NotificationDropdown } from "@/components/ui/notification-dropdown"
 import { RateTicker } from "@/components/ui/rate-ticker"
 import { WordmarkLink } from "@/components/ui/wordmark"
+import { ThemeToggle } from "@/components/theme-provider"
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Overview", icon: Home },
@@ -56,14 +57,17 @@ function NavLink({
       href={href}
       onClick={onNavigate}
       className={cn(
-        "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] transition-colors",
+        "group/nav flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] transition-colors",
         isActive
-          ? "bg-cream text-ink shadow-[inset_0_0_0_1px_var(--color-line)]"
+          ? "bg-selected text-ink shadow-[inset_0_0_0_1px_var(--color-line)]"
           : "text-ink-2 hover:bg-cream/60 hover:text-ink"
       )}
     >
       <Icon
-        className={cn("h-4 w-4 shrink-0", isActive ? "text-gold-deep" : "text-muted")}
+        className={cn(
+          "h-4 w-4 shrink-0 transition-transform duration-200 group-hover/nav:translate-x-0.5",
+          isActive ? "text-gold-deep" : "text-muted"
+        )}
         strokeWidth={1.7}
       />
       <span className="flex-1 truncate">{label}</span>
@@ -81,7 +85,10 @@ function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
     <>
       <div className="flex h-16 items-center justify-between border-b border-line px-4">
         <WordmarkLink />
-        <NotificationDropdown />
+        <div className="flex items-center gap-0.5">
+          <ThemeToggle />
+          <NotificationDropdown />
+        </div>
       </div>
 
       <div className="border-b border-line px-4 py-3">
@@ -166,8 +173,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </button>
             <WordmarkLink />
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
             <RateTicker className="hidden sm:flex" />
+            <ThemeToggle />
             <NotificationDropdown />
           </div>
         </header>

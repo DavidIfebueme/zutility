@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input"
 import { AuthFooterLink, AuthShell } from "@/components/auth/auth-shell"
 import { useAuthStore } from "@/store/auth"
 import { apiPostRaw } from "@/lib/api"
+import { useShake } from "@/lib/hooks/useShake"
 import { toast } from "sonner"
 
 const loginSchema = z.object({
@@ -26,6 +27,7 @@ export default function LoginPage() {
   const { setUser } = useAuthStore()
   const [isLoading, setIsLoading] = React.useState(false)
   const [showPassword, setShowPassword] = React.useState(false)
+  const { shaking, shake } = useShake()
 
   const {
     register,
@@ -57,9 +59,11 @@ export default function LoginPage() {
         }
       } else {
         const result = await res.json().catch(() => ({ error: "Login failed" }))
+        shake()
         toast.error(result.error || "Email or password is wrong")
       }
     } catch {
+      shake()
       toast.error("Could not reach the server")
     } finally {
       setIsLoading(false)
@@ -71,8 +75,9 @@ export default function LoginPage() {
       title="Sign in"
       subtitle="Your orders, addresses, and receipts in one place."
       footer={<AuthFooterLink prompt="No account yet?" href="/signup" label="Create one" />}
+      shake={shaking}
     >
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+      <form onSubmit={handleSubmit(onSubmit, shake)} className="space-y-4" noValidate>
         <div className="space-y-1.5">
           <label htmlFor="email" className="block text-[13px] font-medium text-ink">
             Email

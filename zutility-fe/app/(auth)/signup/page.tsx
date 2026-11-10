@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { AuthFooterLink, AuthShell } from "@/components/auth/auth-shell"
 import { apiPostRaw } from "@/lib/api"
+import { useShake } from "@/lib/hooks/useShake"
 import { toast } from "sonner"
 
 const signupSchema = z.object({
@@ -28,6 +29,7 @@ export default function SignupPage() {
   const router = useRouter()
   const [isLoading, setIsLoading] = React.useState(false)
   const [showPassword, setShowPassword] = React.useState(false)
+  const { shaking, shake } = useShake()
 
   const {
     register,
@@ -50,9 +52,11 @@ export default function SignupPage() {
         router.push(`/verify?email=${encodeURIComponent(data.email)}`)
       } else {
         const result = await res.json().catch(() => ({ error: "Registration failed" }))
+        shake()
         toast.error(result.error || "Could not create the account")
       }
     } catch {
+      shake()
       toast.error("Could not reach the server")
     } finally {
       setIsLoading(false)
@@ -64,8 +68,9 @@ export default function SignupPage() {
       title="Create an account"
       subtitle="Keep your orders and receipts together. You can still pay without one."
       footer={<AuthFooterLink prompt="Already have an account?" href="/login" label="Sign in" />}
+      shake={shaking}
     >
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+      <form onSubmit={handleSubmit(onSubmit, shake)} className="space-y-4" noValidate>
         <div className="space-y-1.5">
           <label htmlFor="email" className="block text-[13px] font-medium text-ink">
             Email

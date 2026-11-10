@@ -133,14 +133,14 @@ function WaitlistVerifyContent() {
           <Button asChild className="mt-4 w-full" size="lg">
             <Link href="/signup">
               Create an account
-              <ArrowRight className="h-4 w-4" strokeWidth={1.8} />
+              <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover/btn:translate-x-0.5" strokeWidth={1.8} />
             </Link>
           </Button>
           <p className="mt-3 text-center text-[12px] text-muted">
             You can also{" "}
             <Link
               href="/waitlist"
-              className="text-gold-deep underline underline-offset-4 hover:no-underline"
+              className="text-gold-deep u-link"
             >
               return to the waitlist page
             </Link>
