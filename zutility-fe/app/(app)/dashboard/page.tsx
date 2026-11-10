@@ -2,19 +2,8 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { motion } from "motion/react"
-import CreditCardIcon from "@/components/icons/credit-card-icon"
-import ArrowBackUpIcon from "@/components/icons/arrow-back-up-icon"
-import ShoppingCartIcon from "@/components/icons/shopping-cart-icon"
-import ArrowNarrowRightIcon from "@/components/icons/arrow-narrow-right-icon"
-import PlugConnectedIcon from "@/components/icons/plug-connected-icon"
-import ClockIcon from "@/components/icons/clock-icon"
-import CheckedIcon from "@/components/icons/checked-icon"
-import TriangleAlertIcon from "@/components/icons/triangle-alert-icon"
-import HistoryCircleIcon from "@/components/icons/history-circle-icon"
-import { Loader2 } from "lucide-react"
+import { ArrowRight, Loader2, Receipt } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { useAuthStore } from "@/store/auth"
 import { useOrderStore } from "@/store/order"
@@ -22,7 +11,13 @@ import { useRate } from "@/lib/hooks/useRate"
 import { useCurrency } from "@/lib/hooks/useCurrency"
 import { apiGet } from "@/lib/api"
 import { formatNGN, formatZEC } from "@/lib/utils"
-import { formatCurrency, convertFromNGN, CURRENCIES, type FxRates } from "@/lib/currency"
+import {
+  convertFromNGN,
+  formatCurrency,
+  type CurrencyCode,
+  type FxRates,
+} from "@/lib/currency"
+import { getStatusMeta, STATUS_TONE_CLASS } from "@/lib/order-status"
 
 interface OrderHistoryItem {
   order_id: string
@@ -35,9 +30,22 @@ interface OrderHistoryItem {
   completed_at: string | null
 }
 
+function rateForCurrency(rate: NonNullable<ReturnType<typeof useRate>["rate"]>, currency: CurrencyCode): number {
+  const fx: FxRates = {
+    usd_ngn: parseFloat(rate.usd_ngn) || 1,
+    usd_kes: parseFloat(rate.usd_kes) || 0,
+    usd_ghs: parseFloat(rate.usd_ghs) || 0,
+    usd_zar: parseFloat(rate.usd_zar) || 0,
+    usd_egp: parseFloat(rate.usd_egp) || 0,
+  }
+  if (currency === "NGN") return parseFloat(rate.zec_ngn)
+  if (currency === "USD") return parseFloat(rate.zec_usd)
+  return convertFromNGN(parseFloat(rate.zec_ngn), currency, fx)
+}
+
 export default function DashboardPage() {
   const { user } = useAuthStore()
-  const { activeOrder, status } = useOrderStore()
+  const { activeOrder } = useOrderStore()
   const { rate } = useRate()
   const currency = useCurrency()
   const [orders, setOrders] = React.useState<OrderHistoryItem[]>([])
@@ -46,250 +54,183 @@ export default function DashboardPage() {
   React.useEffect(() => {
     apiGet<OrderHistoryItem[]>("/api/v1/orders/history")
       .then(setOrders)
-      .catch(() => {})
+      .catch(() => setOrders([]))
       .finally(() => setOrdersLoading(false))
   }, [])
 
-  const recentTransactions = orders.slice(0, 5)
+  const recent = orders.slice(0, 5)
 
   return (
-    <div className="space-y-8">
-      {/* Header */}
-      <div>
-        <h1 className="font-dela text-3xl tracking-tight">Dashboard</h1>
-        <p className="text-text-secondary mt-2">
-          Welcome back, {user?.display_name || user?.email || 'User'}.
+    <div className="space-y-9">
+      <header>
+        <p className="label-xs text-muted">Overview</p>
+        <h1 className="mt-2 text-3xl text-ink">
+          {user?.display_name ? `Hello, ${user.display_name}.` : "Hello."}
+        </h1>
+        <p className="mt-1.5 text-[14px] text-muted">
+          Pay a bill, follow an open order, or check what you paid last month.
         </p>
-      </div>
+      </header>
 
-      {/* First-visit banner / Active Order */}
       {activeOrder ? (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4 }}
-        >
-          <Card glow className="border-accent-zec/50 bg-bg-elevated overflow-hidden relative">
-            <div className="absolute top-0 left-0 w-1 h-full bg-accent-zec" />
-            <CardContent className="p-6 sm:p-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <Badge variant="warning" className="animate-pulse">Active Order</Badge>
-                  <span className="text-sm font-mono text-text-muted">{activeOrder.order_id}</span>
-                </div>
-                <h3 className="text-xl font-semibold mb-1">Waiting for ZEC Payment</h3>
-                <p className="text-text-secondary">
-                  Send exactly <span className="font-mono text-accent-zec">{formatZEC(activeOrder.zec_amount)}</span> ZEC to complete your order.
-                </p>
-              </div>
+        <section className="rounded-lg border border-line bg-cream">
+          <div className="flex items-center justify-between border-b border-line px-5 py-3">
+            <p className="label-xs text-muted">Open order</p>
+            <Badge variant="warning">Awaiting payment</Badge>
+          </div>
+          <div className="flex flex-col gap-5 p-5 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="num text-[11px] text-muted">{activeOrder.order_id}</p>
+              <p className="mt-2 text-2xl text-ink">
+                <span className="num">{formatZEC(activeOrder.zec_amount)} ZEC</span>
+              </p>
+              <p className="mt-1 text-[13px] text-ink-2">
+                Send this amount to the deposit address on the order page. The quote holds until
+                the order expires.
+              </p>
+            </div>
+            <Button asChild className="shrink-0">
               <Link href={`/pay/${activeOrder.order_id}`}>
-                <Button variant="primary" className="w-full sm:w-auto shrink-0">
-                  View Order <ArrowNarrowRightIcon size={16} className="ml-2" />
-                </Button>
+                View order
+                <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover/btn:translate-x-0.5" />
               </Link>
-            </CardContent>
-          </Card>
-        </motion.div>
+            </Button>
+          </div>
+        </section>
       ) : (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4 }}
-        >
-          <Card className="border-border-subtle bg-bg-elevated overflow-hidden relative">
-            <div className="absolute top-0 left-0 w-1 h-full bg-accent-green" />
-            <CardContent className="p-6 sm:p-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
-              <div>
-                <h3 className="text-xl font-semibold mb-2">Pay your first bill with ZEC</h3>
-                <p className="text-text-secondary">
-                  Experience fast, private utility payments without KYC.
-                </p>
-              </div>
+        <section className="rounded-lg border border-line bg-cream">
+          <div className="flex flex-col gap-5 p-5 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="label-xs text-muted">Start here</p>
+              <p className="mt-2 text-2xl text-ink">Pay a bill with ZEC.</p>
+              <p className="mt-1 max-w-md text-[13px] leading-relaxed text-ink-2">
+                Airtime, data, TV, prepaid electricity, exam PINs, and school fees. The order gets
+                one address and one amount.
+              </p>
+            </div>
+            <Button asChild className="shrink-0">
               <Link href="/pay">
-                <Button variant="primary" className="w-full sm:w-auto shrink-0">
-                  Pay a Utility <ArrowNarrowRightIcon size={16} className="ml-2" />
-                </Button>
+                Pay a bill
+                <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover/btn:translate-x-0.5" />
               </Link>
-            </CardContent>
-          </Card>
-        </motion.div>
+            </Button>
+          </div>
+        </section>
       )}
 
-      {/* Quick Actions Row */}
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Link href="/pay">
-          <Card glow className="h-full hover:-translate-y-1 transition-transform duration-200 cursor-pointer">
-            <CardContent className="p-6 flex flex-col items-center text-center gap-4">
-              <div className="h-12 w-12 rounded-full bg-accent-zec/10 text-accent-zec flex items-center justify-center">
-                <CreditCardIcon size={24} />
-              </div>
-              <div>
-                <h4 className="font-semibold">Pay Utilities</h4>
-                <p className="text-xs text-text-secondary mt-1">Airtime, DSTV, Electricity</p>
-              </div>
-            </CardContent>
-          </Card>
-        </Link>
+      <div className="grid gap-8 lg:grid-cols-[1fr_248px]">
+        <section className="min-w-0">
+          <div className="flex items-baseline justify-between">
+            <h2 className="text-lg text-ink">Recent orders</h2>
+            <Link
+              href="/history"
+              className="text-[12px] text-gold-deep u-link"
+            >
+              All orders
+            </Link>
+          </div>
 
-        <Link href="/otc">
-          <Card className="h-full hover:-translate-y-1 transition-transform duration-200 cursor-pointer opacity-80">
-            <CardContent className="p-6 flex flex-col items-center text-center gap-4 relative">
-              <div className="absolute top-4 right-4">
-                <Badge variant="coming-soon" className="scale-75 origin-top-right">SOON</Badge>
-              </div>
-              <div className="h-12 w-12 rounded-full bg-text-muted/20 text-text-secondary flex items-center justify-center">
-                <ArrowBackUpIcon size={24} />
-              </div>
-              <div>
-                <h4 className="font-semibold text-text-secondary">OTC Swap</h4>
-                    <p className="text-xs text-text-muted mt-1">Direct ZEC to local currency</p>
-              </div>
-            </CardContent>
-          </Card>
-        </Link>
+          {ordersLoading ? (
+            <div className="mt-3 flex justify-center rounded-lg border border-line bg-cream py-12">
+              <Loader2 className="h-4 w-4 animate-spin text-muted" />
+            </div>
+          ) : recent.length === 0 ? (
+            <div className="mt-3 flex flex-col items-center rounded-lg border border-dashed border-line-strong bg-cream/60 px-6 py-12 text-center">
+              <Receipt className="h-5 w-5 text-muted" strokeWidth={1.6} />
+              <p className="mt-3 text-[14px] text-ink">No orders yet</p>
+              <p className="mt-1 max-w-xs text-[13px] text-muted">
+                Your first receipt will show up here.
+              </p>
+            </div>
+          ) : (
+            <div className="mt-3 overflow-hidden rounded-lg border border-line bg-cream">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="border-b border-line">
+                    <th className="label-xs px-4 py-2.5 font-medium text-muted">Service</th>
+                    <th className="label-xs hidden px-4 py-2.5 font-medium text-muted sm:table-cell">
+                      Date
+                    </th>
+                    <th className="label-xs px-4 py-2.5 text-right font-medium text-muted">Amount</th>
+                    <th className="label-xs px-4 py-2.5 text-right font-medium text-muted">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recent.map((order) => {
+                    const meta = getStatusMeta(order.status)
+                    return (
+                      <tr
+                        key={order.order_id}
+                        className="border-b border-line last:border-b-0 hover:bg-paper-2/60"
+                      >
+                        <td className="px-4 py-3">
+                          <Link
+                            href={`/pay/${order.order_id}`}
+                            className="block text-[13px] text-ink hover:underline"
+                          >
+                            {order.utility_slug}
+                          </Link>
+                          <span className="num text-[11px] text-muted">
+                            {order.order_id.slice(0, 8)}
+                          </span>
+                        </td>
+                        <td className="num hidden px-4 py-3 text-[12px] text-muted sm:table-cell">
+                          {new Date(order.created_at).toLocaleDateString()}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <span className="num block text-[13px] text-ink">
+                            {formatNGN(order.amount_ngn)}
+                          </span>
+                          <span className="num block text-[11px] text-muted">
+                            {formatZEC(order.zec_amount)} ZEC
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <span
+                            className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] ${STATUS_TONE_CLASS[meta.tone]}`}
+                          >
+                            {meta.label}
+                          </span>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
 
-        <Link href="/p2p">
-          <Card className="h-full hover:-translate-y-1 transition-transform duration-200 cursor-pointer opacity-80">
-            <CardContent className="p-6 flex flex-col items-center text-center gap-4 relative">
-              <div className="absolute top-4 right-4">
-                <Badge variant="coming-soon" className="scale-75 origin-top-right">SOON</Badge>
-              </div>
-              <div className="h-12 w-12 rounded-full bg-text-muted/20 text-text-secondary flex items-center justify-center">
-                <ShoppingCartIcon size={24} />
-              </div>
-              <div>
-                <h4 className="font-semibold text-text-secondary">P2P Trade</h4>
-                <p className="text-xs text-text-muted mt-1">Escrow marketplace</p>
-              </div>
-            </CardContent>
-          </Card>
-        </Link>
-      </div>
+        <aside className="space-y-5">
+          <div className="rounded-lg border border-line bg-cream p-4">
+            <p className="label-xs text-muted">ZEC / {currency}</p>
+            <p className="num mt-2 text-xl text-ink">
+              {rate ? formatCurrency(rateForCurrency(rate, currency), currency) : "---"}
+            </p>
+            <p className="mt-1 text-[11px] text-muted">
+              {rate?.updated_at
+                ? `Updated ${new Date(rate.updated_at).toLocaleTimeString()}`
+                : "Waiting for the feed"}
+            </p>
+            <p className="mt-3 border-t border-line pt-3 text-[11px] leading-relaxed text-muted">
+              Orders keep the rate they were quoted at, even if the market moves.
+            </p>
+          </div>
 
-      <div className="grid gap-8 lg:grid-cols-3">
-        {/* Recent Transactions */}
-        <div className="lg:col-span-2">
-          <Card className="h-full">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-xl">Recent Transactions</CardTitle>
-              <Link href="/history">
-                <Button variant="ghost" size="sm" className="text-text-secondary hover:text-text-primary">
-                  View all
-                </Button>
-              </Link>
-            </CardHeader>
-            <CardContent>
-              {ordersLoading ? (
-                <div className="flex justify-center py-12">
-                  <Loader2 className="h-6 w-6 animate-spin text-text-muted" />
-                </div>
-              ) : recentTransactions.length > 0 ? (
-                <div className="space-y-4 mt-4">
-                  {recentTransactions.map((tx) => (
-                    <div key={tx.order_id} className="flex items-center justify-between p-4 rounded-lg bg-bg-elevated border border-border-subtle">
-                      <div className="flex items-center gap-4">
-                        <div className="h-10 w-10 rounded-full bg-bg-surface flex items-center justify-center">
-                          {tx.status === 'Completed' ? (
-                            <CheckedIcon size={20} className="text-accent-green" />
-                          ) : tx.status === 'Failed' || tx.status === 'Cancelled' ? (
-                            <TriangleAlertIcon size={20} className="text-accent-red" />
-                          ) : (
-                            <ClockIcon size={20} className="text-accent-zec" />
-                          )}
-                        </div>
-                        <div>
-                          <p className="font-medium text-text-primary">{tx.utility_slug}</p>
-                          <p className="text-xs text-text-muted font-mono">{tx.order_id.slice(0,8)} • {new Date(tx.created_at).toLocaleDateString()}</p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-medium text-text-primary">{formatNGN(tx.amount_ngn)}</p>
-                        <p className="text-xs text-text-secondary font-mono">{formatZEC(tx.zec_amount)} ZEC</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-12 text-center">
-                  <div className="h-16 w-16 rounded-full bg-bg-elevated flex items-center justify-center mb-4 text-text-muted">
-                    <HistoryCircleIcon size={32} />
-                  </div>
-                  <h4 className="text-lg font-medium mb-2">No transactions yet</h4>
-                  <p className="text-text-secondary mb-6 max-w-sm">
-                    Your recent utility payments and trades will appear here.
-                  </p>
-                  <Link href="/pay">
-                    <Button variant="secondary">Make a Payment</Button>
-                  </Link>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Rate Widget */}
-        <div>
-          <Card className="h-full bg-bg-elevated border-border-subtle">
-            <CardHeader>
-              <CardTitle className="text-xl">Market Rate</CardTitle>
-              <CardDescription>ZEC to local currency</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-col gap-6">
-                <div>
-                  <div className="text-3xl font-dela text-text-primary mb-2">
-                    {rate ? formatCurrency(
-                      (() => {
-                        const fx: FxRates = { usd_ngn: parseFloat(rate.usd_ngn) || 1, usd_kes: parseFloat(rate.usd_kes) || 0, usd_ghs: parseFloat(rate.usd_ghs) || 0, usd_zar: parseFloat(rate.usd_zar) || 0, usd_egp: parseFloat(rate.usd_egp) || 0 }
-                        return currency === 'NGN' ? parseFloat(rate.zec_ngn) : currency === 'USD' ? parseFloat(rate.zec_usd) : convertFromNGN(parseFloat(rate.zec_ngn), currency, fx)
-                      })(),
-                      currency
-                    ) : `${CURRENCIES[currency].symbol}---`}
-                  </div>
-                  <div className="flex items-center gap-2 text-sm">
-                    <span className="text-accent-green flex items-center gap-1 bg-accent-green/10 px-2 py-0.5 rounded">
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"></polyline>
-                        <polyline points="16 7 22 7 22 13"></polyline>
-                      </svg>
-                      +2.4%
-                    </span>
-                    <span className="text-text-muted">Past 24h</span>
-                  </div>
-                </div>
-
-                {/* Mock Sparkline */}
-                <div className="h-24 w-full mt-4 relative">
-                  <svg className="w-full h-full" preserveAspectRatio="none" viewBox="0 0 100 40">
-                    <path
-                      d="M0,30 Q10,25 20,28 T40,20 T60,25 T80,10 T100,5"
-                      fill="none"
-                      stroke="var(--color-accent-zec)"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                    <path
-                      d="M0,30 Q10,25 20,28 T40,20 T60,25 T80,10 T100,5 L100,40 L0,40 Z"
-                      fill="url(#gradient)"
-                      stroke="none"
-                    />
-                    <defs>
-                      <linearGradient id="gradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="var(--color-accent-zec)" stopOpacity="0.2" />
-                        <stop offset="100%" stopColor="var(--color-accent-zec)" stopOpacity="0" />
-                      </linearGradient>
-                    </defs>
-                  </svg>
-                </div>
-                
-                <div className="text-xs text-text-muted text-center mt-2">
-                  Last updated: {rate?.updated_at ? new Date(rate.updated_at).toLocaleTimeString() : '---'}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+          <div className="rounded-lg border border-line bg-paper-2 p-4">
+            <p className="label-xs text-muted">Later</p>
+            <ul className="mt-2 space-y-2">
+              <li className="flex items-baseline justify-between gap-2 text-[13px] text-ink-2">
+                OTC off-ramp
+                <span className="text-[10px] uppercase tracking-wider text-muted">Soon</span>
+              </li>
+              <li className="flex items-baseline justify-between gap-2 text-[13px] text-ink-2">
+                P2P market
+                <span className="text-[10px] uppercase tracking-wider text-muted">Soon</span>
+              </li>
+            </ul>
+          </div>
+        </aside>
       </div>
     </div>
   )

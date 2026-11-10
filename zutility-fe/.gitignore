@@ -43,3 +43,5 @@ fe-checklist.md
 **/*.md
 !README.md
 !**/README.md
+
+*.tsbuildinfo

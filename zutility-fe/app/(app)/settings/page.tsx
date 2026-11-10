@@ -5,36 +5,16 @@ import { useRouter } from "next/navigation"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
-import { motion } from "motion/react"
-import UserIcon from "@/components/icons/user-icon"
-import MailFilledIcon from "@/components/icons/mail-filled-icon"
-import LockIcon from "@/components/icons/lock-icon"
-import ShieldCheck from "@/components/icons/shield-check"
-import GlobeIcon from "@/components/icons/globe-icon"
-import TrashIcon from "@/components/icons/trash-icon"
-import TriangleAlertIcon from "@/components/icons/triangle-alert-icon"
-import CheckedIcon from "@/components/icons/checked-icon"
-import RightChevron from "@/components/icons/right-chevron"
-import {
-  Loader2,
-} from "lucide-react"
+import { Check, Globe, Lock, TriangleAlert, User } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-  DialogTrigger,
-} from "@/components/ui/modal"
 import { useAuthStore } from "@/store/auth"
 import { apiPost } from "@/lib/api"
 import { useCurrency } from "@/lib/hooks/useCurrency"
 import { CURRENCIES, type CurrencyCode } from "@/lib/currency"
+import { ThemePicker } from "@/components/theme-provider"
+import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 
 const profileSchema = z.object({
@@ -65,15 +45,27 @@ const deleteAccountSchema = z.object({
 
 type DeleteAccountFormValues = z.infer<typeof deleteAccountSchema>
 
+const SECTIONS = [
+  { id: "profile", label: "Profile", icon: User },
+  { id: "security", label: "Security", icon: Lock },
+  { id: "preferences", label: "Preferences", icon: Globe },
+  { id: "danger", label: "Danger zone", icon: TriangleAlert },
+] as const
+
+type SectionId = (typeof SECTIONS)[number]["id"]
+
+const CURRENCY_CODES = Object.keys(CURRENCIES) as CurrencyCode[]
+
 export default function SettingsPage() {
   const router = useRouter()
-  const { user, setUser, logout, preferredCurrency, setPreferredCurrency } = useAuthStore()
+  const { user, setUser, logout, setPreferredCurrency } = useAuthStore()
   const activeCurrency = useCurrency()
 
+  const [section, setSection] = React.useState<SectionId>("profile")
   const [profileLoading, setProfileLoading] = React.useState(false)
   const [passwordLoading, setPasswordLoading] = React.useState(false)
   const [deleteLoading, setDeleteLoading] = React.useState(false)
-  const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false)
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = React.useState(false)
   const [resendLoading, setResendLoading] = React.useState(false)
 
   const profileForm = useForm<ProfileFormValues>({
@@ -101,15 +93,21 @@ export default function SettingsPage() {
     if (user) {
       profileForm.reset({ display_name: user.display_name || "" })
     }
-  }, [user?.display_name])
+  }, [user, profileForm])
 
   const onProfileSubmit = async (data: ProfileFormValues) => {
     setProfileLoading(true)
     try {
-      const updated = await apiPost<{ id: string; email: string; display_name: string | null; email_verified: boolean }>("/api/v1/auth/profile", {
+      const updated = await apiPost<{
+        id: string
+        email: string
+        display_name: string | null
+        email_verified: boolean
+      }>("/api/v1/auth/profile", {
         display_name: data.display_name.trim(),
       })
       setUser(updated)
+      profileForm.reset({ display_name: updated.display_name || "" })
       toast.success("Profile updated")
     } catch {
       toast.error("Failed to update profile")
@@ -148,7 +146,7 @@ export default function SettingsPage() {
         password: data.password,
       })
       toast.success("Account deleted")
-      setDeleteDialogOpen(false)
+      setDeleteConfirmOpen(false)
       logout()
       router.push("/")
     } catch (e: unknown) {
@@ -180,243 +178,327 @@ export default function SettingsPage() {
   if (!user) return null
 
   return (
-    <div className="space-y-8 max-w-2xl">
-      <div>
-        <h1 className="font-dela text-3xl tracking-tight">Settings</h1>
-        <p className="text-text-secondary mt-2">Manage your account and preferences.</p>
-      </div>
+    <div className="space-y-8">
+      <header>
+        <p className="label-xs text-muted">Account</p>
+        <h1 className="mt-2 text-3xl text-ink">Settings</h1>
+        <p className="mt-1.5 max-w-lg text-[14px] text-muted">
+          Your name on receipts, the password you sign in with, and how the app looks.
+        </p>
+      </header>
 
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-full bg-accent-zec/10 text-accent-zec flex items-center justify-center">
-                <UserIcon size={20} />
-              </div>
-              <div>
-                <CardTitle className="text-xl">Profile</CardTitle>
-                <CardDescription>Your public display name and account info</CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={profileForm.handleSubmit(onProfileSubmit)} className="space-y-5">
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-text-secondary">Email</label>
-                <div className="flex items-center gap-3">
-                  <Input value={user.email} disabled leftIcon={<MailFilledIcon size={20} />} />
-                  {user.email_verified ? (
-                    <Badge variant="success" className="shrink-0">
-                       <CheckedIcon size={12} className="mr-1" />
-                      Verified
-                    </Badge>
-                  ) : (
-                    <Badge variant="error" className="shrink-0">Unverified</Badge>
-                  )}
-                </div>
-                {!user.email_verified && (
-                  <button
-                    type="button"
-                    onClick={onResendVerification}
-                    disabled={resendLoading}
-                    className="text-xs text-accent-zec hover:underline disabled:opacity-50 mt-1"
-                  >
-                    {resendLoading ? "Sending..." : "Resend verification email"}
-                  </button>
+      <div className="grid gap-7 lg:grid-cols-[176px_1fr] lg:gap-9">
+        <nav
+          aria-label="Settings sections"
+          className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1 lg:mx-0 lg:flex-col lg:overflow-visible lg:px-0 lg:pb-0"
+        >
+          {SECTIONS.map((item) => {
+            const isActive = section === item.id
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setSection(item.id)}
+                aria-current={isActive ? "page" : undefined}
+                className={cn(
+                  "flex shrink-0 items-center gap-2.5 rounded-md border px-2.5 py-2 text-left text-[13px] transition-colors",
+                  isActive
+                    ? "border-line bg-selected text-ink"
+                    : "border-transparent text-ink-2 hover:bg-cream/60 hover:text-ink"
                 )}
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-text-secondary">Display Name</label>
-                <Input
-                  {...profileForm.register("display_name")}
-                  placeholder="Enter your display name"
-                   leftIcon={<UserIcon size={20} />}
-                  error={profileForm.formState.errors.display_name?.message}
+              >
+                <item.icon
+                  className={cn("h-4 w-4 shrink-0", isActive ? "text-gold-deep" : "text-muted")}
+                  strokeWidth={1.6}
                 />
-              </div>
+                <span className="truncate">{item.label}</span>
+              </button>
+            )
+          })}
+        </nav>
 
-              <div className="flex justify-end">
-                <Button type="submit" loading={profileLoading}>
-                  Save Changes
-                </Button>
+        <div className="min-w-0">
+          {section === "profile" && (
+            <section className="rounded-lg border border-line bg-cream">
+              <div className="border-b border-line px-5 py-3">
+                <h2 className="text-lg text-ink">Profile</h2>
+                <p className="mt-0.5 text-[12px] text-muted">
+                  The email on the account and the name shown on your receipts.
+                </p>
               </div>
-            </form>
-          </CardContent>
-        </Card>
-      </motion.div>
+              <div className="p-5">
+                <form
+                  onSubmit={profileForm.handleSubmit(onProfileSubmit)}
+                  className="max-w-md space-y-5"
+                >
+                  <div>
+                    <div className="flex items-center justify-between gap-3">
+                      <label htmlFor="profile-email" className="text-[13px] font-medium text-ink-2">
+                        Email
+                      </label>
+                      {user.email_verified ? (
+                        <Badge variant="success">Verified</Badge>
+                      ) : (
+                        <Badge variant="warning">Unverified</Badge>
+                      )}
+                    </div>
+                    <Input
+                      id="profile-email"
+                      value={user.email}
+                      disabled
+                      className="mt-1.5"
+                    />
+                    {!user.email_verified && (
+                      <button
+                        type="button"
+                        onClick={onResendVerification}
+                        disabled={resendLoading}
+                        className="mt-2 text-[12px] text-gold-deep u-link disabled:opacity-50"
+                      >
+                        {resendLoading ? "Sending the email" : "Resend the verification email"}
+                      </button>
+                    )}
+                  </div>
 
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.1 }}>
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-full bg-accent-zec/10 text-accent-zec flex items-center justify-center">
-                <LockIcon size={20} />
-              </div>
-              <div>
-                <CardTitle className="text-xl">Security</CardTitle>
-                <CardDescription>Change your password</CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={passwordForm.handleSubmit(onPasswordSubmit)} className="space-y-5">
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-text-secondary">Current Password</label>
-                <Input
-                  type="password"
-                  {...passwordForm.register("current_password")}
-                  placeholder="Enter current password"
-                   leftIcon={<ShieldCheck size={20} />}
-                  error={passwordForm.formState.errors.current_password?.message}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-text-secondary">New Password</label>
-                <Input
-                  type="password"
-                  {...passwordForm.register("new_password")}
-                   placeholder="At least 8 characters"
-                   leftIcon={<LockIcon size={20} />}
-                  error={passwordForm.formState.errors.new_password?.message}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-text-secondary">Confirm New Password</label>
-                <Input
-                  type="password"
-                  {...passwordForm.register("confirm_password")}
-                   placeholder="Repeat new password"
-                   leftIcon={<LockIcon size={20} />}
-                  error={passwordForm.formState.errors.confirm_password?.message}
-                />
-              </div>
-
-              <div className="flex justify-end">
-                <Button type="submit" loading={passwordLoading}>
-                  Change Password
-                </Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
-      </motion.div>
-
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.2 }}>
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-full bg-accent-zec/10 text-accent-zec flex items-center justify-center">
-                <GlobeIcon size={20} />
-              </div>
-              <div>
-                <CardTitle className="text-xl">Preferences</CardTitle>
-                <CardDescription>Local currency display</CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              <label className="text-sm font-medium text-text-secondary">Display Currency</label>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                {(Object.keys(CURRENCIES) as CurrencyCode[]).map((code) => {
-                  const currency = CURRENCIES[code]
-                  const isSelected = activeCurrency === code
-                  return (
-                    <button
-                      key={code}
-                      type="button"
-                      onClick={() => setPreferredCurrency(code)}
-                      className={`flex items-center gap-2 p-3 rounded-lg border text-sm font-medium transition-all ${
-                        isSelected
-                          ? "border-accent-zec bg-accent-zec/10 text-accent-zec"
-                          : "border-border-subtle bg-bg-elevated text-text-secondary hover:border-accent-zec/50"
-                      }`}
+                  <div>
+                    <label
+                      htmlFor="profile-display-name"
+                      className="text-[13px] font-medium text-ink-2"
                     >
-                      <span className="text-base">{currency.symbol}</span>
-                      <span>{code}</span>
-                      {isSelected && <CheckedIcon size={16} className="ml-auto" />}
-                    </button>
-                  )
-                })}
-              </div>
-              <p className="text-xs text-text-muted mt-2">
-                Prices will be displayed in your selected currency using live exchange rates.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      </motion.div>
+                      Display name
+                    </label>
+                    <Input
+                      id="profile-display-name"
+                      {...profileForm.register("display_name")}
+                      placeholder="Your name"
+                      autoComplete="name"
+                      className="mt-1.5"
+                      error={profileForm.formState.errors.display_name?.message}
+                    />
+                  </div>
 
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.3 }}>
-        <Card className="border-accent-red/30">
-          <CardHeader>
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-full bg-accent-red/10 text-accent-red flex items-center justify-center">
-                <TrashIcon size={20} />
+                  <div className="flex flex-wrap items-center gap-3 border-t border-line pt-5">
+                    <Button
+                      type="submit"
+                      loading={profileLoading}
+                      disabled={!profileForm.formState.isDirty}
+                    >
+                      Save profile
+                    </Button>
+                    <p className="text-[12px] text-muted">
+                      {profileForm.formState.isDirty ? "Unsaved changes" : "Saved"}
+                    </p>
+                  </div>
+                </form>
               </div>
-              <div>
-                <CardTitle className="text-xl text-accent-red">Danger Zone</CardTitle>
-                <CardDescription>Irreversible account actions</CardDescription>
+            </section>
+          )}
+
+          {section === "security" && (
+            <section className="rounded-lg border border-line bg-cream">
+              <div className="border-b border-line px-5 py-3">
+                <h2 className="text-lg text-ink">Security</h2>
+                <p className="mt-0.5 text-[12px] text-muted">
+                  Change the password for this account.
+                </p>
               </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center justify-between p-4 rounded-lg bg-accent-red/5 border border-accent-red/20">
-              <div className="flex items-center gap-3">
-                <TriangleAlertIcon size={20} className="text-accent-red shrink-0" />
+              <div className="p-5">
+                <form
+                  onSubmit={passwordForm.handleSubmit(onPasswordSubmit)}
+                  className="max-w-md space-y-5"
+                >
+                  <div>
+                    <label
+                      htmlFor="current-password"
+                      className="text-[13px] font-medium text-ink-2"
+                    >
+                      Current password
+                    </label>
+                    <Input
+                      id="current-password"
+                      type="password"
+                      autoComplete="current-password"
+                      {...passwordForm.register("current_password")}
+                      placeholder="Enter your current password"
+                      className="mt-1.5"
+                      error={passwordForm.formState.errors.current_password?.message}
+                    />
+                  </div>
+
+                  <div className="border-t border-line pt-5">
+                    <label htmlFor="new-password" className="text-[13px] font-medium text-ink-2">
+                      New password
+                    </label>
+                    <Input
+                      id="new-password"
+                      type="password"
+                      autoComplete="new-password"
+                      {...passwordForm.register("new_password")}
+                      placeholder="At least 8 characters"
+                      className="mt-1.5"
+                      error={passwordForm.formState.errors.new_password?.message}
+                    />
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="confirm-password"
+                      className="text-[13px] font-medium text-ink-2"
+                    >
+                      Repeat new password
+                    </label>
+                    <Input
+                      id="confirm-password"
+                      type="password"
+                      autoComplete="new-password"
+                      {...passwordForm.register("confirm_password")}
+                      placeholder="Repeat the new password"
+                      className="mt-1.5"
+                      error={passwordForm.formState.errors.confirm_password?.message}
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-3 border-t border-line pt-5">
+                    <Button type="submit" loading={passwordLoading}>
+                      Change password
+                    </Button>
+                    <p className="text-[12px] text-muted">
+                      You will be signed out after the change.
+                    </p>
+                  </div>
+                </form>
+              </div>
+            </section>
+          )}
+
+          {section === "preferences" && (
+            <section className="rounded-lg border border-line bg-cream">
+              <div className="border-b border-line px-5 py-3">
+                <h2 className="text-lg text-ink">Preferences</h2>
+                <p className="mt-0.5 text-[12px] text-muted">
+                  How bill amounts are displayed across the app.
+                </p>
+              </div>
+              <div className="p-5">
+                <p className="text-[13px] font-medium text-ink-2">Theme</p>
+                <div className="mt-2.5">
+                  <ThemePicker />
+                </div>
+                <p className="mt-2 max-w-md text-[12px] leading-relaxed text-muted">
+                  System follows the setting on this device. The choice is saved in this browser.
+                </p>
+
+                <div className="mt-6 border-t border-line pt-5">
+                  <p className="text-[13px] font-medium text-ink-2">Display currency</p>
+                </div>
+                <div
+                  role="group"
+                  aria-label="Display currency"
+                  className="mt-2.5 overflow-hidden rounded-lg border border-line"
+                >
+                  {CURRENCY_CODES.map((code) => {
+                    const currency = CURRENCIES[code]
+                    const isSelected = activeCurrency === code
+                    return (
+                      <button
+                        key={code}
+                        type="button"
+                        aria-pressed={isSelected}
+                        onClick={() => setPreferredCurrency(code)}
+                        className={cn(
+                          "flex w-full items-center gap-3 border-b border-line px-4 py-2.5 text-left transition-colors last:border-b-0",
+                          isSelected ? "bg-paper-2" : "hover:bg-paper-2/60"
+                        )}
+                      >
+                        <span className="num w-9 shrink-0 text-[13px] text-ink-2">
+                          {currency.symbol}
+                        </span>
+                        <span className="flex-1 text-[13px] text-ink">{currency.name}</span>
+                        <span className="num text-[11px] text-muted">{code}</span>
+                        {isSelected && (
+                          <Check className="h-4 w-4 shrink-0 text-gold-deep" strokeWidth={1.8} />
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+                <p className="mt-3 max-w-md text-[12px] leading-relaxed text-muted">
+                  Bill totals stay in naira on the server. The chosen currency only changes the
+                  figure you see, converted at the live rate. Saved in this browser.
+                </p>
+              </div>
+            </section>
+          )}
+
+          {section === "danger" && (
+            <section className="rounded-lg border border-line bg-cream">
+              <div className="flex items-start gap-2.5 border-b border-line px-5 py-3">
+                <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-rust" strokeWidth={1.6} />
                 <div>
-                  <p className="text-sm font-medium text-text-primary">Delete Account</p>
-                  <p className="text-xs text-text-muted">
-                    Permanently delete your account and all associated data. This action cannot be undone.
-                  </p>
+                  <h2 className="text-lg text-ink">Danger zone</h2>
+                  <p className="mt-0.5 text-[12px] text-muted">Actions that cannot be undone.</p>
                 </div>
               </div>
-              <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button variant="danger" size="sm">
-                    Delete
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Delete Account</DialogTitle>
-                    <DialogDescription>
-                      This will permanently delete your account. You will be logged out immediately. This action cannot be undone.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <form onSubmit={deleteForm.handleSubmit(onDeleteSubmit)} className="space-y-4 mt-4">
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-text-secondary">Confirm your password</label>
+              <div className="p-5">
+                <p className="text-[14px] text-ink">Delete this account</p>
+                <p className="mt-1 max-w-md text-[13px] leading-relaxed text-ink-2">
+                  This permanently deletes your account and all associated data. You will be signed
+                  out immediately.
+                </p>
+
+                {deleteConfirmOpen ? (
+                  <form
+                    onSubmit={deleteForm.handleSubmit(onDeleteSubmit)}
+                    className="mt-5 max-w-sm space-y-4 border-t border-line pt-5"
+                  >
+                    <div>
+                      <label
+                        htmlFor="delete-password"
+                        className="text-[13px] font-medium text-ink-2"
+                      >
+                        Confirm your password
+                      </label>
                       <Input
+                        id="delete-password"
                         type="password"
+                        autoComplete="current-password"
                         {...deleteForm.register("password")}
                         placeholder="Enter your password"
-                         leftIcon={<LockIcon size={20} />}
+                        className="mt-1.5"
                         error={deleteForm.formState.errors.password?.message}
                       />
                     </div>
-                    <DialogFooter>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button type="submit" variant="danger" loading={deleteLoading}>
+                        Delete account
+                      </Button>
                       <Button
                         type="button"
                         variant="ghost"
-                        onClick={() => setDeleteDialogOpen(false)}
+                        onClick={() => {
+                          setDeleteConfirmOpen(false)
+                          deleteForm.reset()
+                        }}
                       >
                         Cancel
                       </Button>
-                      <Button type="submit" variant="danger" loading={deleteLoading}>
-                        Delete Account
-                      </Button>
-                    </DialogFooter>
+                    </div>
                   </form>
-                </DialogContent>
-              </Dialog>
-            </div>
-          </CardContent>
-        </Card>
-      </motion.div>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="mt-4 border-line-strong text-rust hover:bg-paper-2"
+                    onClick={() => setDeleteConfirmOpen(true)}
+                  >
+                    Delete account
+                  </Button>
+                )}
+              </div>
+            </section>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

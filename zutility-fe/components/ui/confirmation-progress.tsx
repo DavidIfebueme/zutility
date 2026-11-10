@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from "react"
-import { motion } from "motion/react"
 import { cn } from "@/lib/utils"
 
 interface ConfirmationProgressProps extends React.HTMLAttributes<HTMLDivElement> {
@@ -17,65 +16,33 @@ export function ConfirmationProgress({
   className,
   ...props
 }: ConfirmationProgressProps) {
-  const progress = Math.min(Math.max(current / required, 0), 1)
-  const isComplete = current >= required
+  const segments = Math.max(required, 1)
+  const resolved = Math.min(Math.max(current, 0), segments)
 
   return (
-    <div className={cn("relative flex flex-col items-center justify-center p-8", className)} {...props}>
-      <svg className="w-48 h-48 transform -rotate-90" viewBox="0 0 100 100">
-        {/* Background track */}
-        <circle
-          cx="50"
-          cy="50"
-          r="45"
-          fill="transparent"
-          stroke="var(--color-border-subtle)"
-          strokeWidth="6"
-        />
-        
-        {/* Progress arc */}
-        <motion.circle
-          cx="50"
-          cy="50"
-          r="45"
-          fill="transparent"
-          stroke={isComplete ? "var(--color-accent-green)" : "var(--color-accent-zec)"}
-          strokeWidth="6"
-          strokeDasharray="283"
-          strokeDashoffset={283 - 283 * progress}
-          strokeLinecap="round"
-          initial={{ strokeDashoffset: 283 }}
-          animate={{ strokeDashoffset: 283 - 283 * progress }}
-          transition={{ duration: 1, ease: "easeInOut" }}
-        />
-
-        {/* Checkmark animation on complete */}
-        {isComplete && (
-          <motion.path
-            d="M 35 50 L 45 60 L 65 40"
-            fill="transparent"
-            stroke="var(--color-accent-green)"
-            strokeWidth="6"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            initial={{ pathLength: 0 }}
-            animate={{ pathLength: 1 }}
-            transition={{ duration: 0.5, delay: 0.5 }}
+    <div className={cn("w-full", className)} {...props}>
+      <div className="flex items-baseline justify-between">
+        <span className="label-xs text-muted">Confirmations</span>
+        <span className="num text-[13px] text-ink">
+          {resolved} / {segments}
+        </span>
+      </div>
+      <div className="mt-2 flex gap-1" role="progressbar" aria-valuenow={resolved} aria-valuemin={0} aria-valuemax={segments}>
+        {Array.from({ length: segments }).map((_, index) => (
+          <span
+            key={index}
+            className={cn(
+              "h-1.5 flex-1 rounded-sm",
+              index < resolved ? "bg-green" : "bg-paper-3"
+            )}
           />
-        )}
-      </svg>
-
-      {!isComplete && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-          <span className="font-mono text-3xl font-bold text-accent-zec">
-            {current}
-            <span className="text-text-muted">/{required}</span>
-          </span>
-          <span className="text-xs text-text-secondary mt-1 uppercase tracking-wider">
-            Confirmations
-          </span>
-        </div>
-      )}
+        ))}
+      </div>
+      <p className="mt-2 text-[12px] text-muted">
+        {addressType === "shielded"
+          ? "Shielded payment. One extra confirmation over a transparent send."
+          : "Transparent payment."}
+      </p>
     </div>
   )
 }

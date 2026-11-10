@@ -6,20 +6,18 @@ import { useRouter } from "next/navigation"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
-import { motion } from "motion/react"
-import MailFilledIcon from "@/components/icons/mail-filled-icon"
-import LockIcon from "@/components/icons/lock-icon"
-import ArrowNarrowRightIcon from "@/components/icons/arrow-narrow-right-icon"
+import { Eye, EyeOff } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { AuthFooterLink, AuthShell } from "@/components/auth/auth-shell"
 import { useAuthStore } from "@/store/auth"
 import { apiPostRaw } from "@/lib/api"
+import { useShake } from "@/lib/hooks/useShake"
 import { toast } from "sonner"
-import { PaymentFlow } from "@/components/ui/payment-flow"
 
 const loginSchema = z.object({
-  email: z.string().email("Invalid email address"),
-  password: z.string().min(1, "Password is required"),
+  email: z.string().email("Enter a valid email address"),
+  password: z.string().min(1, "Enter your password"),
 })
 
 type LoginFormValues = z.infer<typeof loginSchema>
@@ -28,6 +26,8 @@ export default function LoginPage() {
   const router = useRouter()
   const { setUser } = useAuthStore()
   const [isLoading, setIsLoading] = React.useState(false)
+  const [showPassword, setShowPassword] = React.useState(false)
+  const { shaking, shake } = useShake()
 
   const {
     register,
@@ -47,104 +47,87 @@ export default function LoginPage() {
       if (res.ok) {
         const result = await res.json()
         setUser(result)
-        toast.success("Welcome back!")
+        toast.success("Signed in")
         router.push("/dashboard")
       } else if (res.status === 403) {
         const result = await res.json()
         if (result.error === "email_not_verified") {
-          toast.error("Please verify your email first")
+          toast.error("Verify your email before signing in")
           router.push(`/verify?email=${encodeURIComponent(data.email)}`)
         } else {
           toast.error(result.error || "Access denied")
         }
       } else {
         const result = await res.json().catch(() => ({ error: "Login failed" }))
-        toast.error(result.error || "Invalid email or password")
+        shake()
+        toast.error(result.error || "Email or password is wrong")
       }
     } catch {
-      toast.error("An error occurred during login.")
+      shake()
+      toast.error("Could not reach the server")
     } finally {
       setIsLoading(false)
     }
   }
 
   return (
-    <div className="flex min-h-screen bg-bg-void text-text-primary">
-      <div className="hidden w-1/2 flex-col justify-between border-r border-border-subtle bg-bg-surface p-12 lg:flex relative overflow-hidden">
-        <div className="absolute inset-0 z-0 opacity-30 pointer-events-none">
-           <PaymentFlow />
+    <AuthShell
+      title="Sign in"
+      subtitle="Your orders, addresses, and receipts in one place."
+      footer={<AuthFooterLink prompt="No account yet?" href="/signup" label="Create one" />}
+      shake={shaking}
+    >
+      <form onSubmit={handleSubmit(onSubmit, shake)} className="space-y-4" noValidate>
+        <div className="space-y-1.5">
+          <label htmlFor="email" className="block text-[13px] font-medium text-ink">
+            Email
+          </label>
+          <Input
+            id="email"
+            {...register("email")}
+            type="email"
+            autoComplete="email"
+            placeholder="you@example.com"
+            error={errors.email?.message}
+          />
         </div>
-        
-        <div className="relative z-10">
-          <Link href="/" className="font-dela text-2xl tracking-tight">
-            <span className="text-accent-zec">z</span>utility
-          </Link>
-        </div>
-        
-        <div className="relative z-10 max-w-md">
-          <h1 className="font-dela text-4xl leading-tight mb-4">
-            Welcome back to the private economy.
-          </h1>
-          <p className="text-text-secondary text-lg">
-            Access your dashboard to track orders, manage settings, and pay utilities with zero KYC.
-          </p>
-        </div>
-      </div>
 
-      <div className="flex w-full flex-col justify-center px-8 sm:px-16 lg:w-1/2 xl:px-24">
-        <div className="mx-auto w-full max-w-sm">
-          <div className="mb-10 lg:hidden">
-            <Link href="/" className="font-dela text-2xl tracking-tight">
-              <span className="text-accent-zec">z</span>utility
+        <div className="space-y-1.5">
+          <div className="flex items-baseline justify-between">
+            <label htmlFor="password" className="block text-[13px] font-medium text-ink">
+              Password
+            </label>
+            <Link
+              href="/forgot-password"
+              className="text-[12px] text-muted transition-colors hover:text-ink"
+            >
+              Forgot password
             </Link>
           </div>
-
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4 }}
-          >
-            <h2 className="font-dela text-3xl mb-2">Log In</h2>
-            <p className="text-text-secondary mb-8">
-              Don&apos;t have an account?{" "}
-              <Link href="/signup" className="text-accent-zec hover:underline">
-                Sign up
-              </Link>
-            </p>
-
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
-              <div className="space-y-1">
-                <Input
-                  {...register("email")}
-                  type="email"
-                  placeholder="Email address"
-                  leftIcon={<MailFilledIcon size={20} />}
-                  error={errors.email?.message}
-                />
-              </div>
-              
-              <div className="space-y-1">
-                <Input
-                  {...register("password")}
-                  type="password"
-                  placeholder="Password"
-                  leftIcon={<LockIcon size={20} />}
-                  error={errors.password?.message}
-                />
-                <div className="flex justify-end pt-1">
-                  <Link href="/forgot-password" className="text-xs text-text-muted hover:text-text-primary transition-colors">
-                    Forgot password?
-                  </Link>
-                </div>
-              </div>
-
-              <Button type="submit" className="w-full h-12 text-base mt-4" loading={isLoading}>
-                Log In <ArrowNarrowRightIcon size={16} className="ml-2" />
-              </Button>
-            </form>
-          </motion.div>
+          <Input
+            id="password"
+            {...register("password")}
+            type={showPassword ? "text" : "password"}
+            autoComplete="current-password"
+            placeholder="Your password"
+            error={errors.password?.message}
+            rightElement={
+              <button
+                type="button"
+                onClick={() => setShowPassword((value) => !value)}
+                className="flex h-8 w-8 items-center justify-center rounded-md text-muted transition-colors hover:text-ink"
+                aria-label={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            }
+          />
         </div>
-      </div>
-    </div>
+
+        <Button type="submit" className="mt-2 w-full" size="lg" loading={isLoading}>
+          Sign in
+        </Button>
+      </form>
+    </AuthShell>
   )
 }

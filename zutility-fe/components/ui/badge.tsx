@@ -3,22 +3,17 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const badgeVariants = cva(
-  "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+  "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium tracking-wide",
   {
     variants: {
       variant: {
-        default:
-          "border-transparent bg-bg-elevated text-text-primary hover:bg-bg-elevated/80",
-        live: "border-transparent bg-accent-green/10 text-accent-green hover:bg-accent-green/20",
-        "coming-soon":
-          "border-transparent bg-accent-zec/10 text-accent-zec hover:bg-accent-zec/20",
-        success:
-          "border-transparent bg-accent-green/10 text-accent-green hover:bg-accent-green/20",
-        warning:
-          "border-transparent bg-accent-zec/10 text-accent-zec hover:bg-accent-zec/20",
-        error:
-          "border-transparent bg-accent-red/10 text-accent-red hover:bg-accent-red/20",
-        outline: "text-text-primary border-border-subtle",
+        default: "border-line bg-paper-2 text-ink-2",
+        live: "border-green/25 bg-green/8 text-green",
+        "coming-soon": "border-line bg-transparent text-muted",
+        success: "border-green/25 bg-green/8 text-green",
+        warning: "border-gold-deep/25 bg-gold/15 text-gold-deep",
+        error: "border-rust/25 bg-rust/8 text-rust",
+        outline: "border-line-strong bg-transparent text-ink-2",
       },
     },
     defaultVariants: {
@@ -35,10 +30,7 @@ function Badge({ className, variant, ...props }: BadgeProps) {
   return (
     <div className={cn(badgeVariants({ variant }), className)} {...props}>
       {variant === 'live' && (
-        <span className="mr-1.5 flex h-2 w-2 relative">
-          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent-green opacity-75"></span>
-          <span className="relative inline-flex rounded-full h-2 w-2 bg-accent-green"></span>
-        </span>
+        <span className="h-1.5 w-1.5 rounded-full bg-green" aria-hidden="true" />
       )}
       {props.children}
     </div>

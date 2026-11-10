@@ -2,15 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { motion, AnimatePresence } from "motion/react"
-import FilledBellIcon from "@/components/icons/filled-bell-icon"
-import CheckedIcon from "@/components/icons/checked-icon"
-import TriangleAlertIcon from "@/components/icons/triangle-alert-icon"
-import ClockIcon from "@/components/icons/clock-icon"
-import XIcon from "@/components/icons/x-icon"
-import DoubleCheckIcon from "@/components/icons/double-check-icon"
-import { Loader2 } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import { Bell, BellOff, Check, Clock, Loader2, TriangleAlert, X } from "lucide-react"
 import { useNotifications, type Notification } from "@/lib/hooks/useNotifications"
 import { cn } from "@/lib/utils"
 
@@ -26,28 +18,27 @@ function timeAgo(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString()
 }
 
-function getNotificationIcon(type: string) {
+function NotificationIcon({ type }: { type: string }) {
+  const className = "h-3.5 w-3.5"
   switch (type) {
     case "payment_detected":
-      return <ClockIcon size={16} className="text-accent-zec" />
+      return <Clock className={cn(className, "text-gold-deep")} />
     case "payment_confirmed":
-      return <CheckedIcon size={16} className="text-accent-green" />
-    case "utility_dispatching":
-      return <Loader2 className="h-4 w-4 text-accent-zec animate-spin" />
     case "order_completed":
-      return <CheckedIcon size={16} className="text-accent-green" />
+      return <Check className={cn(className, "text-green")} />
+    case "utility_dispatching":
+      return <Loader2 className={cn(className, "animate-spin text-gold-deep")} />
     case "order_failed":
-      return <XIcon size={16} className="text-accent-red" />
+      return <X className={cn(className, "text-rust")} />
     case "order_expired":
-      return <TriangleAlertIcon size={16} className="text-text-muted" />
     case "order_flagged":
-      return <TriangleAlertIcon size={16} className="text-accent-zec" />
+      return <TriangleAlert className={cn(className, "text-gold-deep")} />
     default:
-      return <FilledBellIcon size={16} className="text-text-muted" />
+      return <Bell className={cn(className, "text-muted")} />
   }
 }
 
-function NotificationItem({
+function NotificationRow({
   notification,
   onMarkRead,
 }: {
@@ -56,35 +47,37 @@ function NotificationItem({
 }) {
   const href = notification.order_id ? `/pay/${notification.order_id}` : null
 
-  const content = (
+  const body = (
     <div
       className={cn(
-        "flex items-start gap-3 p-3 transition-colors cursor-pointer",
-        notification.read ? "bg-bg-surface" : "bg-bg-elevated",
-        href && "hover:bg-bg-elevated"
+        "flex items-start gap-2.5 px-4 py-3 transition-colors hover:bg-paper-2",
+        notification.read ? "bg-cream" : "bg-paper"
       )}
       onClick={() => {
         if (!notification.read) onMarkRead(notification.id)
       }}
     >
-      <div className="mt-0.5 shrink-0">{getNotificationIcon(notification.type)}</div>
-      <div className="flex-1 min-w-0">
-        <p className={cn("text-sm leading-snug", notification.read ? "text-text-secondary" : "text-text-primary font-medium")}>
+      <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-line">
+        <NotificationIcon type={notification.type} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p
+          className={cn(
+            "text-[13px] leading-snug",
+            notification.read ? "text-ink-2" : "font-medium text-ink"
+          )}
+        >
           {notification.title}
         </p>
-        <p className="text-xs text-text-muted mt-0.5 line-clamp-2">{notification.body}</p>
-        <p className="text-[10px] text-text-muted mt-1">{timeAgo(notification.created_at)}</p>
+        <p className="mt-0.5 line-clamp-2 text-[12px] text-muted">{notification.body}</p>
+        <p className="mt-1 text-[11px] text-muted">{timeAgo(notification.created_at)}</p>
       </div>
-      {!notification.read && (
-        <div className="mt-1.5 h-2 w-2 rounded-full bg-accent-zec shrink-0" />
-      )}
+      {!notification.read && <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-gold" />}
     </div>
   )
 
-  if (href) {
-    return <Link href={href}>{content}</Link>
-  }
-  return content
+  if (href) return <Link href={href}>{body}</Link>
+  return body
 }
 
 export function NotificationDropdown() {
@@ -106,69 +99,67 @@ export function NotificationDropdown() {
     <div className="relative" ref={dropdownRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="relative text-text-secondary hover:text-text-primary transition-colors"
+        className="relative flex h-8 w-8 items-center justify-center rounded-md text-muted transition-colors hover:bg-cream hover:text-ink"
         aria-label="Notifications"
       >
-        <FilledBellIcon size={20} />
+        <Bell className="h-4 w-4" strokeWidth={1.7} />
         {unreadCount > 0 && (
-          <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-accent-red text-white text-[10px] font-bold px-1">
+          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-gold px-1 text-[9px] font-semibold text-ink">
             {unreadCount > 99 ? "99+" : unreadCount}
           </span>
         )}
       </button>
 
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            initial={{ opacity: 0, y: -8, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -8, scale: 0.95 }}
-            transition={{ duration: 0.15 }}
-            className="absolute right-0 top-full mt-2 w-80 sm:w-96 rounded-xl border border-border-subtle bg-bg-surface shadow-xl z-50 overflow-hidden"
-          >
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle">
-              <h3 className="text-sm font-semibold">Notifications</h3>
-              <div className="flex items-center gap-2">
-                {unreadCount > 0 && (
-                  <button
-                    onClick={markAllRead}
-                    className="text-xs text-accent-zec hover:underline flex items-center gap-1"
-                  >
-                    <DoubleCheckIcon size={14} />
-                    Mark all read
-                  </button>
-                )}
+      {isOpen && (
+        <div className="absolute right-0 top-full z-50 mt-2 w-80 overflow-hidden rounded-lg border border-line bg-cream shadow-[0_8px_24px_rgba(20,19,15,0.12)] sm:w-96">
+          <div className="flex items-center justify-between border-b border-line px-4 py-2.5">
+            <h3 className="text-[13px] font-medium text-ink">Notifications</h3>
+            <div className="flex items-center gap-2">
+              {unreadCount > 0 && (
                 <button
-                  onClick={() => setIsOpen(false)}
-                  className="text-text-muted hover:text-text-primary"
+                  onClick={markAllRead}
+                  className="text-[11px] text-gold-deep u-link"
                 >
-                  <XIcon size={16} />
+                  Mark all read
                 </button>
-              </div>
-            </div>
-
-            <div className="max-h-96 overflow-y-auto">
-              {loading ? (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 className="h-5 w-5 animate-spin text-text-muted" />
-                </div>
-              ) : notifications.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 text-center">
-                  <FilledBellIcon size={32} className="text-text-muted mb-2" />
-                  <p className="text-sm text-text-secondary">No notifications yet</p>
-                  <p className="text-xs text-text-muted mt-1">We'll notify you about your orders</p>
-                </div>
-              ) : (
-                <div className="divide-y divide-border-subtle">
-                  {notifications.map((n) => (
-                    <NotificationItem key={n.id} notification={n} onMarkRead={markRead} />
-                  ))}
-                </div>
               )}
+              <button
+                onClick={() => setIsOpen(false)}
+                className="flex h-6 w-6 items-center justify-center rounded-md text-muted hover:text-ink"
+                aria-label="Close notifications"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          </div>
+
+          <div className="max-h-96 overflow-y-auto">
+            {loading ? (
+              <div className="flex items-center justify-center py-10">
+                <Loader2 className="h-4 w-4 animate-spin text-muted" />
+              </div>
+            ) : notifications.length === 0 ? (
+              <div className="flex flex-col items-center justify-center px-4 py-10 text-center">
+                <BellOff className="h-5 w-5 text-muted" strokeWidth={1.6} />
+                <p className="mt-2 text-[13px] text-ink">Nothing yet</p>
+                <p className="mt-1 text-[12px] text-muted">
+                  Order updates appear here.
+                </p>
+              </div>
+            ) : (
+              <div className="divide-y divide-line">
+                {notifications.map((notification) => (
+                  <NotificationRow
+                    key={notification.id}
+                    notification={notification}
+                    onMarkRead={markRead}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

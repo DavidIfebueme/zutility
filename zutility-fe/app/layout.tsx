@@ -1,35 +1,49 @@
 import type { Metadata } from 'next';
-import { Dela_Gothic_One, DM_Sans, JetBrains_Mono } from 'next/font/google';
-import { Toaster } from 'sonner';
+import { Fraunces, Geist, Geist_Mono } from 'next/font/google';
+import { AppToaster, ThemeProvider } from '@/components/theme-provider';
 import './globals.css';
 
-const delaGothicOne = Dela_Gothic_One({
-  weight: '400',
+const fraunces = Fraunces({
   subsets: ['latin'],
-  variable: '--font-dela',
+  variable: '--font-fraunces',
+  display: 'swap',
 });
 
-const dmSans = DM_Sans({
+const geist = Geist({
   subsets: ['latin'],
-  variable: '--font-dm',
+  variable: '--font-geist',
+  display: 'swap',
 });
 
-const jetbrainsMono = JetBrains_Mono({
+const geistMono = Geist_Mono({
   subsets: ['latin'],
-  variable: '--font-mono',
+  variable: '--font-geist-mono',
+  display: 'swap',
 });
+
+const themeScript = `(function(){try{var t=localStorage.getItem('zutility-theme')||'system';var d=t==='dark'||(t==='system'&&window.matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.classList.toggle('dark',d);document.documentElement.style.colorScheme=d?'dark':'light';}catch(e){}})();`;
 
 export const metadata: Metadata = {
-  title: 'zutility | Privacy Tokens to Utilities',
-  description: 'African platform bridging privacy tokens to local currency and utility payments. No KYC required.',
+  title: 'zutility | Pay utilities with Zcash',
+  description:
+    'Pay electricity, airtime, data, and TV with ZEC. No KYC. Pay from any Zcash wallet.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${delaGothicOne.variable} ${dmSans.variable} ${jetbrainsMono.variable}`}>
-      <body className="font-dm bg-bg-void text-text-primary antialiased" suppressHydrationWarning>
-        {children}
-        <Toaster theme="dark" position="bottom-right" />
+    <html
+      lang="en"
+      className={`${fraunces.variable} ${geist.variable} ${geistMono.variable}`}
+      suppressHydrationWarning
+    >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+      </head>
+      <body className="font-sans bg-paper text-ink antialiased" suppressHydrationWarning>
+        <ThemeProvider>
+          {children}
+          <AppToaster />
+        </ThemeProvider>
       </body>
     </html>
   );

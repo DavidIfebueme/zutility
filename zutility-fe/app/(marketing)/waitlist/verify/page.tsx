@@ -2,21 +2,16 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useSearchParams } from "next/navigation"
 import { Suspense } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
-import { motion } from "motion/react"
-import MailFilledIcon from "@/components/icons/mail-filled-icon"
-import ArrowNarrowRightIcon from "@/components/icons/arrow-narrow-right-icon"
-import RefreshIcon from "@/components/icons/refresh-icon"
-import CheckedIcon from "@/components/icons/checked-icon"
+import { ArrowRight, Check, Loader2, MailCheck } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { AuthShell } from "@/components/auth/auth-shell"
 import { apiPost } from "@/lib/api"
-import { toast } from "sonner"
 
 const resendSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -31,31 +26,31 @@ interface VerifyResult {
 }
 
 function WaitlistVerifyContent() {
-  const router = useRouter()
   const searchParams = useSearchParams()
   const tokenParam = searchParams.get("token")
-  const [isVerifying, setIsVerifying] = React.useState(false)
+  const [isVerifying, setIsVerifying] = React.useState(Boolean(tokenParam))
   const [verified, setVerified] = React.useState<VerifyResult | null>(null)
+  const [verifyFailed, setVerifyFailed] = React.useState(false)
   const [cooldown, setCooldown] = React.useState(60)
   const [isResending, setIsResending] = React.useState(false)
+  const [resendError, setResendError] = React.useState<string | null>(null)
+  const [resent, setResent] = React.useState(false)
 
   React.useEffect(() => {
-    if (cooldown > 0) {
-      const timer = setTimeout(() => setCooldown(cooldown - 1), 1000)
-      return () => clearTimeout(timer)
-    }
+    if (cooldown <= 0) return
+    const timer = setTimeout(() => setCooldown(cooldown - 1), 1000)
+    return () => clearTimeout(timer)
   }, [cooldown])
 
   React.useEffect(() => {
     if (!tokenParam) return
-    setIsVerifying(true)
     apiPost<VerifyResult>("/api/v1/waitlist/verify", { token: tokenParam })
       .then((result) => {
         setVerified(result)
-        toast.success("Email verified! You're on the list.")
+        setVerifyFailed(false)
       })
       .catch(() => {
-        toast.error("Invalid or expired verification link.")
+        setVerifyFailed(true)
       })
       .finally(() => setIsVerifying(false))
   }, [tokenParam])
@@ -71,12 +66,14 @@ function WaitlistVerifyContent() {
   const handleResend = async (data: ResendFormValues) => {
     if (cooldown > 0) return
     setIsResending(true)
+    setResendError(null)
+    setResent(false)
     try {
       await apiPost("/api/v1/waitlist/resend", { email: data.email })
-      toast.success("Verification email resent!")
+      setResent(true)
       setCooldown(60)
     } catch {
-      toast.error("Failed to resend. Please try again.")
+      setResendError("The email did not go out. Try again in a moment.")
     } finally {
       setIsResending(false)
     }
@@ -86,100 +83,120 @@ function WaitlistVerifyContent() {
     ? `${window.location.origin}/waitlist?ref=${verified.referral_code}`
     : ""
 
+  const status = verified
+    ? "Your place is held."
+    : isVerifying
+      ? "Checking the link."
+      : verifyFailed
+        ? "This link is invalid or has expired."
+        : "Waiting for the link to be opened."
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-bg-void p-4">
-      <div className="absolute top-8 left-8">
-        <Link href="/" className="font-dela text-2xl tracking-tight">
-          <span className="text-accent-zec">z</span>utility
-        </Link>
+    <AuthShell
+      title={verified ? "Email verified" : "Verify your email"}
+      subtitle={
+        verified
+          ? `You are #${verified.position} in line for early access.`
+          : "Open the link in the waitlist email to hold your place."
+      }
+    >
+      <div className="flex items-center gap-3 rounded-lg border border-line bg-paper px-4 py-3">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-gold/20 text-gold-deep">
+          {isVerifying && !verified ? (
+            <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.6} />
+          ) : (
+            <MailCheck className="h-4 w-4" strokeWidth={1.6} />
+          )}
+        </span>
+        <p className="text-[13px] text-ink-2" aria-live="polite">
+          {status}
+        </p>
       </div>
 
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.4 }}
-        className="w-full max-w-md"
-      >
-        <Card className="border-border-subtle shadow-2xl">
-          <CardHeader className="text-center pb-2">
-            <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-accent-zec/10 text-accent-zec">
-              {verified ? (
-                <CheckedIcon size={32} />
-              ) : (
-                <MailFilledIcon size={32} />
-              )}
+      {verified ? (
+        <div className="mt-5">
+          <dl className="rounded-lg border border-line bg-paper">
+            <div className="flex items-baseline justify-between border-b border-line px-4 py-3">
+              <dt className="text-[13px] text-muted">Position</dt>
+              <dd className="num text-[15px] text-ink">#{verified.position}</dd>
             </div>
-            <CardTitle className="text-2xl font-dela">
-              {verified ? "You're verified!" : "Verify your email"}
-            </CardTitle>
-            <CardDescription className="text-base mt-2">
-              {verified
-                ? `You're #${verified.position} in line for early access.`
-                : isVerifying
-                  ? "Verifying your email..."
-                  : "Confirm your email to secure your spot on the waitlist."}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col items-center gap-6 pt-6">
-            {verified ? (
-              <div className="w-full space-y-4">
-                <div className="rounded-lg bg-bg-elevated border border-border-subtle p-4 text-center">
-                  <p className="text-sm text-text-secondary mb-1">Your position</p>
-                  <p className="text-3xl font-dela text-accent-zec">#{verified.position}</p>
-                </div>
-                <div className="rounded-lg bg-bg-elevated border border-border-subtle p-4">
-                  <p className="text-sm text-text-secondary mb-2">Share your referral link</p>
-                  <code className="text-xs text-accent-zec break-all">{shareUrl}</code>
-                  <p className="text-xs text-text-muted mt-2">
-                    Code: <span className="font-mono text-text-primary">{verified.referral_code}</span>
-                  </p>
-                </div>
-                <Link href="/signup">
-                  <Button variant="primary" className="w-full mt-2">
-                    Create Account <ArrowNarrowRightIcon size={16} className="ml-2" />
-                  </Button>
-                </Link>
-              </div>
-            ) : isVerifying ? (
-              <div className="flex items-center gap-2 text-sm text-text-muted">
-                <RefreshIcon size={16} className="animate-spin" />
-                Verifying your email...
-              </div>
-            ) : (
-              <div className="w-full border-t border-border-subtle pt-6 text-center">
-                <p className="text-sm text-text-secondary mb-4">
-                  Need a new verification email?
-                </p>
-                <form onSubmit={handleSubmit(handleResend)} className="space-y-3">
-                  <Input
-                    {...register("email")}
-                    type="email"
-                    placeholder="Your email address"
-                     leftIcon={<MailFilledIcon size={20} />}
-                    error={errors.email?.message}
-                  />
-                  <Button
-                    variant="secondary"
-                    type="submit"
-                    disabled={cooldown > 0 || isResending}
-                    loading={isResending}
-                    className="w-full"
-                  >
-                    {cooldown > 0 ? `Resend available in ${cooldown}s` : "Resend Email"}
-                  </Button>
-                </form>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </motion.div>
-    </div>
+            <div className="flex items-baseline justify-between border-b border-line px-4 py-3">
+              <dt className="text-[13px] text-muted">Referral code</dt>
+              <dd className="num text-[13px] text-ink">{verified.referral_code}</dd>
+            </div>
+            <div className="px-4 py-3">
+              <dt className="text-[13px] text-muted">Referral link</dt>
+              <dd className="num mt-1 break-all text-[12px] text-ink-2">{shareUrl}</dd>
+            </div>
+          </dl>
+
+          <Button asChild className="mt-4 w-full" size="lg">
+            <Link href="/signup">
+              Create an account
+              <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover/btn:translate-x-0.5" strokeWidth={1.8} />
+            </Link>
+          </Button>
+          <p className="mt-3 text-center text-[12px] text-muted">
+            You can also{" "}
+            <Link
+              href="/waitlist"
+              className="text-gold-deep u-link"
+            >
+              return to the waitlist page
+            </Link>
+            .
+          </p>
+        </div>
+      ) : isVerifying ? null : (
+        <div className="mt-5 border-t border-line pt-5">
+          <p className="text-[13px] text-muted">
+            {verifyFailed ? "Request a new link." : "Nothing arrived?"}
+          </p>
+          <form onSubmit={handleSubmit(handleResend)} className="mt-3 space-y-3" noValidate>
+            <Input
+              {...register("email")}
+              type="email"
+              autoComplete="email"
+              placeholder="you@example.com"
+              aria-label="Email address"
+              error={errors.email?.message}
+            />
+            <Button
+              variant="secondary"
+              type="submit"
+              disabled={cooldown > 0 || isResending}
+              loading={isResending}
+              className="w-full"
+            >
+              {cooldown > 0 ? `Resend in ${cooldown}s` : "Resend the email"}
+            </Button>
+          </form>
+          {resent && (
+            <p className="mt-3 flex items-center gap-1.5 text-[12px] text-green">
+              <Check className="h-4 w-4" strokeWidth={1.8} />
+              A new link is on the way.
+            </p>
+          )}
+          {resendError && (
+            <p className="mt-3 text-[12px] text-rust" aria-live="polite">
+              {resendError}
+            </p>
+          )}
+        </div>
+      )}
+    </AuthShell>
   )
 }
 
 export default function WaitlistVerifyPage() {
   return (
-    <Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-bg-void text-text-muted">Loading...</div>}>
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-paper text-muted">
+          Loading
+        </div>
+      }
+    >
       <WaitlistVerifyContent />
     </Suspense>
   )
