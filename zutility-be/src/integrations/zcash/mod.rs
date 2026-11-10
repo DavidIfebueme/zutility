@@ -19,7 +19,7 @@ pub use mock_client::MockZcashClient;
 pub use rpc_adapter::ZcashRpcAdapter;
 pub use zingo_client::ZingoClient;
 
-use crate::config::{AppConfig, AppEnv, ZcashRpcMode as ConfigRpcMode};
+use crate::config::{AppConfig, AppEnv, ZcashBackend, ZcashRpcMode as ConfigRpcMode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ZcashNetwork {
@@ -496,6 +496,21 @@ pub fn validate_runtime_network_policy(config: &AppConfig) -> Result<()> {
         );
     }
     Ok(())
+}
+
+pub fn validate_production_backend(config: &AppConfig) -> Result<()> {
+    if !matches!(config.app_env, AppEnv::Prod) {
+        return Ok(());
+    }
+    match &config.zcash_backend {
+        ZcashBackend::Zingolib => Ok(()),
+        ZcashBackend::Mock => anyhow::bail!(
+            "production must set ZCASH_BACKEND=zingolib; the mock backend is not allowed"
+        ),
+        ZcashBackend::Rpc => anyhow::bail!(
+            "production must use ZCASH_BACKEND=zingolib; the zcashd RPC backend cannot handle Ironwood"
+        ),
+    }
 }
 
 pub fn validate_rpc_socket_policy(config: &AppConfig) -> Result<()> {

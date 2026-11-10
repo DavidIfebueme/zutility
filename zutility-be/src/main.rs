@@ -9,7 +9,7 @@ use zutility_be::{
     config::{AppConfig, ZcashBackend},
     http,
     integrations::zcash::{
-        validate_runtime_network_policy, validate_rpc_socket_policy,
+        validate_runtime_network_policy, validate_production_backend, validate_rpc_socket_policy,
         MockZcashClient, ZcashClient, ZcashRpcAdapter, ZcashRpcClient, ZingoClient,
     },
     observability, runtime,
@@ -21,6 +21,7 @@ async fn main() -> Result<()> {
     let config = AppConfig::from_env()?;
     let config = config.validate()?;
     validate_runtime_network_policy(&config)?;
+    validate_production_backend(&config)?;
     validate_rpc_socket_policy(&config)?;
 
     let pool = PgPoolOptions::new()

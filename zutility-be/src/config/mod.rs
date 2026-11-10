@@ -244,6 +244,12 @@ impl AppConfig {
 
         ensure_non_empty("APP_BASE_URL", &self.app_base_url)?;
 
+        if self.zingo_wallet_birthday == 0 {
+            tracing::warn!(
+                "ZINGO_WALLET_BIRTHDAY is 0; the wallet will scan from genesis and may take hours"
+            );
+        }
+
         Ok(self)
     }
 
