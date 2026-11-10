@@ -1,8 +1,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use async_trait::async_trait;
 use anyhow::{Context, Result};
+use async_trait::async_trait;
 use rust_decimal::Decimal;
 use tokio::sync::RwLock;
 use zingolib::config::{ChainType, ClientConfig, WalletConfig};
@@ -11,8 +11,8 @@ use zingolib::wallet::keys::unified::ReceiverSelection;
 use zingolib::wallet::summary::data::{SendType, TransactionKind};
 
 use super::{
-    ZcashClient, BlockchainInfo, ReceivedNote, TransparentPaymentObservation,
-    WalletBalanceInfo, ZATOSHI_PER_ZEC,
+    BlockchainInfo, ReceivedNote, TransparentPaymentObservation, WalletBalanceInfo,
+    ZATOSHI_PER_ZEC, ZcashClient,
 };
 
 #[derive(Clone)]
@@ -85,14 +85,18 @@ impl ZingoClient {
             _ => "unknown",
         };
         let wallet_dir = std::path::PathBuf::from(wallet_dir).join(network_name);
-        std::fs::create_dir_all(&wallet_dir)
-            .with_context(|| format!("failed to create wallet directory {}", wallet_dir.display()))?;
+        std::fs::create_dir_all(&wallet_dir).with_context(|| {
+            format!("failed to create wallet directory {}", wallet_dir.display())
+        })?;
 
         let wallet_path = wallet_dir.join("zingo-wallet.dat");
         let wallet_exists = wallet_path.exists();
 
         let wallet_config = if wallet_exists {
-            tracing::info!("loading existing zingolib wallet from {}", wallet_path.display());
+            tracing::info!(
+                "loading existing zingolib wallet from {}",
+                wallet_path.display()
+            );
             WalletConfig::Read
         } else {
             tracing::info!("creating new zingolib wallet at {}", wallet_path.display());
@@ -108,7 +112,8 @@ impl ZingoClient {
             .set_chain_type(chain_type)
             .set_wallet_dir(wallet_dir.clone())
             .set_wallet_config(wallet_config)
-            .build();
+            .build()
+            .map_err(|e| anyhow::anyhow!("zingolib client config failed: {e}"))?;
 
         let overwrite = !wallet_exists;
         let mut client = LightClient::new(config, overwrite)
@@ -125,12 +130,17 @@ impl ZingoClient {
                     #[cfg(unix)]
                     {
                         use std::os::unix::fs::PermissionsExt;
-                        let _ = std::fs::set_permissions(&seed_path, std::fs::Permissions::from_mode(0o600));
+                        let _ = std::fs::set_permissions(
+                            &seed_path,
+                            std::fs::Permissions::from_mode(0o600),
+                        );
                     }
                     tracing::warn!(path = %seed_path.display(), "new zingolib wallet created — seed phrase written to file; back it up securely and remove from server if possible");
                 }
             } else {
-                tracing::warn!("new zingolib wallet created but no mnemonic phrase was available — ensure wallet is recoverable");
+                tracing::warn!(
+                    "new zingolib wallet created but no mnemonic phrase was available — ensure wallet is recoverable"
+                );
             }
         }
 
@@ -158,7 +168,10 @@ impl ZingoClient {
                 }
             }
             if let Some(e) = last_err {
-                return Err(anyhow::anyhow!("zingolib initial sync failed after {} retries: {e}", retry_policy.max_retries));
+                return Err(anyhow::anyhow!(
+                    "zingolib initial sync failed after {} retries: {e}",
+                    retry_policy.max_retries
+                ));
             }
         }
 
@@ -196,13 +209,14 @@ impl ZingoClient {
                     }
                 }
 
-                let info_str = cl.do_info().await;
+                let info = cl
+                    .info()
+                    .await
+                    .map_err(|e| anyhow::anyhow!("zingolib info failed: {e}"))?;
                 drop(cl);
 
-                if let Some(height) = parse_chain_tip_from_info(&info_str) {
-                    let mut tip = chain_tip.write().await;
-                    *tip = height;
-                }
+                let mut tip = chain_tip.write().await;
+                *tip = info.latest_block_height;
 
                 Ok(())
             }
@@ -226,13 +240,14 @@ impl ZingoClient {
             let chain_tip = chain_tip.clone();
             async move {
                 let mut cl = client.write().await;
-                let info_str = cl.do_info().await;
+                let info = cl
+                    .info()
+                    .await
+                    .map_err(|e| anyhow::anyhow!("zingolib info failed: {e}"))?;
                 drop(cl);
 
-                if let Some(height) = parse_chain_tip_from_info(&info_str) {
-                    let mut tip = chain_tip.write().await;
-                    *tip = height;
-                }
+                let mut tip = chain_tip.write().await;
+                *tip = info.latest_block_height;
 
                 Ok(())
             }
@@ -242,22 +257,32 @@ impl ZingoClient {
 
     pub async fn get_wallet_balance(&self) -> Result<WalletBalanceInfo> {
         let client = self.client.read().await;
-        let balance = client.account_balance(zip32::AccountId::ZERO).await
+        let balance = client
+            .account_balance(zip32::AccountId::ZERO)
+            .await
             .map_err(|e| anyhow::anyhow!("account_balance failed: {e}"))?;
         drop(client);
 
-        let transparent_zats = balance.total_transparent_balance
+        let transparent_zats = balance
+            .total_transparent_balance
             .as_ref()
             .map(|z| z.into_u64())
             .unwrap_or(0);
-        let shielded_zats = balance.total_orchard_balance
+        let shielded_zats = balance
+            .total_ironwood_balance
             .as_ref()
             .map(|z| z.into_u64())
             .unwrap_or(0)
-            + balance.total_sapling_balance
-            .as_ref()
-            .map(|z| z.into_u64())
-            .unwrap_or(0);
+            + balance
+                .total_orchard_balance
+                .as_ref()
+                .map(|z| z.into_u64())
+                .unwrap_or(0)
+            + balance
+                .total_sapling_balance
+                .as_ref()
+                .map(|z| z.into_u64())
+                .unwrap_or(0);
         let total_zats = transparent_zats + shielded_zats;
 
         Ok(WalletBalanceInfo {
@@ -272,24 +297,14 @@ impl ZingoClient {
     }
 }
 
-fn parse_chain_tip_from_info(info: &str) -> Option<u64> {
-    for line in info.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with("latest_block_height:") || trimmed.starts_with("\"latest_block_height\"") {
-            let parts: Vec<&str> = trimmed.splitn(2, ':').collect();
-            if parts.len() == 2 {
-                return parts[1].trim().trim_matches('"').trim().parse().ok();
-            }
-        }
-    }
-    None
-}
-
 fn zatoshis_to_zec(zat: u64) -> Decimal {
     Decimal::from(zat) / Decimal::from(ZATOSHI_PER_ZEC)
 }
 
-fn confirmation_count_from_status(status: &zingo_status::confirmation_status::ConfirmationStatus, chain_tip: u64) -> u64 {
+fn confirmation_count_from_status(
+    status: &zingo_status::confirmation_status::ConfirmationStatus,
+    chain_tip: u64,
+) -> u64 {
     match status {
         zingo_status::confirmation_status::ConfirmationStatus::Confirmed(height) => {
             let confirmed_at: u32 = (*height).into();
@@ -318,19 +333,17 @@ impl ZcashClient for ZingoClient {
 
     async fn get_blockchain_info(&self) -> Result<BlockchainInfo> {
         let mut client = self.client.write().await;
-        let _info_str = client.do_info().await;
+        let info = client
+            .info()
+            .await
+            .map_err(|e| anyhow::anyhow!("zingolib info failed: {e}"))?;
         drop(client);
 
-        let chain_tip = self.current_chain_tip().await;
-
-        let chain = if matches!(self.chain_type, ChainType::Testnet) {
-            "test"
-        } else {
-            "main"
-        };
+        let chain_tip = info.latest_block_height;
+        *self.chain_tip.write().await = chain_tip;
 
         Ok(BlockchainInfo {
-            chain: chain.to_owned(),
+            chain: info.chain_name,
             blocks: chain_tip,
             headers: chain_tip,
             verification_progress: if chain_tip > 0 { 1.0 } else { 0.0 },
@@ -347,7 +360,10 @@ impl ZcashClient for ZingoClient {
             .await
             .map_err(|e| anyhow::anyhow!("zingolib transparent address generation failed: {e}"))?;
 
-        Ok(pepper_sync::keys::transparent::encode_address(&self.chain_type, address))
+        Ok(pepper_sync::keys::transparent::encode_address(
+            &self.chain_type,
+            address,
+        ))
     }
 
     async fn generate_shielded_address(&self) -> Result<String> {
@@ -386,16 +402,18 @@ impl ZcashClient for ZingoClient {
             })
             .collect();
 
-        let total_received_zat: u64 = relevant.iter().map(|tx| {
-            match tx.kind {
+        let total_received_zat: u64 = relevant
+            .iter()
+            .map(|tx| match tx.kind {
                 TransactionKind::Sent(SendType::SendToSelf) => {
-                    tx.orchard_notes.iter().map(|n| n.value).sum::<u64>()
+                    tx.ironwood_notes.iter().map(|n| n.value).sum::<u64>()
+                        + tx.orchard_notes.iter().map(|n| n.value).sum::<u64>()
                         + tx.sapling_notes.iter().map(|n| n.value).sum::<u64>()
                         + tx.transparent_coins.iter().map(|c| c.value).sum::<u64>()
                 }
                 _ => tx.value,
-            }
-        }).sum();
+            })
+            .sum();
         let total_received = zatoshis_to_zec(total_received_zat);
 
         let has_mempool_tx = relevant.iter().any(|tx| {
@@ -408,7 +426,8 @@ impl ZcashClient for ZingoClient {
         let min_confirmed_height = relevant
             .iter()
             .filter_map(|tx| {
-                if let zingo_status::confirmation_status::ConfirmationStatus::Confirmed(h) = tx.status
+                if let zingo_status::confirmation_status::ConfirmationStatus::Confirmed(h) =
+                    tx.status
                 {
                     Some(u64::from(u32::from(h)))
                 } else {
@@ -501,7 +520,8 @@ impl ZcashClient for ZingoClient {
                 let amount = match tx.kind {
                     TransactionKind::Received => zatoshis_to_zec(tx.value),
                     TransactionKind::Sent(SendType::SendToSelf) => {
-                        let note_zats: u64 = tx.orchard_notes.iter().map(|n| n.value).sum::<u64>()
+                        let note_zats: u64 = tx.ironwood_notes.iter().map(|n| n.value).sum::<u64>()
+                            + tx.orchard_notes.iter().map(|n| n.value).sum::<u64>()
                             + tx.sapling_notes.iter().map(|n| n.value).sum::<u64>()
                             + tx.transparent_coins.iter().map(|c| c.value).sum::<u64>();
                         tracing::info!(
@@ -524,7 +544,10 @@ impl ZcashClient for ZingoClient {
             })
             .collect();
 
-        tracing::info!(matching_notes = notes.len(), "list_received_by_address results");
+        tracing::info!(
+            matching_notes = notes.len(),
+            "list_received_by_address results"
+        );
 
         Ok(notes)
     }
@@ -535,15 +558,20 @@ impl ZcashClient for ZingoClient {
 
     async fn health_check(&self) -> Result<()> {
         let mut client = self.client.write().await;
-        let info_str = client.do_info().await;
+        let info = client
+            .info()
+            .await
+            .map_err(|e| anyhow::anyhow!("zingolib info failed: {e}"))?;
         drop(client);
 
-        match parse_chain_tip_from_info(&info_str) {
-            Some(height) if height > 0 => {
-                tracing::debug!(chain_tip = height, "zingolib health check passed");
-                Ok(())
-            }
-            _ => anyhow::bail!("zingolib health check failed — indexer returned no block height"),
+        if info.latest_block_height > 0 {
+            tracing::debug!(
+                chain_tip = info.latest_block_height,
+                "zingolib health check passed"
+            );
+            Ok(())
+        } else {
+            anyhow::bail!("zingolib health check failed, indexer returned no block height")
         }
     }
 }

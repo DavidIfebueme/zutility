@@ -45,11 +45,11 @@ utoipa = { version = "5.4.0", features = ["axum_extras", "chrono", "uuid"] }
 uuid = { version = "1.22.0", features = ["v4", "v7", "serde"] }
 futures-util = "0.3.31"
 hex = "0.4.3"
-zingolib = { git = "https://github.com/DavidIfebueme/zingolib-notor", rev = "aa9990a5" }
-pepper-sync = { git = "https://github.com/DavidIfebueme/zingolib-notor", rev = "aa9990a5" }
-zingo-status = { git = "https://github.com/DavidIfebueme/zingolib-notor", rev = "aa9990a5" }
-zip32 = "0.2"
+zingolib = { git = "https://github.com/zingolabs/zingolib", tag = "zingolib_v8.0.0" }
+pepper-sync = { git = "https://github.com/zingolabs/zingolib", tag = "zingolib_v8.0.0" }
+zingo-status = { git = "https://github.com/zingolabs/zingolib", tag = "zingolib_v8.0.0" }
+zip32 = "0.3.0"
 
 [dev-dependencies]
 proptest = "1.6.0"
-tokio-tungstenite = { version = "0.28.0", default-features = false, features = ["rustls-tls-native-roots"] }
+tokio-tungstenite = { version = "0.28.0", default-features = false, features = ["rustls-tls-native-roots", "connect"] }

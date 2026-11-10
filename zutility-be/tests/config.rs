@@ -49,6 +49,22 @@ fn valid_builder() -> config::ConfigBuilder<config::builder::DefaultState> {
         .expect("set signing_service_hmac_secret")
         .set_override("rate_source_timeout_ms", 3000)
         .expect("set rate_source_timeout_ms")
+        .set_override("zingo_indexer_uri", "https://testnet.zec.rocks")
+        .expect("set zingo_indexer_uri")
+        .set_override("zingo_wallet_dir", "/tmp/zingo-wallet")
+        .expect("set zingo_wallet_dir")
+        .set_override("zingo_sync_retries", 3)
+        .expect("set zingo_sync_retries")
+        .set_override("zingo_sync_retry_delay_ms", 2000)
+        .expect("set zingo_sync_retry_delay_ms")
+        .set_override("jwt_secret", "jwt_secret")
+        .expect("set jwt_secret")
+        .set_override("access_token_ttl_minutes", 15)
+        .expect("set access_token_ttl_minutes")
+        .set_override("refresh_token_ttl_hours", 24)
+        .expect("set refresh_token_ttl_hours")
+        .set_override("app_base_url", "http://localhost:3000")
+        .expect("set app_base_url")
 }
 
 #[test]
@@ -91,6 +107,8 @@ fn fails_validation_when_secret_is_empty() {
 #[test]
 fn fails_validation_for_unix_mode_without_socket_path() {
     let config_map = valid_builder()
+        .set_override("zcash_backend", "rpc")
+        .expect("set override")
         .set_override("zcash_rpc_mode", "unix")
         .expect("set override")
         .set_override("zcash_rpc_socket_path", "")
@@ -105,6 +123,8 @@ fn fails_validation_for_unix_mode_without_socket_path() {
 #[test]
 fn fails_validation_for_tcp_mode_without_url() {
     let config_map = valid_builder()
+        .set_override("zcash_backend", "rpc")
+        .expect("set override")
         .set_override("zcash_rpc_mode", "tcp")
         .expect("set override")
         .set_override("zcash_rpc_url", "")
