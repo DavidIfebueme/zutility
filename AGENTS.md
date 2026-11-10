@@ -15,7 +15,6 @@ Global pstack rules in `~/.config/opencode/AGENTS.md` still apply. This file add
 - `zutility-be` is the Rust backend. Axum, sqlx, Postgres, zingolib.
 - `zutility-fe` is the Next.js frontend. App router, TypeScript, Tailwind, zustand.
 - `docs/Architecture.md` and `docs/API-Reference.md` describe the system.
-- `docs/nu7-migration-plan.md` is the current migration plan.
 - `setup.md` is gitignored. Never commit secrets, `.env` files, keys, or seeds.
 
 ## Code quality
@@ -33,7 +32,7 @@ Global pstack rules in `~/.config/opencode/AGENTS.md` still apply. This file add
 
 ## Rust
 
-- Edition 2024. `unsafe` is denied. `unwrap`, `expect`, and `panic` are denied in production code. Return `Result` and use `?`.
+- Edition 2024. `unsafe` is denied. `unwrap`, `expect`, and `panic` are denied crate-wide, including tests. Return `Result` and use `?`.
 - Use `thiserror` for domain errors and `anyhow` at the application boundary.
 - Use `rust_decimal::Decimal` for money. Never use `f64` for NGN or ZEC.
 - NGN is stored as integer naira. ZEC uses 8 decimal places.
