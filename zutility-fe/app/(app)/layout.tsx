@@ -84,12 +84,8 @@ function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
 
   return (
     <>
-      <div className="flex h-16 items-center justify-between border-b border-line px-4">
+      <div className="flex h-16 items-center border-b border-line px-4">
         <WordmarkLink />
-        <div className="flex items-center gap-0.5">
-          <ThemeToggle />
-          <NotificationDropdown />
-        </div>
       </div>
 
       <div className="border-b border-line px-4 py-3">
@@ -171,6 +167,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       </aside>
 
       <div className="lg:pl-60">
+        <header className="sticky top-0 z-20 hidden h-14 items-center justify-end gap-1 border-b border-line bg-paper/90 px-6 backdrop-blur-sm lg:flex">
+          <ThemeToggle />
+          <NotificationDropdown />
+        </header>
+
         <header className="sticky top-0 z-20 flex h-16 items-center justify-between gap-3 border-b border-line bg-paper/90 px-4 backdrop-blur-sm lg:hidden">
           <div className="flex items-center gap-2">
             <button

@@ -2,6 +2,24 @@ const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '') || 'http://1
 
 const wsBase = process.env.NEXT_PUBLIC_WS_URL?.replace(/\/$/, '') || apiBase.replace(/^http/, 'ws')
 
+let refreshInFlight: Promise<boolean> | null = null
+
+function refreshSession(): Promise<boolean> {
+  if (!refreshInFlight) {
+    refreshInFlight = fetch(`${apiBase}/api/v1/auth/refresh`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'content-type': 'application/json' },
+    })
+      .then((response) => response.ok)
+      .catch(() => false)
+      .finally(() => {
+        refreshInFlight = null
+      })
+  }
+  return refreshInFlight
+}
+
 export function getApiBaseUrl(): string {
   return apiBase
 }
@@ -31,12 +49,8 @@ function getCsrfToken(): string | null {
 
 async function handleResponse<T>(response: Response, originalRequest: () => Promise<Response>): Promise<T> {
   if (response.status === 401) {
-    const refreshRes = await fetch(`${apiBase}/api/v1/auth/refresh`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'content-type': 'application/json' },
-    })
-    if (refreshRes.ok) {
+    const refreshed = await refreshSession()
+    if (refreshed) {
       const retryRes = await originalRequest()
       if (!retryRes.ok) {
         throw new Error(`Request failed with status ${retryRes.status}`)
@@ -45,7 +59,7 @@ async function handleResponse<T>(response: Response, originalRequest: () => Prom
     }
     if (typeof window !== 'undefined') {
       const { useAuthStore } = require('@/store/auth')
-      useAuthStore.getState().logout()
+      useAuthStore.setState({ user: null, isAuthenticated: false, preferredCurrency: null })
       window.location.href = '/login'
     }
     throw new Error('Session expired')
