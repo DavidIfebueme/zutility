@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { UTILITIES, UTILITY_CATEGORIES, type UtilityType } from "@/lib/constants"
 import { useOrderStore } from "@/store/order"
+import { useAuthStore } from "@/store/auth"
 import { useRate } from "@/lib/hooks/useRate"
 import { apiGet, apiPost } from "@/lib/api"
 import { CreateOrderResponse, UtilityVariationResponse, UtilityValidateResponse } from "@/lib/types"
@@ -55,6 +56,7 @@ function BrandTile({ brandIcon, selected }: { brandIcon: string; selected: boole
 export default function PayPage() {
   const router = useRouter()
   const { setActiveOrder } = useOrderStore()
+  const { user } = useAuthStore()
   const { rate } = useRate()
   const currency = useCurrency()
   const currencySymbol = CURRENCIES[currency]?.symbol || "₦"
@@ -236,7 +238,7 @@ export default function PayPage() {
         variation_code: data.variationCode || undefined,
       })
 
-      setActiveOrder(order)
+      setActiveOrder(order, user?.id ?? null)
       toast.success("Order created")
       router.push(`/pay/${order.order_id}`)
     } catch {

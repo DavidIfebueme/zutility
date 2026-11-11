@@ -80,7 +80,7 @@ function NavLink({
 
 function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
   const { user, logout } = useAuthStore()
-  const { activeOrder } = useOrderStore()
+  const { activeOrder, activeOrderUserId } = useOrderStore()
 
   return (
     <>
@@ -97,7 +97,7 @@ function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
           <NavLink
             key={item.href}
             {...item}
-            dot={Boolean(item.activeOrderDot && activeOrder)}
+            dot={Boolean(item.activeOrderDot && activeOrder && activeOrderUserId === user?.id)}
             onNavigate={onNavigate}
           />
         ))}

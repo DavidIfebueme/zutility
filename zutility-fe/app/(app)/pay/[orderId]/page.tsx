@@ -12,6 +12,7 @@ import { Stepper } from "@/components/ui/stepper"
 import { CountdownTimer } from "@/components/ui/countdown-timer"
 import { ConfirmationProgress } from "@/components/ui/confirmation-progress"
 import { useOrderStore } from "@/store/order"
+import { useAuthStore } from "@/store/auth"
 import { useOrderStream } from "@/lib/hooks/useOrderStream"
 import { apiGet } from "@/lib/api"
 import { formatZEC } from "@/lib/utils"
@@ -82,11 +83,12 @@ export default function OrderPage() {
   const router = useRouter()
   const orderId = params.orderId as string
 
-  const { activeOrder, clearActiveOrder } = useOrderStore()
+  const { user } = useAuthStore()
+  const { activeOrder, activeOrderUserId, clearActiveOrder } = useOrderStore()
   const [recoveredOrder, setRecoveredOrder] = React.useState<CreateOrderResponse | null>(null)
   const requestedOrder = React.useRef(false)
 
-  const isCurrentOrder = activeOrder?.order_id === orderId
+  const isCurrentOrder = activeOrder?.order_id === orderId && activeOrderUserId === user?.id
   const order = isCurrentOrder ? activeOrder : recoveredOrder
 
   React.useEffect(() => {

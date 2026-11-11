@@ -45,7 +45,8 @@ function rateForCurrency(rate: NonNullable<ReturnType<typeof useRate>["rate"]>, 
 
 export default function DashboardPage() {
   const { user } = useAuthStore()
-  const { activeOrder } = useOrderStore()
+  const { activeOrder: storedOrder, activeOrderUserId } = useOrderStore()
+  const activeOrder = storedOrder && activeOrderUserId === user?.id ? storedOrder : null
   const { rate } = useRate()
   const currency = useCurrency()
   const [orders, setOrders] = React.useState<OrderHistoryItem[]>([])
