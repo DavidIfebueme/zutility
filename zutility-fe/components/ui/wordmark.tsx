@@ -3,11 +3,13 @@ import { cn } from "@/lib/utils"
 
 export function Wordmark({ className }: { className?: string }) {
   return (
-    <span className={cn("inline-flex items-center gap-2", className)}>
-      <span className="flex h-7 w-7 items-center justify-center rounded-md bg-ink font-display text-[15px] leading-none text-cream">
-        z
-      </span>
-      <span className="font-display text-xl tracking-tight text-ink">utility</span>
+    <span
+      className={cn(
+        "inline-flex items-baseline font-display text-xl leading-none tracking-[-0.055em] text-ink",
+        className
+      )}
+    >
+      <span className="text-gold">z</span>utility
     </span>
   )
 }
