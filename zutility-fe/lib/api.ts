@@ -59,7 +59,9 @@ async function handleResponse<T>(response: Response, originalRequest: () => Prom
     }
     if (typeof window !== 'undefined') {
       const { useAuthStore } = require('@/store/auth')
+      const { useOrderStore } = require('@/store/order')
       useAuthStore.setState({ user: null, isAuthenticated: false, preferredCurrency: null })
+      useOrderStore.getState().clearActiveOrder()
       window.location.href = '/login'
     }
     throw new Error('Session expired')
