@@ -140,7 +140,7 @@ export default function HomePage() {
       <main>
         <section className="paper-grid border-b border-line">
           <div className="mx-auto grid max-w-6xl items-center gap-12 px-5 py-16 lg:grid-cols-[1.02fr_0.98fr] lg:gap-16 lg:py-24">
-            <div className="reveal-in">
+            <div className="reveal-in min-w-0">
               <p className="label-xs text-gold-deep">Utility payments on Zcash</p>
               <h1 className="mt-4 max-w-xl text-4xl leading-[1.05] text-ink sm:text-5xl lg:text-[56px]">
                 Make payments with Zcash.
@@ -175,7 +175,7 @@ export default function HomePage() {
               </dl>
             </div>
 
-            <div className="flex justify-center lg:justify-end">
+            <div className="flex min-w-0 justify-center lg:justify-end">
               <Reveal delay={100} className="w-full max-w-md">
                 <SampleReceipt />
               </Reveal>
