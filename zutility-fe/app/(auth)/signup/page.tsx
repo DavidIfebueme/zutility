@@ -66,7 +66,7 @@ export default function SignupPage() {
   return (
     <AuthShell
       title="Create an account"
-      subtitle="Keep your orders and receipts together. You can still pay without one."
+      subtitle="Keep your orders and receipts in one place. It takes an email and a password, no documents."
       footer={<AuthFooterLink prompt="Already have an account?" href="/login" label="Sign in" />}
       shake={shaking}
     >
