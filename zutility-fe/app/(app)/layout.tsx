@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils"
 import { useAuthStore } from "@/store/auth"
 import { useOrderStore } from "@/store/order"
 import { NotificationDropdown } from "@/components/ui/notification-dropdown"
+import { Button } from "@/components/ui/button"
 import { RateTicker } from "@/components/ui/rate-ticker"
 import { WordmarkLink } from "@/components/ui/wordmark"
 import { ThemeToggle } from "@/components/theme-provider"
@@ -146,13 +147,21 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   if (!hasHydrated) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-paper">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-line-strong border-t-transparent" />
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-line-strong border-t-ink" />
       </div>
     )
   }
 
   if (!isAuthenticated) {
-    return null
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-paper px-6 text-center">
+        <p className="label-xs text-muted">Session</p>
+        <p className="max-w-xs text-lg text-ink">Sign in to see your orders.</p>
+        <Button asChild>
+          <Link href="/login">Sign in</Link>
+        </Button>
+      </div>
+    )
   }
 
   return (

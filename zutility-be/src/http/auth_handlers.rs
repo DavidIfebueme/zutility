@@ -380,7 +380,7 @@ pub async fn verify_email(
         .map_err(internal_err)?
         .ok_or_else(|| ApiError::bad_request("invalid or expired verification token"))?;
 
-    let user = db::find_user_by_id(&state.pool, email_token.user_id)
+    let mut user = db::find_user_by_id(&state.pool, email_token.user_id)
         .await
         .map_err(internal_err)?
         .ok_or_else(|| internal_err("user not found"))?;
@@ -388,6 +388,7 @@ pub async fn verify_email(
     db::verify_user_email(&state.pool, user.id)
         .await
         .map_err(internal_err)?;
+    user.email_verified = true;
 
     db::mark_email_token_used(&state.pool, email_token.id)
         .await
