@@ -580,11 +580,18 @@ fn start_address_pool_refill(state: HttpState, _config: AppConfig, pool: PgPool)
         };
 
         let manager = AddressPoolManager::default_policy();
-        let mut ticker = interval(Duration::from_secs(300));
+        let mut ticker = interval(Duration::from_secs(60));
+        let mut ticks_since_refill = 5u32;
 
         loop {
             ticker.tick().await;
             jobs.mark_alive("address_pool_refill");
+
+            ticks_since_refill = ticks_since_refill.saturating_add(1);
+            if ticks_since_refill < 5 {
+                continue;
+            }
+            ticks_since_refill = 0;
 
             match manager.run_shielded_refill(&pool, &*client, &network).await {
                 Ok(outcome) => {
