@@ -18,8 +18,8 @@ export function AuthShell({ title, subtitle, children, footer, shake }: AuthShel
       <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-5 py-5">
         <WordmarkLink />
         <div className="flex items-center gap-2">
-          <Link href="/pay" className="text-[13px] text-muted transition-colors hover:text-ink">
-            Pay without an account
+          <Link href="/" className="text-[13px] text-muted transition-colors hover:text-ink">
+            Back to home
           </Link>
           <ThemeToggle />
         </div>
