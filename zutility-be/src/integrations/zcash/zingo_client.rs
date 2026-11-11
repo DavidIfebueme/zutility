@@ -146,7 +146,7 @@ impl ZingoClient {
         {
             let mut last_err = None;
             for attempt in 0..=retry_policy.max_retries {
-                match client.sync_and_await().await {
+                match client.sync_to_tip_and_await().await {
                     Ok(_) => break,
                     Err(e) => {
                         let is_last = attempt == retry_policy.max_retries;
@@ -195,7 +195,7 @@ impl ZingoClient {
             let chain_tip = chain_tip.clone();
             async move {
                 let mut cl = client.write().await;
-                match cl.sync_and_await().await {
+                match cl.sync_to_tip_and_await().await {
                     Ok(_) => {}
                     Err(e) => {
                         let msg = format!("{e}");
