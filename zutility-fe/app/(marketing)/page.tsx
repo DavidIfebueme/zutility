@@ -36,7 +36,7 @@ const STEPS = [
 const FAQ = [
   {
     q: "Do I need to create an account?",
-    a: "No. You can create an order and pay from any Zcash wallet. An account only keeps your order history in one place.",
+    a: "Yes, to start an order. It takes an email and a password, and no identity documents. An account also keeps your orders and receipts in one place.",
   },
   {
     q: "How long does delivery take?",
