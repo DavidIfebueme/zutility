@@ -25,8 +25,9 @@ Node and indexer only. No app, no Postgres, no TLS vhost, no wallet, no API keys
 - Instance role `zutility-mainnet-role`: `AmazonSSMManagedInstanceCore` and `cloudwatch:PutMetricData` only.
 - zakurad 1.8.6, archive mode, config `/etc/zakura/zakura.toml`, RPC `127.0.0.1:18232`, P2P `[::]:18233`, state `/var/lib/zakura`.
 - lightwalletd 0.6.1 container pinned by digest `sha256:7be272c4eff6b0a8ac83b61cc98b8ffbf14f3bdad512fa6f17a8ed93d768552f`, gRPC `0.0.0.0:9067`, data `/var/lib/lightwalletd`.
-- Metrics every 5 minutes to CloudWatch namespace `zutility/mainnet`: `BlockHeight`, `TipAgeSeconds`, `PeerCount`, `DiskUsedPercent`, `NodeUp`, `LwdHeight`.
+- Metrics every 5 minutes to CloudWatch namespace `zutility/mainnet`: `BlockHeight`, `TipAgeSeconds`, `PeerCount`, `DiskUsedPercent`, `NodeUp`, `LwdCachedHeight`, `LwdLagBlocks`.
 - Alarms to `zutility-ops-alerts`: instance status, node down, tip older than 15 minutes, disk above 85 percent, and block height at 3,600,000 as the halt warning.
+- `LwdCachedHeight` comes from the indexer log because no RPC exposes the cache height. Watch `LwdLagBlocks` during a first sync.
 - Cost: compute `$147.17` plus 700 GB gp3 `$56.00` is `$203.17` per month. Inbound transfer is free.
 
 ### Snapshot bootstrap, 12 November 2026

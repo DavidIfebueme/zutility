@@ -44,10 +44,12 @@ fi
 add PeerCount "$PEERS" Count
 add DiskUsedPercent "$DISK" Percent
 
-LWD=$(grpcurl -plaintext -max-time 10 -d '{}' 127.0.0.1:9067 \
-  cash.z.wallet.sdk.rpc.CompactTxStreamer/GetLightdInfo 2>/dev/null \
-  | jq -r '.latestBlockHeight // empty' || true)
-add LwdHeight "$LWD" Count
+LWD=$(journalctl -u lightwalletd -n 500 --no-pager -o cat 2>/dev/null \
+  | grep -o 'Adding block to cache [0-9]*' | tail -1 | awk '{print $NF}' || true)
+add LwdCachedHeight "$LWD" Count
+if [ -n "$LWD" ] && [ -n "$HEIGHT" ]; then
+  add LwdLagBlocks "$(( HEIGHT - LWD ))" Count
+fi
 
 [ -z "$METRICS" ] && exit 0
 
