@@ -2,3 +2,7 @@ setup.md
 test-send.md
 zingolib-fork/
 zingolib-notor/
+
+# private infrastructure notes
+deploy/README.md
+docs/nu7-migration-plan.md
