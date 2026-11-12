@@ -133,15 +133,19 @@ export function SampleReceiptStack() {
     if (paused) return
     if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return
 
+    let flipTimer: number | undefined
     const timer = window.setInterval(() => {
       setFlipping(true)
-      window.setTimeout(() => {
+      flipTimer = window.setTimeout(() => {
         setActive((value) => (value + 1) % SAMPLES.length)
         setFlipping(false)
       }, FLIP_MS)
     }, 4200)
 
-    return () => window.clearInterval(timer)
+    return () => {
+      window.clearInterval(timer)
+      if (flipTimer) window.clearTimeout(flipTimer)
+    }
   }, [paused])
 
   return (

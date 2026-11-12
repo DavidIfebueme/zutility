@@ -323,8 +323,14 @@ export default function PayPage() {
       setActiveOrder(order, user?.id ?? null)
       toast.success("Order created")
       router.push(`/pay/${order.order_id}`)
-    } catch {
-      toast.error(isGift ? "Could not create the gift" : "Could not create the order")
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : isGift
+            ? "Could not create the gift"
+            : "Could not create the order"
+      )
     } finally {
       setIsLoading(false)
     }

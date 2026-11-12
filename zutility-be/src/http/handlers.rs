@@ -22,7 +22,7 @@ use crate::{
         CurrentRate, SharedRateCache, default_current_rate, new_shared_rate_cache,
     },
     integrations::remita::RemitaClient,
-    integrations::utility_provider::{ProviderTxnStatus, ValidateRefRequest},
+    integrations::utility_provider::{ProviderErrorKind, ProviderTxnStatus, ValidateRefRequest},
     integrations::vtpass::VtpassClient,
     integrations::zcash::ZcashClient,
     observability::{AlertState, ObservabilityState, ProbeStatus, ReadinessReport},
@@ -287,7 +287,12 @@ async fn resolve_order_amount(
     let details = dispatcher
         .validate_reference("school_fees", &request)
         .await
-        .map_err(|error| ApiError::bad_request(error.message))?;
+        .map_err(|error| match error.kind {
+            ProviderErrorKind::Transient | ProviderErrorKind::Outage => {
+                ApiError::service_unavailable("Remita is unavailable. Try again shortly.")
+            }
+            _ => ApiError::bad_request(error.message),
+        })?;
 
     if !details.is_valid {
         return Err(ApiError::bad_request("that RRR is not payable"));
@@ -828,7 +833,12 @@ pub async fn validate_utility_reference(
                 }));
             }
             Err(error) if utility_type == "school_fees" => {
-                return Err(ApiError::bad_request(error.message));
+                return Err(match error.kind {
+                    ProviderErrorKind::Transient | ProviderErrorKind::Outage => {
+                        ApiError::service_unavailable("Remita is unavailable. Try again shortly.")
+                    }
+                    _ => ApiError::bad_request(error.message),
+                });
             }
             Err(_) => {}
         }
