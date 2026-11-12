@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  Pay Nigerian utilities with Zcash. One address, one amount, one receipt.
+  make payments with zcash
 </p>
 
 <p align="center">
@@ -21,47 +21,9 @@
 
 ## What zutility does
 
-zutility turns a Nigerian bill into a single Zcash payment. You pick the service, enter the account number, and get one deposit address with one exact ZEC amount. Send that amount from any wallet, shielded or transparent, and the top-up, token, or subscription is delivered after the network confirms the payment.
+zutility turns a bill into a single Zcash payment. You pick the service, enter the account number, and get one deposit address with one exact ZEC amount. Send that amount from any wallet, shielded or transparent, and the top-up, token, or subscription is delivered after the network confirms the payment.
 
 No account approval, no identity documents, no card on file. Each order gets its own address, so a payment can only ever credit the order it was quoted for.
-
-## What you can pay for
-
-| Category | Providers | What you get |
-| --- | --- | --- |
-| Airtime | MTN, Airtel, Glo, 9mobile | Instant top-up |
-| Data | MTN, Airtel, Glo, 9mobile | Data bundle |
-| TV | DStv, GOtv, Startimes, Showmax | Subscription renewal |
-| Electricity | Ikeja, Eko, Abuja, Ibadan, Kano, PHED, Jos, Kaduna, Enugu, Benin, Yola, Aba | Prepaid meter token |
-| Education | WAEC registration, WAEC result checker, JAMB | Exam PIN |
-| School fees | Any school that issues a Remita RRR | Bill paid against the RRR |
-
-School fees work through Remita Collections. The 12 digit RRR already names the school, the student, and the amount, so the lookup fills in the biller and the quote comes from Remita, not from the client.
-
-## How it works
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant U as You
-    participant Z as zutility
-    participant W as Zcash network
-    participant P as Provider
-    U->>Z: pick service, account, amount
-    Z->>P: validate the account
-    P-->>Z: account name and amount
-    Z-->>U: deposit address and exact ZEC quote
-    U->>W: send the quoted ZEC
-    W-->>Z: note to that order's address
-    Z->>Z: wait for the confirmation threshold
-    Z->>P: deliver the utility
-    P-->>Z: token, PIN, or receipt
-    Z-->>U: completed, with the receipt and a live status event
-```
-
-The quote is locked when the order is created. The rate is taken from a snapshot, and a stale quote never silently changes under the user.
-
-![The how it works page](assets/readme/how-it-works.webp)
 
 ## Architecture
 
@@ -92,7 +54,7 @@ flowchart LR
 - **Confirmations.** Counted from the block height of the note. Order state moves once the threshold is reached, not when the wallet first sees the note.
 - **Dispatch.** Provider calls are guarded so a retried tick cannot pay a bill twice. A provider rejection or a stuck dispatch flags the order for review instead of retrying forever.
 - **Gifts.** A prepaid utility gift with a claim link, a claim window, and a fallback recipient if nobody claims it.
-- **Rates.** A live ZEC/NGN rate with snapshots, so every order stores the rate it was quoted at.
+- **Rates.** A live ZEC rate against the local currency, with snapshots, so every order stores the rate it was quoted at.
 
 ## Built with
 
