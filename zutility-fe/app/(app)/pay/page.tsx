@@ -141,7 +141,10 @@ export default function PayPage() {
     if (isGift && utility.type === "school") return false
     if (utility.type !== activeCategory) return false
     if (!query.trim()) return true
-    return utility.name.toLowerCase().includes(query.trim().toLowerCase())
+    const haystack = [utility.name, utility.descriptor, ...(utility.keywords ?? [])]
+      .join(" ")
+      .toLowerCase()
+    return haystack.includes(query.trim().toLowerCase())
   })
 
   const effectiveAmount = React.useMemo(() => {
@@ -500,6 +503,11 @@ export default function PayPage() {
                     error={errors.serviceRef?.message}
                     disabled={!selectedUtilityId}
                   />
+                  {isSchoolFees && !validated && (
+                    <p className="text-[12px] text-muted">
+                      Your RRR names the school. We show it after the lookup.
+                    </p>
+                  )}
                   {validated && !validated.valid && (
                     <p className="flex items-center gap-1.5 text-[12px] text-rust">
                       <Info className="h-3.5 w-3.5" />
