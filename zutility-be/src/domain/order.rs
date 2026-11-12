@@ -9,6 +9,7 @@ pub enum OrderStatus {
     AwaitingPayment,
     PaymentDetected,
     PaymentConfirmed,
+    AwaitingClaim,
     UtilityDispatching,
     Completed,
     Expired,
@@ -18,11 +19,28 @@ pub enum OrderStatus {
 }
 
 impl OrderStatus {
+    pub fn from_db(value: &str) -> Option<Self> {
+        match value {
+            "awaiting_payment" => Some(Self::AwaitingPayment),
+            "payment_detected" => Some(Self::PaymentDetected),
+            "payment_confirmed" => Some(Self::PaymentConfirmed),
+            "awaiting_claim" => Some(Self::AwaitingClaim),
+            "utility_dispatching" => Some(Self::UtilityDispatching),
+            "completed" => Some(Self::Completed),
+            "expired" => Some(Self::Expired),
+            "failed" => Some(Self::Failed),
+            "flagged_for_review" => Some(Self::FlaggedForReview),
+            "cancelled" => Some(Self::Cancelled),
+            _ => None,
+        }
+    }
+
     pub fn as_db(self) -> &'static str {
         match self {
             Self::AwaitingPayment => "awaiting_payment",
             Self::PaymentDetected => "payment_detected",
             Self::PaymentConfirmed => "payment_confirmed",
+            Self::AwaitingClaim => "awaiting_claim",
             Self::UtilityDispatching => "utility_dispatching",
             Self::Completed => "completed",
             Self::Expired => "expired",
@@ -41,7 +59,10 @@ impl OrderStatus {
                 | (Self::PaymentDetected, Self::PaymentConfirmed)
                 | (Self::PaymentDetected, Self::Expired)
                 | (Self::PaymentDetected, Self::FlaggedForReview)
+                | (Self::PaymentConfirmed, Self::AwaitingClaim)
                 | (Self::PaymentConfirmed, Self::UtilityDispatching)
+                | (Self::AwaitingClaim, Self::PaymentConfirmed)
+                | (Self::AwaitingClaim, Self::FlaggedForReview)
                 | (Self::UtilityDispatching, Self::Completed)
                 | (Self::UtilityDispatching, Self::Failed)
         )

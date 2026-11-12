@@ -28,6 +28,7 @@ pub enum WsOrderEvent {
     PaymentConfirmed {
         confirmations: u16,
     },
+    AwaitingClaim,
     Dispatching,
     Completed {
         delivery_token: Option<String>,

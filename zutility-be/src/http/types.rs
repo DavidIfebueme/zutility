@@ -5,6 +5,7 @@ use serde_json::Value;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+use crate::domain::gift::GiftStatus;
 use crate::domain::order::OrderStatus;
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
@@ -41,6 +42,8 @@ pub struct OrderStatusResponse {
     pub service_ref: String,
     pub amount_ngn: i64,
     pub zec_amount: String,
+    pub deposit_address: String,
+    pub qr_data: String,
     pub expires_at: DateTime<Utc>,
     pub completed_at: Option<DateTime<Utc>>,
     pub delivery_token: Option<String>,
@@ -49,6 +52,11 @@ pub struct OrderStatusResponse {
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct CancelOrderResponse {
     pub success: bool,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct OrderAccessTokenResponse {
+    pub order_access_token: String,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -252,4 +260,69 @@ pub struct NotificationResponse {
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct UnreadCountResponse {
     pub count: i64,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct CreateGiftRequest {
+    pub utility_type: String,
+    pub utility_slug: String,
+    pub amount_ngn: i64,
+    pub zec_address_type: String,
+    pub variation_code: Option<String>,
+    pub message: Option<String>,
+    pub fallback_service_ref: Option<String>,
+    pub claim_window_hours: i64,
+    pub hide_sender_name: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct CreateGiftResponse {
+    pub gift_id: Uuid,
+    pub gift_code: String,
+    pub gift_url: String,
+    pub claim_window_hours: i64,
+    pub order: CreateOrderResponse,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct ClaimGiftRequest {
+    pub service_ref: String,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct GiftView {
+    pub gift_id: Uuid,
+    pub utility_type: String,
+    pub utility_slug: String,
+    pub amount_ngn: i64,
+    pub message: Option<String>,
+    pub sender_name: String,
+    pub status: GiftStatus,
+    pub claimed: bool,
+    pub claim_expires_at: Option<DateTime<Utc>>,
+    pub order_status: Option<OrderStatus>,
+    pub confirmations: u16,
+    pub required_confirmations: u16,
+    pub delivery_token: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct GiftSummary {
+    pub gift_id: Uuid,
+    pub order_id: Option<Uuid>,
+    pub utility_type: String,
+    pub utility_slug: String,
+    pub amount_ngn: i64,
+    pub status: GiftStatus,
+    pub order_status: Option<OrderStatus>,
+    pub claimed_service_ref: Option<String>,
+    pub claim_window_hours: i64,
+    pub claim_expires_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct RotateGiftCodeResponse {
+    pub gift_code: String,
+    pub gift_url: String,
 }

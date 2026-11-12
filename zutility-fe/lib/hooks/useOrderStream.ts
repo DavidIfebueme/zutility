@@ -57,6 +57,8 @@ export function useOrderStream(orderId: string | null, accessToken: string | nul
           } else if (event.event === 'payment_confirmed') {
             setStatus('payment_confirmed')
             setConfirmations(event.confirmations)
+          } else if (event.event === 'awaiting_claim') {
+            setStatus('awaiting_claim')
           } else if (event.event === 'dispatching') {
             setStatus('utility_dispatching')
           } else if (event.event === 'completed') {

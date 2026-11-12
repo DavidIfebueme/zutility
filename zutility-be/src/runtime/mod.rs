@@ -11,7 +11,10 @@ use uuid::Uuid;
 use crate::{
     config::AppConfig,
     db,
-    domain::order::OrderStatus,
+    domain::{
+        gift::{GiftStatus, HeldGiftOutcome, held_gift_outcome},
+        order::OrderStatus,
+    },
     http::handlers::HttpState,
     integrations::{
         provider_dispatcher::ProviderDispatcher,
@@ -111,6 +114,7 @@ fn start_order_orchestrator(state: HttpState, config: AppConfig, pool: PgPool) {
             jobs.mark_alive("confirmation_watcher");
             jobs.mark_alive("utility_dispatcher");
             jobs.mark_alive("order_timeout_reaper");
+            jobs.mark_alive("gift_claim_expiry");
 
             if let Some(client) = state.zcash_client.as_ref() {
                 match client.sync().await {
@@ -175,6 +179,10 @@ fn start_order_orchestrator(state: HttpState, config: AppConfig, pool: PgPool) {
                 Err(error) => {
                     tracing::warn!(error = %error, "failed to list active orders");
                 }
+            }
+
+            if let Err(error) = expire_claim_windows(&pool).await {
+                tracing::warn!(error = %error, "gift claim window expiry failed");
             }
 
             if let Some(client) = state.zcash_client.as_ref() {
@@ -245,10 +253,157 @@ async fn process_order(
     };
     let updated_status = updated.status()?;
 
+    if updated_status == OrderStatus::AwaitingClaim {
+        resolve_held_gift(pool, &updated).await?;
+        return Ok(());
+    }
+
     if updated_status == OrderStatus::PaymentConfirmed {
         dispatch_utility(state, dispatcher, pool, &updated).await?;
     } else if updated_status == OrderStatus::UtilityDispatching {
         requery_utility_dispatch(state, dispatcher, pool, &updated).await?;
+    }
+
+    Ok(())
+}
+
+async fn expire_claim_windows(pool: &PgPool) -> Result<()> {
+    let now = Utc::now();
+    for gift in db::list_expired_open_gifts(pool, now).await? {
+        if let Err(error) = expire_one_gift(pool, gift).await {
+            tracing::warn!(error = %error, "gift expiry iteration failed");
+        }
+    }
+
+    Ok(())
+}
+
+async fn expire_one_gift(pool: &PgPool, gift: db::GiftRow) -> Result<()> {
+    let Some(order_id) = gift.order_id else {
+        let _ = db::expire_gift_cas(pool, gift.id).await?;
+        return Ok(());
+    };
+    let Some(order) = db::get_order_by_id(pool, order_id).await? else {
+        let _ = db::expire_gift_cas(pool, gift.id).await?;
+        return Ok(());
+    };
+
+    let status = order.status().ok();
+
+    if matches!(
+        status,
+        Some(OrderStatus::AwaitingPayment)
+            | Some(OrderStatus::PaymentDetected)
+            | Some(OrderStatus::PaymentConfirmed)
+    ) {
+        return Ok(());
+    }
+
+    if !db::expire_gift_cas(pool, gift.id).await? {
+        return Ok(());
+    }
+
+    if status == Some(OrderStatus::AwaitingClaim) {
+        deliver_expired_gift(pool, &gift, &order).await?;
+    }
+
+    Ok(())
+}
+
+async fn resolve_held_gift(pool: &PgPool, order: &db::OrderRow) -> Result<()> {
+    let Some(gift) = db::find_gift_by_order_id(pool, order.id).await? else {
+        return Ok(());
+    };
+    let Some(status) = gift.status() else {
+        return Ok(());
+    };
+
+    match held_gift_outcome(status, gift.claim_expires_at, Utc::now()) {
+        HeldGiftOutcome::KeepHeld => {}
+        HeldGiftOutcome::ReleaseToDispatch => {
+            db::update_order_status_cas(
+                pool,
+                order.id,
+                "awaiting_claim",
+                "payment_confirmed",
+                "gift_claim_released",
+                serde_json::json!({ "gift_id": gift.id }),
+            )
+            .await?;
+        }
+        HeldGiftOutcome::ResolveExpired => {
+            if status == GiftStatus::Open && !db::expire_gift_cas(pool, gift.id).await? {
+                return Ok(());
+            }
+            deliver_expired_gift(pool, &gift, order).await?;
+        }
+        HeldGiftOutcome::FlagForReview => {
+            db::update_order_status_cas(
+                pool,
+                order.id,
+                "awaiting_claim",
+                "flagged_for_review",
+                "gift_cancelled_while_held",
+                serde_json::json!({ "gift_id": gift.id }),
+            )
+            .await?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn deliver_expired_gift(
+    pool: &PgPool,
+    gift: &db::GiftRow,
+    order: &db::OrderRow,
+) -> Result<()> {
+    let fallback = gift
+        .fallback_service_ref
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    match fallback {
+        Some(service_ref) => {
+            db::update_order_service_ref(pool, order.id, service_ref, None).await?;
+            db::update_order_status_cas(
+                pool,
+                order.id,
+                "awaiting_claim",
+                "payment_confirmed",
+                "gift_expired_fallback",
+                serde_json::json!({ "gift_id": gift.id }),
+            )
+            .await?;
+            notify_order(
+                pool,
+                order,
+                "gift_expired_fallback",
+                "Gift Expired",
+                "Nobody claimed the gift in time, so it was delivered to your backup account.",
+                serde_json::json!({ "gift_id": gift.id, "utility_slug": gift.utility_slug }),
+            );
+        }
+        None => {
+            db::update_order_status_cas(
+                pool,
+                order.id,
+                "awaiting_claim",
+                "flagged_for_review",
+                "gift_expired_unclaimed",
+                serde_json::json!({ "gift_id": gift.id }),
+            )
+            .await?;
+            notify_order(
+                pool,
+                order,
+                "gift_expired_unclaimed",
+                "Gift Needs Attention",
+                "Nobody claimed the gift and no backup account was set. Support will follow up.",
+                serde_json::json!({ "gift_id": gift.id, "utility_slug": gift.utility_slug }),
+            );
+        }
     }
 
     Ok(())
@@ -347,26 +502,61 @@ async fn detect_payment_and_progress(
                 serde_json::json!({ "utility_slug": order.utility_slug }),
             );
         } else {
+            let gift = db::find_gift_by_order_id(pool, order.id).await?;
+            let hold_for_claim = matches!(
+                gift.as_ref().and_then(|row| row.status()),
+                Some(crate::domain::gift::GiftStatus::Open)
+            );
+
+            if hold_for_claim && let Some(ref gift) = gift {
+                let claim_expires_at =
+                    Utc::now() + chrono::Duration::hours(i64::from(gift.claim_window_hours));
+                db::set_gift_claim_expiry(pool, gift.id, claim_expires_at).await?;
+            }
+
+            let (next_status, event_name) = if hold_for_claim {
+                ("awaiting_claim", "gift_awaiting_claim")
+            } else {
+                ("payment_confirmed", "payment_confirmed")
+            };
+
             db::update_order_status_cas(
                 pool,
                 order.id,
                 "payment_detected",
-                "payment_confirmed",
-                "payment_confirmed",
+                next_status,
+                event_name,
                 serde_json::json!({
                     "confirmations": confirmations,
+                    "gift_hold": hold_for_claim,
                 }),
             )
             .await?;
-            events.push(WsOrderEvent::PaymentConfirmed { confirmations });
-            notify_order(
-                pool,
-                order,
-                "payment_confirmed",
-                "Payment Confirmed",
-                &format!("Your payment for {} has been confirmed. Processing your order...", order.utility_slug),
-                serde_json::json!({ "utility_slug": order.utility_slug }),
-            );
+
+            if hold_for_claim {
+                events.push(WsOrderEvent::AwaitingClaim);
+                notify_order(
+                    pool,
+                    order,
+                    "gift_awaiting_claim",
+                    "Gift Ready to Claim",
+                    &format!(
+                        "Your {} gift is paid. Share the link so it can be claimed.",
+                        order.utility_slug
+                    ),
+                    serde_json::json!({ "utility_slug": order.utility_slug }),
+                );
+            } else {
+                events.push(WsOrderEvent::PaymentConfirmed { confirmations });
+                notify_order(
+                    pool,
+                    order,
+                    "payment_confirmed",
+                    "Payment Confirmed",
+                    &format!("Your payment for {} has been confirmed. Processing your order...", order.utility_slug),
+                    serde_json::json!({ "utility_slug": order.utility_slug }),
+                );
+            }
         }
     }
 

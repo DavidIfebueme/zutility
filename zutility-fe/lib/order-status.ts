@@ -9,6 +9,7 @@ export interface StatusMeta {
 const STATUS: Record<string, StatusMeta> = {
   completed: { key: "completed", label: "Delivered", tone: "success" },
   payment_confirmed: { key: "payment_confirmed", label: "Payment confirmed", tone: "success" },
+  awaiting_claim: { key: "awaiting_claim", label: "Waiting for claim", tone: "warning" },
   payment_detected: { key: "payment_detected", label: "Payment seen", tone: "warning" },
   utility_dispatching: { key: "utility_dispatching", label: "Dispatching", tone: "warning" },
   awaiting_payment: { key: "awaiting_payment", label: "Awaiting payment", tone: "neutral" },

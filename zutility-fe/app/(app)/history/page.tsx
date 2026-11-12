@@ -34,7 +34,7 @@ function matchesFilter(status: string, filter: FilterId): boolean {
   if (filter === "all") return true
   if (filter === "delivered") return key === "completed"
   if (filter === "failed") return ["failed", "expired", "cancelled"].includes(key)
-  return ["awaiting_payment", "payment_detected", "payment_confirmed", "utility_dispatching", "pending"].includes(key)
+  return ["awaiting_payment", "payment_detected", "payment_confirmed", "awaiting_claim", "utility_dispatching", "pending"].includes(key)
 }
 
 export default function HistoryPage() {
@@ -136,7 +136,7 @@ export default function HistoryPage() {
                   >
                     <td className="px-4 py-3">
                       <Link
-                        href={`/pay/${order.order_id}`}
+                        href={`/pay/${order.order_id}?recover=1`}
                         className="text-[13px] text-ink hover:underline"
                       >
                         {order.utility_slug}

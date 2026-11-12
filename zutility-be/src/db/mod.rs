@@ -73,6 +73,7 @@ impl OrderRow {
             "awaiting_payment" => Ok(OrderStatus::AwaitingPayment),
             "payment_detected" => Ok(OrderStatus::PaymentDetected),
             "payment_confirmed" => Ok(OrderStatus::PaymentConfirmed),
+            "awaiting_claim" => Ok(OrderStatus::AwaitingClaim),
             "utility_dispatching" => Ok(OrderStatus::UtilityDispatching),
             "completed" => Ok(OrderStatus::Completed),
             "expired" => Ok(OrderStatus::Expired),
@@ -534,7 +535,7 @@ pub async fn list_active_orders(pool: &PgPool) -> Result<Vec<OrderRow>> {
                 expires_at, confirmed_at, completed_at, vtpass_request_id,
                 delivery_token, ip_hash, metadata, variation_code, provider, customer_name, user_id
          FROM orders
-         WHERE status IN ('awaiting_payment', 'payment_detected', 'payment_confirmed', 'utility_dispatching')
+         WHERE status IN ('awaiting_payment', 'payment_detected', 'payment_confirmed', 'awaiting_claim', 'utility_dispatching')
          ORDER BY created_at ASC",
     )
     .fetch_all(pool)
@@ -558,6 +559,356 @@ pub async fn find_order_by_provider_reference(pool: &PgPool, reference: &str) ->
     .await?;
 
     rows.into_iter().map(map_order_row).next().transpose()
+}
+
+#[derive(Debug, Clone)]
+pub struct GiftRow {
+    pub id: Uuid,
+    pub code_hash: String,
+    pub sender_user_id: Uuid,
+    pub order_id: Option<Uuid>,
+    pub utility_type: String,
+    pub utility_slug: String,
+    pub amount_ngn: i64,
+    pub claim_window_hours: i32,
+    pub message: Option<String>,
+    pub sender_name: Option<String>,
+    pub hide_sender_name: bool,
+    pub fallback_service_ref: Option<String>,
+    pub status: String,
+    pub claimed_service_ref: Option<String>,
+    pub claimed_customer_name: Option<String>,
+    pub claimed_at: Option<DateTime<Utc>>,
+    pub claim_expires_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone)]
+pub struct NewGift {
+    pub code_hash: String,
+    pub sender_user_id: Uuid,
+    pub order_id: Uuid,
+    pub utility_type: String,
+    pub utility_slug: String,
+    pub amount_ngn: i64,
+    pub claim_window_hours: i32,
+    pub message: Option<String>,
+    pub sender_name: Option<String>,
+    pub hide_sender_name: bool,
+    pub fallback_service_ref: Option<String>,
+    pub claim_expires_at: DateTime<Utc>,
+}
+
+impl GiftRow {
+    pub fn status(&self) -> Option<crate::domain::gift::GiftStatus> {
+        crate::domain::gift::GiftStatus::from_db(&self.status)
+    }
+}
+
+fn map_gift_row(row: sqlx::postgres::PgRow) -> Result<GiftRow> {
+    Ok(GiftRow {
+        id: row.try_get("id")?,
+        code_hash: row.try_get("code_hash")?,
+        sender_user_id: row.try_get("sender_user_id")?,
+        order_id: row.try_get("order_id")?,
+        utility_type: row.try_get("utility_type")?,
+        utility_slug: row.try_get("utility_slug")?,
+        amount_ngn: row.try_get("amount_ngn")?,
+        claim_window_hours: row.try_get("claim_window_hours")?,
+        message: row.try_get("message")?,
+        sender_name: row.try_get("sender_name")?,
+        hide_sender_name: row.try_get("hide_sender_name")?,
+        fallback_service_ref: row.try_get("fallback_service_ref")?,
+        status: row.try_get("status")?,
+        claimed_service_ref: row.try_get("claimed_service_ref")?,
+        claimed_customer_name: row.try_get("claimed_customer_name")?,
+        claimed_at: row.try_get("claimed_at")?,
+        claim_expires_at: row.try_get("claim_expires_at")?,
+        created_at: row.try_get("created_at")?,
+    })
+}
+
+pub async fn lock_user_and_sum_open_gifts(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: Uuid,
+) -> Result<i64> {
+    let exists = sqlx::query("SELECT id FROM users WHERE id = $1 FOR UPDATE")
+        .bind(user_id)
+        .fetch_optional(tx.as_mut())
+        .await?;
+
+    if exists.is_none() {
+        return Err(anyhow!("user not found"));
+    }
+
+    let total: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(amount_ngn), 0)
+         FROM gift_invites
+         WHERE sender_user_id = $1 AND status = 'open'",
+    )
+    .bind(user_id)
+    .fetch_one(tx.as_mut())
+    .await?;
+
+    Ok(total)
+}
+
+pub async fn insert_gift_tx(tx: &mut Transaction<'_, Postgres>, gift: &NewGift) -> Result<Uuid> {
+    let gift_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO gift_invites (
+            id, code_hash, sender_user_id, order_id, utility_type, utility_slug,
+            amount_ngn, claim_window_hours, message, sender_name, hide_sender_name,
+            fallback_service_ref, claim_expires_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
+    )
+    .bind(gift_id)
+    .bind(&gift.code_hash)
+    .bind(gift.sender_user_id)
+    .bind(gift.order_id)
+    .bind(&gift.utility_type)
+    .bind(&gift.utility_slug)
+    .bind(gift.amount_ngn)
+    .bind(gift.claim_window_hours)
+    .bind(&gift.message)
+    .bind(&gift.sender_name)
+    .bind(gift.hide_sender_name)
+    .bind(&gift.fallback_service_ref)
+    .bind(gift.claim_expires_at)
+    .execute(tx.as_mut())
+    .await?;
+
+    Ok(gift_id)
+}
+
+pub async fn find_gift_by_code_hash(pool: &PgPool, code_hash: &str) -> Result<Option<GiftRow>> {
+    let row = sqlx::query(
+        "SELECT id, code_hash, sender_user_id, order_id, utility_type, utility_slug,
+                amount_ngn, claim_window_hours, message, sender_name, hide_sender_name,
+                fallback_service_ref, status, claimed_service_ref, claimed_customer_name,
+                claimed_at, claim_expires_at, created_at
+         FROM gift_invites WHERE code_hash = $1",
+    )
+    .bind(code_hash)
+    .fetch_optional(pool)
+    .await?;
+
+    row.map(map_gift_row).transpose()
+}
+
+pub async fn find_gift_by_id(pool: &PgPool, gift_id: Uuid) -> Result<Option<GiftRow>> {
+    let row = sqlx::query(
+        "SELECT id, code_hash, sender_user_id, order_id, utility_type, utility_slug,
+                amount_ngn, claim_window_hours, message, sender_name, hide_sender_name,
+                fallback_service_ref, status, claimed_service_ref, claimed_customer_name,
+                claimed_at, claim_expires_at, created_at
+         FROM gift_invites WHERE id = $1",
+    )
+    .bind(gift_id)
+    .fetch_optional(pool)
+    .await?;
+
+    row.map(map_gift_row).transpose()
+}
+
+pub async fn find_gift_by_order_id(pool: &PgPool, order_id: Uuid) -> Result<Option<GiftRow>> {
+    let row = sqlx::query(
+        "SELECT id, code_hash, sender_user_id, order_id, utility_type, utility_slug,
+                amount_ngn, claim_window_hours, message, sender_name, hide_sender_name,
+                fallback_service_ref, status, claimed_service_ref, claimed_customer_name,
+                claimed_at, claim_expires_at, created_at
+         FROM gift_invites WHERE order_id = $1",
+    )
+    .bind(order_id)
+    .fetch_optional(pool)
+    .await?;
+
+    row.map(map_gift_row).transpose()
+}
+
+pub async fn list_gifts_by_sender(pool: &PgPool, user_id: Uuid) -> Result<Vec<GiftRow>> {
+    let rows = sqlx::query(
+        "SELECT id, code_hash, sender_user_id, order_id, utility_type, utility_slug,
+                amount_ngn, claim_window_hours, message, sender_name, hide_sender_name,
+                fallback_service_ref, status, claimed_service_ref, claimed_customer_name,
+                claimed_at, claim_expires_at, created_at
+         FROM gift_invites WHERE sender_user_id = $1 ORDER BY created_at DESC",
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await?;
+
+    rows.into_iter().map(map_gift_row).collect()
+}
+
+pub async fn claim_gift_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    gift_id: Uuid,
+    service_ref: &str,
+    customer_name: Option<&str>,
+) -> Result<bool> {
+    let rows_affected = sqlx::query(
+        "UPDATE gift_invites
+         SET status = 'claimed', claimed_service_ref = $2, claimed_customer_name = $3, claimed_at = now()
+         WHERE id = $1 AND status = 'open'",
+    )
+    .bind(gift_id)
+    .bind(service_ref)
+    .bind(customer_name)
+    .execute(tx.as_mut())
+    .await?
+    .rows_affected();
+
+    Ok(rows_affected == 1)
+}
+
+pub async fn update_order_service_ref_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    order_id: Uuid,
+    service_ref: &str,
+    customer_name: Option<&str>,
+) -> Result<()> {
+    sqlx::query("UPDATE orders SET service_ref = $2, customer_name = $3 WHERE id = $1")
+        .bind(order_id)
+        .bind(service_ref)
+        .bind(customer_name)
+        .execute(tx.as_mut())
+        .await?;
+
+    Ok(())
+}
+
+pub async fn update_order_service_ref(
+    pool: &PgPool,
+    order_id: Uuid,
+    service_ref: &str,
+    customer_name: Option<&str>,
+) -> Result<()> {
+    sqlx::query("UPDATE orders SET service_ref = $2, customer_name = $3 WHERE id = $1")
+        .bind(order_id)
+        .bind(service_ref)
+        .bind(customer_name)
+        .execute(pool)
+        .await?;
+
+    Ok(())
+}
+
+pub async fn set_order_access_token_hash(
+    pool: &PgPool,
+    order_id: Uuid,
+    access_token_hash: &str,
+) -> Result<()> {
+    sqlx::query("UPDATE orders SET access_token_hash = $2 WHERE id = $1")
+        .bind(order_id)
+        .bind(access_token_hash)
+        .execute(pool)
+        .await?;
+
+    Ok(())
+}
+
+pub async fn lock_order_status_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    order_id: Uuid,
+) -> Result<Option<String>> {
+    let status: Option<String> =
+        sqlx::query_scalar("SELECT status FROM orders WHERE id = $1 FOR UPDATE")
+            .bind(order_id)
+            .fetch_optional(tx.as_mut())
+            .await?;
+
+    Ok(status)
+}
+
+pub async fn set_gift_code_hash(pool: &PgPool, gift_id: Uuid, code_hash: &str) -> Result<bool> {
+    let rows_affected =
+        sqlx::query("UPDATE gift_invites SET code_hash = $2 WHERE id = $1 AND status = 'open'")
+            .bind(gift_id)
+            .bind(code_hash)
+            .execute(pool)
+            .await?
+            .rows_affected();
+
+    Ok(rows_affected == 1)
+}
+
+pub async fn cancel_gift_tx(tx: &mut Transaction<'_, Postgres>, gift_id: Uuid) -> Result<bool> {
+    let rows_affected = sqlx::query(
+        "UPDATE gift_invites SET status = 'cancelled' WHERE id = $1 AND status = 'open'",
+    )
+    .bind(gift_id)
+    .execute(tx.as_mut())
+    .await?
+    .rows_affected();
+
+    Ok(rows_affected == 1)
+}
+
+pub async fn cancel_gift_by_order_id(pool: &PgPool, order_id: Uuid) -> Result<()> {
+    sqlx::query(
+        "UPDATE gift_invites SET status = 'cancelled' WHERE order_id = $1 AND status = 'open'",
+    )
+    .bind(order_id)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn list_order_statuses_by_user(
+    pool: &PgPool,
+    user_id: Uuid,
+) -> Result<Vec<(Uuid, String)>> {
+    let rows = sqlx::query("SELECT id, status FROM orders WHERE user_id = $1")
+        .bind(user_id)
+        .fetch_all(pool)
+        .await?;
+
+    rows.into_iter()
+        .map(|row| Ok((row.try_get("id")?, row.try_get("status")?)))
+        .collect()
+}
+
+pub async fn set_gift_claim_expiry(
+    pool: &PgPool,
+    gift_id: Uuid,
+    claim_expires_at: DateTime<Utc>,
+) -> Result<()> {
+    sqlx::query("UPDATE gift_invites SET claim_expires_at = $2 WHERE id = $1 AND status = 'open'")
+        .bind(gift_id)
+        .bind(claim_expires_at)
+        .execute(pool)
+        .await?;
+
+    Ok(())
+}
+
+pub async fn expire_gift_cas(pool: &PgPool, gift_id: Uuid) -> Result<bool> {
+    let rows_affected =
+        sqlx::query("UPDATE gift_invites SET status = 'expired' WHERE id = $1 AND status = 'open'")
+            .bind(gift_id)
+            .execute(pool)
+            .await?
+            .rows_affected();
+
+    Ok(rows_affected == 1)
+}
+
+pub async fn list_expired_open_gifts(pool: &PgPool, now: DateTime<Utc>) -> Result<Vec<GiftRow>> {
+    let rows = sqlx::query(
+        "SELECT id, code_hash, sender_user_id, order_id, utility_type, utility_slug,
+                amount_ngn, claim_window_hours, message, sender_name, hide_sender_name,
+                fallback_service_ref, status, claimed_service_ref, claimed_customer_name,
+                claimed_at, claim_expires_at, created_at
+         FROM gift_invites
+         WHERE status = 'open' AND claim_expires_at IS NOT NULL AND claim_expires_at <= $1",
+    )
+    .bind(now)
+    .fetch_all(pool)
+    .await?;
+
+    rows.into_iter().map(map_gift_row).collect()
 }
 
 #[derive(Debug, Clone)]

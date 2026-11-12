@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation"
 import {
   ArrowLeftRight,
   CreditCard,
+  Gift,
   History,
   Home,
   LogOut,
@@ -26,6 +27,7 @@ import { ThemeToggle } from "@/components/theme-provider"
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Overview", icon: Home },
   { href: "/pay", label: "Pay a bill", icon: CreditCard, activeOrderDot: true },
+  { href: "/gifts", label: "Gifts", icon: Gift },
   { href: "/history", label: "History", icon: History },
   { href: "/settings", label: "Settings", icon: Settings },
 ]
