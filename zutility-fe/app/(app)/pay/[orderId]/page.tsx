@@ -15,7 +15,7 @@ import { useOrderStore } from "@/store/order"
 import { useAuthStore } from "@/store/auth"
 import { useOrderStream } from "@/lib/hooks/useOrderStream"
 import { apiGet, apiPost } from "@/lib/api"
-import { formatZEC } from "@/lib/utils"
+import { cn, formatZEC } from "@/lib/utils"
 import { UTILITIES } from "@/lib/constants"
 import { getStatusMeta, STATUS_TONE_CLASS } from "@/lib/order-status"
 import type { CreateOrderResponse, OrderStatusResponse } from "@/lib/types"
@@ -213,6 +213,12 @@ function OrderPageContent() {
 
   const addressType = order.required_confirmations > 3 ? "shielded" : "transparent"
   const isClosed = ["completed", "expired", "failed", "cancelled"].includes(status)
+  const giftLocked = status === "awaiting_payment" || status === "payment_detected"
+  const showGiftPanel =
+    Boolean(giftPath) &&
+    ["awaiting_payment", "payment_detected", "payment_confirmed", "awaiting_claim"].includes(
+      status
+    )
 
   const handleExpire = () => {
     if (status === "awaiting_payment") {
@@ -221,7 +227,7 @@ function OrderPageContent() {
   }
 
   const shareGift = async () => {
-    if (!giftPath) return
+    if (!giftPath || giftLocked) return
     const url = `${window.location.origin}${giftPath}`
     const shared = await tryNativeShare(url)
     if (shared) return
@@ -263,22 +269,31 @@ function OrderPageContent() {
           <Stepper steps={steps} currentStep={stepIndex} />
         </div>
 
-        {giftPath && (status === "awaiting_payment" || status === "awaiting_claim") && (
+        {showGiftPanel && giftPath && (
           <div className="border-b border-line bg-paper-2/60 px-5 py-4">
             <p className="flex items-center gap-1.5 text-[12px] font-medium text-gold-deep">
               <Gift className="h-3.5 w-3.5" />
               Gift link
             </p>
             <p className="mt-1 text-[12px] leading-relaxed text-muted">
-              Share this link. The recipient enters their own account, and the first claim wins.
+              {giftLocked
+                ? "The link unlocks when your payment confirms. Then you can send it to the recipient."
+                : "Share this link. The recipient enters their own account, and the first claim wins."}
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              <code className="min-w-0 flex-1 truncate rounded-md border border-line bg-paper px-2.5 py-1.5 text-[11px] text-ink-2">
+              <code
+                className={cn(
+                  "min-w-0 flex-1 truncate rounded-md border border-line bg-paper px-2.5 py-1.5 text-[11px] text-ink-2",
+                  giftLocked && "select-none blur-[5px]"
+                )}
+                aria-hidden={giftLocked}
+              >
                 {giftPath}
               </code>
               <Button
                 size="sm"
                 variant="secondary"
+                disabled={giftLocked}
                 onClick={() => {
                   navigator.clipboard.writeText(`${window.location.origin}${giftPath}`)
                   toast.success("Gift link copied")
@@ -286,11 +301,16 @@ function OrderPageContent() {
               >
                 Copy
               </Button>
-              <Button size="sm" onClick={shareGift}>
+              <Button size="sm" disabled={giftLocked} onClick={shareGift}>
                 <Share2 className="mr-1.5 h-3.5 w-3.5" />
                 Share
               </Button>
             </div>
+            {giftLocked && (
+              <p className="mt-2 text-[11px] leading-relaxed text-muted">
+                Available after {order.required_confirmations} confirmations.
+              </p>
+            )}
           </div>
         )}
 
