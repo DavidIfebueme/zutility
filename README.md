@@ -149,13 +149,6 @@ npm run lint
 
 Migrations are append-only. Add a new file rather than editing an applied one.
 
-## Design rules the code enforces
-
-- **Server-side amounts.** The client never sets the price of a utility or an RRR. School fees are priced from the Remita lookup, everything else from the order form and the provider catalogue.
-- **Address-scoped credit.** A payment credits an order only when the note's recipient equals that order's deposit address.
-- **Idempotent side effects.** Webhook and dispatch paths tolerate duplicate delivery. Completions are compare-and-set.
-- **No secrets in logs.** The wallet seed stays in the wallet file, provider keys stay in the environment, and errors are logged without them.
-
 ## Status
 
 Live on Zcash testnet at [zutility.xyz](https://zutility.xyz). Mainnet infrastructure is being brought up. School fees are pending final Remita settlement confirmation on the sandbox.
