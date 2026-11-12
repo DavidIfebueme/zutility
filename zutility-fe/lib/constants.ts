@@ -20,6 +20,7 @@ export interface Utility {
   slug: string
   name: string
   descriptor: string
+  keywords?: string[]
   iconType: string
   brandIcon: BrandIconId
   serviceRefLabel: string
@@ -61,7 +62,7 @@ export const UTILITIES: Utility[] = [
   { id: 'waec-registration', type: 'education', slug: 'waec-registration', name: 'WAEC Registration', descriptor: 'Exam registration PIN', iconType: 'education', brandIcon: 'waec', serviceRefLabel: 'Phone Number', serviceRefPlaceholder: '08012345678', serviceRefPattern: '^0[7-9][0-1]\\d{8}$', hasVariations: true, hasAmountPicker: false },
   { id: 'waec-result-checker', type: 'education', slug: 'waec-result-checker', name: 'WAEC Result Checker', descriptor: 'Result checker PIN', iconType: 'education', brandIcon: 'waec', serviceRefLabel: 'Phone Number', serviceRefPlaceholder: '08012345678', serviceRefPattern: '^0[7-9][0-1]\\d{8}$', hasVariations: true, hasAmountPicker: false },
   { id: 'jamb', type: 'education', slug: 'jamb', name: 'JAMB Pin', descriptor: 'UTME registration PIN', iconType: 'education', brandIcon: 'jamb', serviceRefLabel: 'Phone Number', serviceRefPlaceholder: '08012345678', serviceRefPattern: '^0[7-9][0-1]\\d{8}$', hasVariations: false, hasAmountPicker: false, fixedAmountKobo: 650000 },
-  { id: 'school-fees', type: 'school', slug: 'school-fees', name: 'School Fees', descriptor: 'Any Remita school', iconType: 'school', brandIcon: 'school-fees', serviceRefLabel: 'Remita RRR', serviceRefPlaceholder: '12 digit RRR from the school portal', hasVariations: false, hasAmountPicker: false },
+  { id: 'school-fees', type: 'school', slug: 'school-fees', name: 'School Fees', descriptor: 'Paste the RRR from your school portal', iconType: 'school', brandIcon: 'school-fees', keywords: ['school fees', 'tuition', 'rrr', 'remita', 'unn', 'unilag', 'abu', 'oau', 'uniben', 'uniport', 'ui', 'fees'], serviceRefLabel: 'Remita RRR', serviceRefPlaceholder: '12 digit RRR from the school portal', hasVariations: false, hasAmountPicker: false },
 ]
 
 export const UTILITY_CATEGORIES: { label: string; type: UtilityType | 'school'; icon: string }[] = [
