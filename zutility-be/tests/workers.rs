@@ -189,6 +189,10 @@ impl UtilityProvider for RetryTrackingProvider {
         Ok(ValidateRefResponse {
             is_valid: true,
             customer_name: None,
+            amount_ngn: None,
+            biller_name: None,
+            product_name: None,
+            reference: None,
             raw: serde_json::json!({}),
         })
     }
@@ -271,6 +275,10 @@ impl UtilityProvider for MockProvider {
         Ok(ValidateRefResponse {
             is_valid: true,
             customer_name: None,
+            amount_ngn: None,
+            biller_name: None,
+            product_name: None,
+            reference: None,
             raw: serde_json::json!({}),
         })
     }

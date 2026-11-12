@@ -134,6 +134,7 @@ export default function PayPage() {
   const serviceRef = watch("serviceRef")
 
   const selectedUtility = UTILITIES.find((utility) => utility.id === selectedUtilityId)
+  const isSchoolFees = selectedUtility?.type === "school"
 
   const filteredUtilities = UTILITIES.filter((utility) => {
     if (isGift && utility.type === "school") return false
@@ -214,18 +215,31 @@ export default function PayPage() {
       )
       setValidated(result)
       if (!result.valid) {
-        toast.error("That account number did not validate")
-      } else if (result.customer_name) {
-        toast.success(`Account name: ${result.customer_name}`)
-      } else {
-        toast.success("Account number validated")
+        toast.error(
+          selectedUtility.type === "school"
+            ? "That RRR is not payable"
+            : "That account number did not validate"
+        )
+        return
       }
-    } catch {
-      toast.error("Validation failed")
+
+      if (result.amount_ngn) {
+        setValue("amountNgn", result.amount_ngn, { shouldValidate: true })
+      }
+
+      toast.success(
+        selectedUtility.type === "school"
+          ? result.customer_name ?? "RRR found"
+          : result.customer_name
+            ? `Account name: ${result.customer_name}`
+            : "Account number validated"
+      )
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Validation failed")
     } finally {
       setValidating(false)
     }
-  }, [selectedUtility, serviceRef])
+  }, [selectedUtility, serviceRef, setValue])
 
   const onSubmit = async (data: OrderFormValues) => {
     if (!selectedUtility) return
@@ -304,7 +318,10 @@ export default function PayPage() {
     }
   }
 
-  const canSubmit = Boolean(selectedUtilityId && effectiveAmount > 0)
+  const canSubmit =
+    Boolean(selectedUtilityId) &&
+    effectiveAmount > 0 &&
+    (!isSchoolFees || Boolean(validated?.valid))
 
   return (
     <div className="space-y-7">
@@ -450,7 +467,7 @@ export default function PayPage() {
                         className="flex items-center gap-1 text-[12px] text-gold-deep u-link disabled:opacity-50"
                       >
                         {validating && <Loader2 className="h-3 w-3 animate-spin" />}
-                        {validated ? "Check again" : "Check the account"}
+                        {validated ? "Check again" : isSchoolFees ? "Look up the RRR" : "Check the account"}
                       </button>
                     )}
                   </div>
@@ -461,19 +478,37 @@ export default function PayPage() {
                     error={errors.serviceRef?.message}
                     disabled={!selectedUtilityId}
                   />
-                  {validated && (
-                    <p
-                      className={cn(
-                        "flex items-center gap-1.5 text-[12px]",
-                        validated.valid ? "text-green" : "text-rust"
+                  {validated && !validated.valid && (
+                    <p className="flex items-center gap-1.5 text-[12px] text-rust">
+                      <Info className="h-3.5 w-3.5" />
+                      {isSchoolFees ? "That RRR is not payable" : "That number did not validate"}
+                    </p>
+                  )}
+
+                  {validated?.valid && isSchoolFees && (
+                    <div className="rounded-md border border-line bg-paper px-3 py-3">
+                      <p className="label-xs text-muted">RRR details</p>
+                      <p className="mt-1 text-[13px] text-ink">
+                        {validated.biller_name ?? "Remita biller"}
+                      </p>
+                      {validated.product_name && (
+                        <p className="text-[12px] text-muted">{validated.product_name}</p>
                       )}
-                    >
-                      {validated.valid ? <Check className="h-3.5 w-3.5" /> : <Info className="h-3.5 w-3.5" />}
+                      {validated.customer_name && (
+                        <p className="mt-1 text-[12px] text-ink-2">{validated.customer_name}</p>
+                      )}
+                      <p className="num mt-2 text-lg text-ink">
+                        {formatCurrency(validated.amount_ngn ?? 0, "NGN")}
+                      </p>
+                    </div>
+                  )}
+
+                  {validated?.valid && !isSchoolFees && (
+                    <p className="flex items-center gap-1.5 text-[12px] text-green">
+                      <Check className="h-3.5 w-3.5" />
                       {validated.customer_name
                         ? `Account name: ${validated.customer_name}`
-                        : validated.valid
-                          ? "Account number validated"
-                          : "That number did not validate"}
+                        : "Account number validated"}
                     </p>
                   )}
                 </div>

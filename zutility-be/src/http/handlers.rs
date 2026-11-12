@@ -22,7 +22,7 @@ use crate::{
         CurrentRate, SharedRateCache, default_current_rate, new_shared_rate_cache,
     },
     integrations::remita::RemitaClient,
-    integrations::utility_provider::ProviderTxnStatus,
+    integrations::utility_provider::{ProviderTxnStatus, ValidateRefRequest},
     integrations::vtpass::VtpassClient,
     integrations::zcash::ZcashClient,
     observability::{AlertState, ObservabilityState, ProbeStatus, ReadinessReport},
@@ -115,9 +115,17 @@ impl HttpState {
 
         let vtpass = VtpassClient::from_config(config).ok();
         let remita = RemitaClient::from_config(config).ok();
+        let remita_collections =
+            crate::integrations::remita_collections::RemitaCollectionsClient::from_config(config)
+                .ok();
         let inlomax = crate::integrations::inlomax::InlomaxClient::from_config(config).ok();
         if let Some(vtpass) = vtpass {
-            self.provider_dispatcher = Some(ProviderDispatcher::new(vtpass, remita, inlomax));
+            self.provider_dispatcher = Some(ProviderDispatcher::new(
+                vtpass,
+                remita,
+                remita_collections,
+                inlomax,
+            ));
         }
 
         if let (Some(api_key), Some(sender_email), Some(sender_name)) = (
@@ -169,6 +177,8 @@ pub async fn create_order(
     validate_create_order_payload(&payload)?;
     enforce_service_ref_velocity(&state, &payload).await?;
 
+    let amount_ngn = resolve_order_amount(&state, &payload).await?;
+
     state.observability.metrics().increment_order_creations();
     let order_access_token = generate_token(48);
     let access_token_hash =
@@ -184,7 +194,7 @@ pub async fn create_order(
     if rate.zec_ngn <= Decimal::ZERO {
         return Err(ApiError::internal("rate data unavailable — please try again in a moment"));
     }
-    let zec_amount = Decimal::new(payload.amount_ngn, 0) / rate.zec_ngn;
+    let zec_amount = Decimal::new(amount_ngn, 0) / rate.zec_ngn;
     let expires_at = Utc::now() + Duration::minutes(state.order_expiry_minutes);
 
     let rate_snapshot_id = get_or_create_rate_snapshot(&state.pool, &rate).await.map_err(internal_err)?;
@@ -194,7 +204,7 @@ pub async fn create_order(
         utility_type: payload.utility_type.clone(),
         utility_slug: payload.utility_slug.clone(),
         service_ref: payload.service_ref.clone(),
-        amount_ngn: payload.amount_ngn,
+        amount_ngn,
         address_type: payload.zec_address_type.clone(),
         zec_amount,
         zec_rate_id: rate_snapshot_id,
@@ -229,6 +239,61 @@ pub async fn create_order(
         address_type: payload.zec_address_type.clone(),
         utility_slug: payload.utility_slug.clone(),
     }))
+}
+
+async fn resolve_order_amount(
+    state: &HttpState,
+    payload: &CreateOrderRequest,
+) -> Result<i64, ApiError> {
+    if payload.utility_type != "school_fees" {
+        return Ok(payload.amount_ngn);
+    }
+
+    let reference = payload.service_ref.trim();
+    let is_rrr = reference.len() == 12 && reference.chars().all(|c| c.is_ascii_digit());
+    if !is_rrr {
+        return Err(ApiError::bad_request(
+            "school fees need a 12 digit Remita RRR",
+        ));
+    }
+
+    let dispatcher = state
+        .provider_dispatcher
+        .as_ref()
+        .ok_or_else(|| ApiError::internal("school fees are not configured"))?;
+
+    let request = ValidateRefRequest {
+        service_id: payload.utility_slug.clone(),
+        billers_code: reference.to_owned(),
+    };
+
+    let details = dispatcher
+        .validate_reference("school_fees", &request)
+        .await
+        .map_err(|error| ApiError::bad_request(error.message))?;
+
+    if !details.is_valid {
+        return Err(ApiError::bad_request("that RRR is not payable"));
+    }
+
+    let looked_up = details
+        .amount_ngn
+        .ok_or_else(|| ApiError::bad_request("could not read the amount on that RRR"))?;
+
+    if looked_up <= 0 {
+        return Err(ApiError::bad_request("that RRR has no amount"));
+    }
+
+    if payload.amount_ngn != looked_up {
+        tracing::info!(
+            client_amount = payload.amount_ngn,
+            looked_up_amount = looked_up,
+            rrr = reference,
+            "school fees amount taken from the RRR lookup"
+        );
+    }
+
+    Ok(looked_up)
 }
 
 async fn enforce_service_ref_velocity(
@@ -733,7 +798,14 @@ pub async fn validate_utility_reference(
                 return Ok(Json(UtilityValidateResponse {
                     valid: response.is_valid,
                     customer_name: response.customer_name,
+                    amount_ngn: response.amount_ngn,
+                    biller_name: response.biller_name,
+                    product_name: response.product_name,
+                    reference: response.reference,
                 }));
+            }
+            Err(error) if utility_type == "school_fees" => {
+                return Err(ApiError::bad_request(error.message));
             }
             Err(_) => {}
         }
@@ -747,6 +819,10 @@ pub async fn validate_utility_reference(
         } else {
             None
         },
+        amount_ngn: None,
+        biller_name: None,
+        product_name: None,
+        reference: None,
     }))
 }
 

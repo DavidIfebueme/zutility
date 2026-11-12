@@ -104,7 +104,19 @@ fn start_order_orchestrator(state: HttpState, config: AppConfig, pool: PgPool) {
             }
         };
 
-        let dispatcher = ProviderDispatcher::new(vtpass, remita, inlomax);
+        let remita_collections = match crate::integrations::remita_collections::RemitaCollectionsClient::from_config(&config) {
+            Ok(client) => {
+                tracing::info!("remita collections client initialized successfully");
+                Some(client)
+            }
+            Err(error) => {
+                tracing::warn!(error = %error, "remita collections client not configured — school fees will be unavailable");
+                None
+            }
+        };
+
+        let dispatcher =
+            ProviderDispatcher::new(vtpass, remita, remita_collections, inlomax);
 
         let mut ticker = interval(Duration::from_secs(25));
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -577,9 +589,7 @@ async fn dispatch_utility(
     let provider_name = format!("{provider_kind:?}").to_lowercase();
 
     let request_id = match provider_kind {
-        crate::integrations::utility_provider::ProviderKind::Remita => {
-            format!("rm-{}", order.id.as_simple())
-        }
+        crate::integrations::utility_provider::ProviderKind::Remita => order.service_ref.clone(),
         crate::integrations::utility_provider::ProviderKind::Inlomax => {
             format!("inl-{}", order.id.as_simple())
         }

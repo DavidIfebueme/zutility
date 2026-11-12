@@ -18,6 +18,7 @@ export const BRAND_LOGOS: Partial<Record<BrandIconId, string>> = {
   "yola-electric": "/logos/yola-electric.png",
   waec: "/logos/waec.png",
   jamb: "/logos/jamb.png",
+  unn: "/logos/unn.png",
 }
 
 export const BRAND_MONOGRAMS: Partial<Record<BrandIconId, string>> = {

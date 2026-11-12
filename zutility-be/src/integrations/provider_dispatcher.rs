@@ -3,16 +3,23 @@ use std::sync::Arc;
 use crate::integrations::{
     inlomax::InlomaxClient,
     remita::RemitaClient,
+    remita_collections::RemitaCollectionsClient,
     utility_provider::{
-        ProviderError, ProviderKind, UtilityProvider,
-        UtilityPurchaseRequest, UtilityPurchaseResponse, UtilityVariation, ValidateRefRequest,
-        ValidateRefResponse, RequeryResponse,
+        ProviderError, ProviderKind, RequeryResponse, UtilityProvider, UtilityPurchaseRequest,
+        UtilityPurchaseResponse, UtilityVariation, ValidateRefRequest, ValidateRefResponse,
     },
     vtpass::VtpassClient,
 };
 
 const INLOMAX_UTILITY_TYPES: &[&str] = &[
-    "airtime", "data", "dstv", "gotv", "startimes", "electricity", "waec", "jamb",
+    "airtime",
+    "data",
+    "dstv",
+    "gotv",
+    "startimes",
+    "electricity",
+    "waec",
+    "jamb",
 ];
 
 #[derive(Clone)]
@@ -20,34 +27,40 @@ pub struct ProviderDispatcher {
     inlomax: Option<Arc<InlomaxClient>>,
     vtpass: Arc<VtpassClient>,
     remita: Option<Arc<RemitaClient>>,
+    remita_collections: Option<Arc<RemitaCollectionsClient>>,
 }
 
 impl ProviderDispatcher {
-    pub fn new(vtpass: VtpassClient, remita: Option<RemitaClient>, inlomax: Option<InlomaxClient>) -> Self {
+    pub fn new(
+        vtpass: VtpassClient,
+        remita: Option<RemitaClient>,
+        remita_collections: Option<RemitaCollectionsClient>,
+        inlomax: Option<InlomaxClient>,
+    ) -> Self {
         Self {
             inlomax: inlomax.map(Arc::new),
             vtpass: Arc::new(vtpass),
             remita: remita.map(Arc::new),
+            remita_collections: remita_collections.map(Arc::new),
         }
     }
 
-    pub fn provider_for(&self, utility_type: &str) -> Result<Arc<dyn UtilityProvider>, ProviderError> {
+    pub fn provider_for(
+        &self,
+        utility_type: &str,
+    ) -> Result<Arc<dyn UtilityProvider>, ProviderError> {
         match utility_type {
-            "school_fees" => {
-                match self.remita.clone() {
-                    Some(r) => Ok(r as Arc<dyn UtilityProvider>),
-                    None => Err(ProviderError::new(
-                        crate::integrations::utility_provider::ProviderErrorKind::Outage,
-                        "Remita is not configured. Set REMITA_* environment variables to enable school fees payments.",
-                    )),
-                }
-            }
-            ut if INLOMAX_UTILITY_TYPES.contains(&ut) => {
-                match self.inlomax.clone() {
-                    Some(i) => Ok(i as Arc<dyn UtilityProvider>),
-                    None => Ok(self.vtpass.clone() as Arc<dyn UtilityProvider>),
-                }
-            }
+            "school_fees" => match self.remita_collections.clone() {
+                Some(r) => Ok(r as Arc<dyn UtilityProvider>),
+                None => Err(ProviderError::new(
+                    crate::integrations::utility_provider::ProviderErrorKind::Outage,
+                    "Remita Collections is not configured. Set REMITA_COLLECTIONS_BASE_URL and REMITA_COLLECTIONS_SECRET_KEY to enable school fees payments.",
+                )),
+            },
+            ut if INLOMAX_UTILITY_TYPES.contains(&ut) => match self.inlomax.clone() {
+                Some(i) => Ok(i as Arc<dyn UtilityProvider>),
+                None => Ok(self.vtpass.clone() as Arc<dyn UtilityProvider>),
+            },
             _ => Ok(self.vtpass.clone() as Arc<dyn UtilityProvider>),
         }
     }
@@ -129,8 +142,10 @@ impl ProviderDispatcher {
 
     pub fn provider_kind_for(&self, utility_type: &str) -> ProviderKind {
         match utility_type {
-            "school_fees" if self.remita.is_some() => ProviderKind::Remita,
-            ut if INLOMAX_UTILITY_TYPES.contains(&ut) && self.inlomax.is_some() => ProviderKind::Inlomax,
+            "school_fees" if self.remita_collections.is_some() => ProviderKind::Remita,
+            ut if INLOMAX_UTILITY_TYPES.contains(&ut) && self.inlomax.is_some() => {
+                ProviderKind::Inlomax
+            }
             _ => ProviderKind::Vtpass,
         }
     }

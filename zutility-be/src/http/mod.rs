@@ -255,6 +255,8 @@ pub fn router() -> Router {
         remita_service_type_id: Some(String::from("demo_service_type")),
         remita_base_url: Some(String::from("https://remitademo.net/remita/exapp/api/v1")),
         remita_webhook_secret: Some(secrecy::SecretString::from(String::from("remita_webhook"))),
+        remita_collections_base_url: None,
+        remita_collections_secret_key: None,
         inlomax_api_key: None,
         inlomax_base_url: None,
         inlomax_webhook_secret: None,

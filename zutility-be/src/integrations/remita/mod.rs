@@ -309,12 +309,20 @@ impl UtilityProvider for RemitaClient {
                     Ok(ValidateRefResponse {
                         is_valid,
                         customer_name,
+                        amount_ngn: None,
+                        biller_name: None,
+                        product_name: None,
+                        reference: None,
                         raw: value,
                     })
                 }
                 Err(_) => Ok(ValidateRefResponse {
                     is_valid: false,
                     customer_name: None,
+                    amount_ngn: None,
+                    biller_name: None,
+                    product_name: None,
+                    reference: None,
                     raw: json!({}),
                 }),
             }
@@ -322,6 +330,10 @@ impl UtilityProvider for RemitaClient {
             Ok(ValidateRefResponse {
                 is_valid: true,
                 customer_name: None,
+                amount_ngn: None,
+                biller_name: None,
+                product_name: None,
+                reference: None,
                 raw: json!({"billers_code": request.billers_code, "service_id": request.service_id}),
             })
         }

@@ -2,15 +2,14 @@ import Link from "next/link"
 import { ArrowRight, Check, Clock, Lock, Wallet } from "lucide-react"
 import { SiteHeader } from "@/components/marketing/site-header"
 import { SiteFooter } from "@/components/marketing/site-footer"
-import { BrandTile } from "@/components/marketing/brand-tile"
-import { Badge } from "@/components/ui/badge"
+import { SampleReceiptStack } from "@/components/marketing/sample-receipt-stack"
 import { Button } from "@/components/ui/button"
 import { RateTicker } from "@/components/ui/rate-ticker"
 import { Reveal } from "@/components/ui/reveal"
 import { UTILITIES } from "@/lib/constants"
 
 const HERO_FACTS = [
-  { icon: Clock, label: "Settlement", value: "9 or 10 confirmations, about 4 minutes" },
+  { icon: Clock, label: "Settlement", value: "About a minute or two" },
   { icon: Wallet, label: "Payment", value: "Shielded or transparent ZEC" },
   { icon: Lock, label: "Identity", value: "No documents, no account approval" },
 ]
@@ -40,7 +39,7 @@ const FAQ = [
   },
   {
     q: "How long does delivery take?",
-    a: "A transparent payment clears at 9 confirmations and a shielded payment at 10. Blocks arrive about every 25 seconds, so that is roughly four minutes, then the provider dispatch is usually instant. Some meters and exam PINs take a little longer.",
+    a: "Most payments clear in a minute or two. We wait for the network to confirm the payment, then dispatch the top-up, token, or subscription. Some meters and exam PINs take a little longer.",
   },
   {
     q: "What happens if I send the wrong amount?",
@@ -71,61 +70,6 @@ const FEATURED_NAMES = [
   "WAEC",
   "JAMB",
 ]
-
-function SampleReceipt() {
-  return (
-    <div className="w-full max-w-md">
-      <div className="rounded-lg border border-line bg-cream transition-[transform,border-color] duration-300 ease-out hover:-translate-y-1 hover:border-line-strong">
-        <div className="flex items-center justify-between border-b border-line px-5 py-3">
-          <p className="label-xs text-muted">Order 8F2C-41A9</p>
-          <Badge variant="warning">Awaiting payment</Badge>
-        </div>
-        <div className="space-y-5 p-5">
-          <div className="flex items-start gap-3">
-            <BrandTile id="mtn" />
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-ink">MTN Airtime</p>
-              <p className="num text-[13px] text-muted">0803 555 0142</p>
-            </div>
-            <p className="num ml-auto text-lg text-ink">₦2,000.00</p>
-          </div>
-
-          <div className="rounded-md border border-line bg-paper px-4 py-3">
-            <p className="label-xs text-muted">Send exactly</p>
-            <p className="num mt-1 text-2xl text-ink">0.08430000 ZEC</p>
-            <p className="num mt-1 truncate text-[12px] text-muted">
-              u1q9x4v7k2m8p3n6r5t0w1y2z3a4b5c6d7e8f9g0h
-            </p>
-          </div>
-
-          <dl className="space-y-2 text-[13px]">
-            <div className="flex items-center justify-between">
-              <dt className="text-muted">Network fee</dt>
-              <dd className="text-ink">Paid by sender</dd>
-            </div>
-            <div className="flex items-center justify-between">
-              <dt className="text-muted">Confirmations</dt>
-              <dd className="num text-ink">0 of 9</dd>
-            </div>
-            <div className="flex items-center justify-between">
-              <dt className="text-muted">Expires in</dt>
-              <dd className="num text-ink">29:59</dd>
-            </div>
-          </dl>
-        </div>
-        <div className="border-t border-line px-5 py-3">
-          <p className="text-[12px] leading-relaxed text-muted">
-            We credit the order when a payment reaches this address. Nothing is credited from a
-            wallet scan.
-          </p>
-        </div>
-      </div>
-      <p className="mt-3 px-1 text-[12px] text-muted">
-        Sample receipt. A live order shows the current rate and its own address.
-      </p>
-    </div>
-  )
-}
 
 export default function HomePage() {
   const counts = UTILITIES.reduce<Record<string, number>>((acc, utility) => {
@@ -177,7 +121,7 @@ export default function HomePage() {
 
             <div className="flex min-w-0 justify-center lg:justify-end">
               <Reveal delay={100} className="w-full max-w-md">
-                <SampleReceipt />
+                <SampleReceiptStack />
               </Reveal>
             </div>
           </div>

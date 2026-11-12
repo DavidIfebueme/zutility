@@ -419,6 +419,10 @@ impl UtilityProvider for VtpassClient {
         Ok(ValidateRefResponse {
             is_valid,
             customer_name,
+            amount_ngn: None,
+            biller_name: None,
+            product_name: None,
+            reference: None,
             raw: response,
         })
     }
