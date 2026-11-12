@@ -192,6 +192,16 @@ impl AppConfig {
             ensure_non_empty_secret("REMITA_COLLECTIONS_SECRET_KEY", v)?;
         }
 
+        if matches!(self.app_env, AppEnv::Prod) {
+            if let Some(ref url) = self.remita_collections_base_url {
+                if url.contains("remitademo") {
+                    anyhow::bail!(
+                        "REMITA_COLLECTIONS_BASE_URL must not point at the demo gateway in production"
+                    );
+                }
+            }
+        }
+
         if matches!(self.zcash_backend, ZcashBackend::Rpc) {
             ensure_non_empty_secret("ZCASH_RPC_USER", &self.zcash_rpc_user)?;
             ensure_non_empty_secret("ZCASH_RPC_PASSWORD", &self.zcash_rpc_password)?;

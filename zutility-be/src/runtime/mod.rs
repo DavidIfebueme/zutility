@@ -665,6 +665,35 @@ async fn requery_utility_dispatch(
     if order.vtpass_request_id.is_none() {
         tracing::warn!(order_id = %order.id, "requery has no stored provider reference, falling back to order ID");
     }
+
+    if let Some(started_at) = db::dispatch_started_at(pool, order.id).await? {
+        if Utc::now() - started_at > chrono::Duration::minutes(30) {
+            let transitioned = db::update_order_status_cas(
+                pool,
+                order.id,
+                "utility_dispatching",
+                "flagged_for_review",
+                "dispatch_stuck",
+                serde_json::json!({ "reference": reference, "minutes": 30 }),
+            )
+            .await?;
+
+            if transitioned {
+                tracing::error!(order_id = %order.id, "dispatch stuck for 30 minutes, flagged");
+                notify_order(
+                    pool,
+                    order,
+                    "order_flagged",
+                    "Order Under Review",
+                    "The provider has not confirmed this order. Support will follow up.",
+                    serde_json::json!({ "utility_slug": order.utility_slug }),
+                );
+            }
+
+            return Ok(());
+        }
+    }
+
     let response = dispatcher.requery(&order.utility_type, reference).await;
 
     match response {

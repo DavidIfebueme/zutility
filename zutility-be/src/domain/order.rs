@@ -65,6 +65,7 @@ impl OrderStatus {
                 | (Self::AwaitingClaim, Self::FlaggedForReview)
                 | (Self::UtilityDispatching, Self::Completed)
                 | (Self::UtilityDispatching, Self::Failed)
+                | (Self::UtilityDispatching, Self::FlaggedForReview)
         )
     }
 }

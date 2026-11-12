@@ -241,10 +241,22 @@ export default function PayPage() {
     }
   }, [selectedUtility, serviceRef, setValue])
 
+  React.useEffect(() => {
+    setValidated(null)
+  }, [serviceRef, selectedUtilityId])
+
   const onSubmit = async (data: OrderFormValues) => {
     if (!selectedUtility) return
 
     const amountNgn = Math.round(effectiveAmount)
+
+    if (
+      isSchoolFees &&
+      (!validated?.valid || validated.reference !== data.serviceRef.trim())
+    ) {
+      toast.error("Look up the RRR again")
+      return
+    }
 
     if (!isGift && !data.serviceRef.trim()) {
       toast.error("Enter the account number")

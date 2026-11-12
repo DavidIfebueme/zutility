@@ -179,6 +179,16 @@ pub async fn create_order(
 
     let amount_ngn = resolve_order_amount(&state, &payload).await?;
 
+    if payload.utility_type == "school_fees"
+        && db::active_school_fee_order_exists(&state.pool, payload.service_ref.trim())
+            .await
+            .map_err(internal_err)?
+    {
+        return Err(ApiError::conflict(
+            "an open order already exists for this RRR",
+        ));
+    }
+
     state.observability.metrics().increment_order_creations();
     let order_access_token = generate_token(48);
     let access_token_hash =
@@ -203,7 +213,7 @@ pub async fn create_order(
         access_token_hash,
         utility_type: payload.utility_type.clone(),
         utility_slug: payload.utility_slug.clone(),
-        service_ref: payload.service_ref.clone(),
+        service_ref: payload.service_ref.trim().to_owned(),
         amount_ngn,
         address_type: payload.zec_address_type.clone(),
         zec_amount,
@@ -220,9 +230,16 @@ pub async fn create_order(
 
     let network = state.zcash_network.as_str();
     let mut tx = db::begin_tx(&state.pool).await.map_err(internal_err)?;
-    let (order_id, deposit_address) = db::insert_order_with_claimed_address(&mut tx, &input, network)
-        .await
-        .map_err(internal_err)?;
+    let (order_id, deposit_address) =
+        db::insert_order_with_claimed_address(&mut tx, &input, network)
+            .await
+            .map_err(|error| {
+                if is_unique_violation(&error) {
+                    ApiError::conflict("an open order already exists for this RRR")
+                } else {
+                    internal_err(error)
+                }
+            })?;
     db::set_order_user_id_tx(&mut tx, order_id, auth_user.user_id)
         .await
         .map_err(internal_err)?;
@@ -282,6 +299,12 @@ async fn resolve_order_amount(
 
     if looked_up <= 0 {
         return Err(ApiError::bad_request("that RRR has no amount"));
+    }
+
+    if looked_up > MAX_ORDER_AMOUNT_NGN {
+        return Err(ApiError::bad_request(format!(
+            "school fees above {MAX_ORDER_AMOUNT_NGN} naira are not supported"
+        )));
     }
 
     if payload.amount_ngn != looked_up {
@@ -1027,6 +1050,18 @@ fn map_status_to_event(order: &OrderRow) -> Option<WsOrderEvent> {
 
 fn internal_err(error: impl std::fmt::Display) -> ApiError {
     ApiError::internal(error.to_string())
+}
+
+fn is_unique_violation(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<sqlx::Error>()
+        .and_then(|error| match error {
+            sqlx::Error::Database(database) => database
+                .code()
+                .map(|code| code.as_ref() == "23505"),
+            _ => None,
+        })
+        .unwrap_or(false)
 }
 
 pub async fn webhook_inlomax(

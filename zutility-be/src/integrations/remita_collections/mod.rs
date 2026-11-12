@@ -199,7 +199,7 @@ fn parse_rrr_details(data: Value) -> Result<RrrDetails, ProviderError> {
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_owned();
-    let amount_ngn = amount_from_value(data.get("amount"));
+    let amount_ngn = amount_from_value(data.get("amount")).unwrap_or(0);
 
     if rrr.is_empty() || amount_ngn <= 0 {
         return Err(ProviderError::new(
@@ -208,6 +208,13 @@ fn parse_rrr_details(data: Value) -> Result<RrrDetails, ProviderError> {
         ));
     }
 
+    let status = string_field(&data, "status").ok_or_else(|| {
+        ProviderError::new(
+            ProviderErrorKind::InvalidResponse,
+            "remita lookup missing status",
+        )
+    })?;
+
     Ok(RrrDetails {
         biller_id: string_field(&data, "billerId").unwrap_or_default(),
         biller_name: string_field(&data, "billerName")
@@ -215,9 +222,9 @@ fn parse_rrr_details(data: Value) -> Result<RrrDetails, ProviderError> {
         product_name: string_field(&data, "productName"),
         customer_name: string_field(&data, "name"),
         amount_ngn,
-        fee_ngn: amount_from_value(data.get("fee")),
+        fee_ngn: amount_from_value(data.get("fee")).unwrap_or(0),
         rrr,
-        status: string_field(&data, "status").unwrap_or_else(|| String::from("pending")),
+        status,
         receipt_url: data
             .get("metadata")
             .and_then(|metadata| metadata.get("receiptUrl"))
@@ -236,18 +243,22 @@ fn string_field(data: &Value, key: &str) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
-fn amount_from_value(value: Option<&Value>) -> i64 {
+fn amount_from_value(value: Option<&Value>) -> Option<i64> {
     match value {
-        Some(Value::Number(number)) => number
-            .as_i64()
-            .or_else(|| number.as_f64().map(|amount| amount.round() as i64))
-            .unwrap_or(0),
-        Some(Value::String(text)) => text
-            .trim()
-            .parse::<f64>()
-            .map(|amount| amount.round() as i64)
-            .unwrap_or(0),
-        _ => 0,
+        Some(Value::Number(number)) => number.as_i64().or_else(|| {
+            number
+                .as_f64()
+                .filter(|amount| amount.fract() == 0.0)
+                .map(|amount| amount as i64)
+        }),
+        Some(Value::String(text)) => text.trim().parse::<i64>().ok().or_else(|| {
+            text.trim()
+                .parse::<f64>()
+                .ok()
+                .filter(|amount| amount.fract() == 0.0)
+                .map(|amount| amount as i64)
+        }),
+        _ => None,
     }
 }
 
@@ -287,6 +298,15 @@ impl UtilityProvider for RemitaCollectionsClient {
     ) -> Result<UtilityPurchaseResponse, ProviderError> {
         let rrr = request.billers_code.clone();
         let payment_identifier = request.order_id.to_string();
+
+        let details = self.lookup_rrr(&rrr).await?;
+        if !details.is_payable() {
+            return Err(ProviderError::new(
+                ProviderErrorKind::Permanent,
+                format!("RRR {rrr} is not payable ({})", details.status),
+            ));
+        }
+
         let status = self
             .process_rrr(&rrr, &payment_identifier, request.amount_ngn)
             .await?;
@@ -388,6 +408,34 @@ mod tests {
     fn rejects_lookup_without_amount() {
         let mut fixture = lookup_fixture();
         fixture["amount"] = json!(0);
+
+        assert!(parse_rrr_details(fixture).is_err());
+    }
+
+    #[test]
+    fn paid_rrr_is_not_payable() {
+        let mut fixture = lookup_fixture();
+        fixture["status"] = json!("paid");
+        let details = parse_rrr_details(fixture).expect("details");
+
+        assert!(!details.is_payable());
+        assert_eq!(details.transaction_status(), ProviderTxnStatus::Delivered);
+    }
+
+    #[test]
+    fn rejects_lookup_without_status() {
+        let mut fixture = lookup_fixture();
+        if let Some(object) = fixture.as_object_mut() {
+            object.remove("status");
+        }
+
+        assert!(parse_rrr_details(fixture).is_err());
+    }
+
+    #[test]
+    fn rejects_fractional_amount() {
+        let mut fixture = lookup_fixture();
+        fixture["amount"] = json!(1000.5);
 
         assert!(parse_rrr_details(fixture).is_err());
     }

@@ -524,7 +524,57 @@ pub async fn set_order_dispatching(
     .await?
     .rows_affected();
 
+    if rows_affected > 0 {
+        sqlx::query(
+            "INSERT INTO audit_log (order_id, event, old_status, new_status, detail)
+             VALUES ($1, 'dispatch_started', 'payment_confirmed', 'utility_dispatching', $2)",
+        )
+        .bind(order_id)
+        .bind(serde_json::json!({
+            "provider": provider,
+            "reference": vtpass_request_id,
+        }))
+        .execute(pool)
+        .await?;
+    }
+
     Ok(rows_affected > 0)
+}
+
+pub async fn active_school_fee_order_exists(pool: &PgPool, service_ref: &str) -> Result<bool> {
+    let exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(
+            SELECT 1 FROM orders
+            WHERE utility_type = 'school_fees'
+              AND service_ref = $1
+              AND status IN (
+                  'awaiting_payment',
+                  'payment_detected',
+                  'payment_confirmed',
+                  'utility_dispatching',
+                  'flagged_for_review'
+              )
+        )",
+    )
+    .bind(service_ref)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(exists)
+}
+
+pub async fn dispatch_started_at(pool: &PgPool, order_id: Uuid) -> Result<Option<DateTime<Utc>>> {
+    let started_at: Option<DateTime<Utc>> = sqlx::query_scalar(
+        "SELECT created_at FROM audit_log
+         WHERE order_id = $1 AND event = 'dispatch_started'
+         ORDER BY created_at DESC
+         LIMIT 1",
+    )
+    .bind(order_id)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(started_at)
 }
 
 pub async fn list_active_orders(pool: &PgPool) -> Result<Vec<OrderRow>> {
