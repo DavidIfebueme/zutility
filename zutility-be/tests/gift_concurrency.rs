@@ -14,6 +14,7 @@ async fn test_pool() -> Option<PgPool> {
 
 struct Fixture {
     gift_id: Uuid,
+    user_id: Uuid,
 }
 
 async fn fixture(pool: &PgPool) -> Option<Fixture> {
@@ -83,7 +84,25 @@ async fn fixture(pool: &PgPool) -> Option<Fixture> {
     .await
     .ok()?;
 
-    Some(Fixture { gift_id })
+    Some(Fixture { gift_id, user_id })
+}
+
+#[tokio::test]
+async fn outstanding_sum_decodes_and_counts_open_gifts() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    let Some(fixture) = fixture(&pool).await else {
+        return;
+    };
+
+    let mut tx = pool.begin().await.expect("begin");
+    let total = db::lock_user_and_sum_open_gifts(&mut tx, fixture.user_id)
+        .await
+        .expect("outstanding sum");
+    tx.rollback().await.expect("rollback");
+
+    assert_eq!(total, 5000);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]

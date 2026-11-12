@@ -642,7 +642,7 @@ pub async fn lock_user_and_sum_open_gifts(
     }
 
     let total: i64 = sqlx::query_scalar(
-        "SELECT COALESCE(SUM(amount_ngn), 0)
+        "SELECT COALESCE(SUM(amount_ngn), 0)::bigint
          FROM gift_invites
          WHERE sender_user_id = $1 AND status = 'open'",
     )
