@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use axum::http::{header::HeaderName, HeaderValue};
 use axum::{
     Router,
@@ -23,12 +21,14 @@ pub mod gift_handlers;
 pub mod handlers;
 pub mod mw;
 pub mod notification_handlers;
+pub mod rate_limit;
 pub mod support_handlers;
 pub mod types;
 pub mod waitlist_handlers;
 
 use crate::config::AppConfig;
 use crate::integrations::rates::SharedRateCache;
+use rate_limit::ClientIpKeyExtractor;
 use auth_handlers::{
     change_password, delete_account, forgot_password, get_me, get_order_history, login, logout,
     refresh, register, resend_verification, reset_password, update_profile, verify_email,
@@ -115,8 +115,6 @@ fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool
         .route("/api/v1/webhooks/remita", post(webhook_remita))
         .route("/api/v1/gifts/{code}", get(get_gift))
         .route("/api/v1/gifts/{code}/claim", post(claim_gift))
-        .route("/ops/health/live", get(health_live))
-        .route("/ops/health/ready", get(health_ready))
         .route("/ops/openapi.json", get(openapi_json))
         .route("/ops/docs", get(docs_ui))
         .route("/ops/metrics", get(metrics))
@@ -126,6 +124,11 @@ fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool
         .route("/api/v1/waitlist/resend", post(waitlist_resend))
         .route("/api/v1/waitlist/stats", get(waitlist_stats))
         .route("/api/v1/support", post(support_contact))
+        .with_state(state.clone());
+
+    let health_routes = Router::new()
+        .route("/ops/health/live", get(health_live))
+        .route("/ops/health/ready", get(health_ready))
         .with_state(state.clone());
 
     let admin_secret_for_mw = state.admin_secret.clone();
@@ -165,27 +168,47 @@ fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool
             mw::admin_middleware,
         ));
 
-    let router = public_routes
+    let app = public_routes
         .merge(protected_routes)
-        .merge(admin_routes)
-        .layer({
-            let cors = CorsLayer::new()
-                .allow_methods([
-                    axum::http::Method::GET,
-                    axum::http::Method::POST,
-                    axum::http::Method::OPTIONS,
-                ])
-                .allow_headers([
-                    axum::http::header::CONTENT_TYPE,
-                    axum::http::header::ACCEPT,
-                    HeaderName::from_static("x-csrf-token"),
-                    HeaderName::from_static("x-request-id"),
-                ])
-                .allow_credentials(true)
-                .expose_headers([HeaderName::from_str("x-request-id").expect("valid header name")]);
-            let origins = build_allowed_origins(&app_base_url, frontend_url.as_deref());
-            cors.allow_origin(origins)
-        })
+        .merge(admin_routes);
+
+    let app = if enable_rate_limits {
+        let config = GovernorConfigBuilder::default()
+            .per_second(30)
+            .burst_size(200)
+            .key_extractor(ClientIpKeyExtractor)
+            .use_headers()
+            .finish();
+
+        match config {
+            Some(config) => app.layer(GovernorLayer::new(config)),
+            None => {
+                tracing::error!("invalid rate limit configuration, rate limiting disabled");
+                app
+            }
+        }
+    } else {
+        app
+    };
+
+    let cors = CorsLayer::new()
+        .allow_methods([
+            axum::http::Method::GET,
+            axum::http::Method::POST,
+            axum::http::Method::OPTIONS,
+        ])
+        .allow_headers([
+            axum::http::header::CONTENT_TYPE,
+            axum::http::header::ACCEPT,
+            HeaderName::from_static("x-csrf-token"),
+            HeaderName::from_static("x-request-id"),
+        ])
+        .allow_credentials(true)
+        .expose_headers([HeaderName::from_static("x-request-id")]);
+    let origins = build_allowed_origins(&app_base_url, frontend_url.as_deref());
+
+    app.merge(health_routes)
+        .layer(cors.allow_origin(origins))
         .layer(PropagateRequestIdLayer::new(HeaderName::from_static(
             "x-request-id",
         )))
@@ -193,37 +216,7 @@ fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool
             HeaderName::from_static("x-request-id"),
             MakeRequestUuid,
         ))
-        .layer(TraceLayer::new_for_http());
-
-    if enable_rate_limits {
-        let governor_config = GovernorConfigBuilder::default()
-            .per_second(30)
-            .burst_size(200)
-            .use_headers()
-            .finish()
-            .expect("valid governor config");
-        let rate_limited = router.layer(GovernorLayer::new(governor_config));
-        return rate_limited.layer({
-            let cors = CorsLayer::new()
-                .allow_methods([
-                    axum::http::Method::GET,
-                    axum::http::Method::POST,
-                    axum::http::Method::OPTIONS,
-                ])
-                .allow_headers([
-                    axum::http::header::CONTENT_TYPE,
-                    axum::http::header::ACCEPT,
-                    HeaderName::from_static("x-csrf-token"),
-                    HeaderName::from_static("x-request-id"),
-                ])
-                .allow_credentials(true)
-                .expose_headers([HeaderName::from_str("x-request-id").expect("valid header name")]);
-            let origins = build_allowed_origins(&app_base_url, frontend_url.as_deref());
-            cors.allow_origin(origins)
-        });
-    }
-
-    router
+        .layer(TraceLayer::new_for_http())
 }
 
 fn build_allowed_origins(app_base_url: &str, frontend_url: Option<&str>) -> Vec<HeaderValue> {
