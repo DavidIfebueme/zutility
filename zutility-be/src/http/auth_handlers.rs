@@ -298,11 +298,13 @@ pub async fn refresh(
         .map_err(internal_err)?
         .ok_or_else(|| ApiError::unauthorized("invalid refresh token"))?;
 
-    if stored.revoked_at.is_some() {
-        db::revoke_all_user_refresh_tokens(&state.pool, stored.user_id)
-            .await
-            .map_err(internal_err)?;
-        return Err(ApiError::unauthorized("refresh token revoked"));
+    if let Some(revoked_at) = stored.revoked_at {
+        if Utc::now() - revoked_at > Duration::seconds(60) {
+            db::revoke_all_user_refresh_tokens(&state.pool, stored.user_id)
+                .await
+                .map_err(internal_err)?;
+        }
+        return Err(ApiError::unauthorized("refresh token already rotated"));
     }
 
     if stored.expires_at < Utc::now() {

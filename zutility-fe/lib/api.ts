@@ -4,18 +4,28 @@ const wsBase = process.env.NEXT_PUBLIC_WS_URL?.replace(/\/$/, '') || apiBase.rep
 
 let refreshInFlight: Promise<boolean> | null = null
 
-function refreshSession(): Promise<boolean> {
-  if (!refreshInFlight) {
-    refreshInFlight = fetch(`${apiBase}/api/v1/auth/refresh`, {
+async function requestRefresh(): Promise<boolean> {
+  const attempt = () =>
+    fetch(`${apiBase}/api/v1/auth/refresh`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'content-type': 'application/json' },
     })
       .then((response) => response.ok)
       .catch(() => false)
-      .finally(() => {
-        refreshInFlight = null
-      })
+
+  if (await attempt()) return true
+
+  // Another tab may have rotated the refresh cookie while this request was in flight.
+  await new Promise((resolve) => setTimeout(resolve, 400))
+  return attempt()
+}
+
+function refreshSession(): Promise<boolean> {
+  if (!refreshInFlight) {
+    refreshInFlight = requestRefresh().finally(() => {
+      refreshInFlight = null
+    })
   }
   return refreshInFlight
 }
