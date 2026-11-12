@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::net::SocketAddr;
 use sqlx::postgres::PgPoolOptions;
 use tokio::time::{timeout, Duration};
 
 use zutility_be::{
-    config::{AppConfig, ZcashBackend},
+    config::{AppConfig, AppEnv, ZcashBackend},
     http,
     integrations::zcash::{
         validate_runtime_network_policy, validate_backend, validate_rpc_socket_policy,
@@ -55,12 +55,36 @@ async fn main() -> Result<()> {
             .await
             {
                 Ok(Ok(client)) => {
-                    tracing::info!("zingolib client initialized and synced successfully");
+                    let info = client
+                        .get_blockchain_info()
+                        .await
+                        .context("indexer blockchain info failed")?;
+                    let expected_chain = config.zcash_network.expected_chain();
+                    if info.chain != expected_chain {
+                        anyhow::bail!(
+                            "indexer reports chain '{}' but ZCASH_NETWORK expects '{}'; refusing to start",
+                            info.chain,
+                            expected_chain
+                        );
+                    }
+                    tracing::info!(
+                        chain = %info.chain,
+                        height = info.blocks,
+                        "zingolib client initialized and synced successfully"
+                    );
                     Some(Arc::new(client))
+                }
+                Ok(Err(error)) if matches!(config.app_env, AppEnv::Prod) => {
+                    return Err(error.context("zingolib client initialization failed"));
                 }
                 Ok(Err(error)) => {
                     tracing::error!(error = %error, "zingolib client initialization failed — starting without zcash client");
                     None
+                }
+                Err(_) if matches!(config.app_env, AppEnv::Prod) => {
+                    anyhow::bail!(
+                        "zingolib client initialization timed out after {timeout_secs}s"
+                    );
                 }
                 Err(_) => {
                     tracing::error!(timeout_secs, "zingolib client initialization timed out — starting without zcash client");

@@ -108,10 +108,7 @@ impl HttpState {
 
     pub fn with_ops_context(mut self, config: &AppConfig) -> Self {
         self.zcash_network = config.zcash_network.clone();
-        self.zcash_expected_chain = match config.zcash_network {
-            ZcashNetwork::Testnet => String::from("test"),
-            ZcashNetwork::Mainnet => String::from("main"),
-        };
+        self.zcash_expected_chain = config.zcash_network.expected_chain().to_owned();
         self.required_confs_transparent = config.required_confs_transparent;
         self.required_confs_shielded = config.required_confs_shielded;
 

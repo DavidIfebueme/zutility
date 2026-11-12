@@ -206,3 +206,9 @@ fn dev_accepts_mock_backend() {
     let config = AppConfig::from_config(config_map).expect("deserialize config");
     assert!(validate_backend(&config).is_ok());
 }
+
+#[test]
+fn expected_chain_matches_the_network() {
+    assert_eq!(ZcashNetwork::Mainnet.expected_chain(), "main");
+    assert_eq!(ZcashNetwork::Testnet.expected_chain(), "test");
+}

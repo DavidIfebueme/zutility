@@ -34,6 +34,13 @@ impl ZcashNetwork {
             Self::Testnet => "testnet",
         }
     }
+
+    pub fn expected_chain(&self) -> &'static str {
+        match self {
+            Self::Mainnet => "main",
+            Self::Testnet => "test",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
