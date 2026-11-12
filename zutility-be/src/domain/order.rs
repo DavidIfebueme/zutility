@@ -9,6 +9,7 @@ pub enum OrderStatus {
     AwaitingPayment,
     PaymentDetected,
     PaymentConfirmed,
+    AwaitingClaim,
     UtilityDispatching,
     Completed,
     Expired,
@@ -23,6 +24,7 @@ impl OrderStatus {
             Self::AwaitingPayment => "awaiting_payment",
             Self::PaymentDetected => "payment_detected",
             Self::PaymentConfirmed => "payment_confirmed",
+            Self::AwaitingClaim => "awaiting_claim",
             Self::UtilityDispatching => "utility_dispatching",
             Self::Completed => "completed",
             Self::Expired => "expired",
@@ -41,7 +43,10 @@ impl OrderStatus {
                 | (Self::PaymentDetected, Self::PaymentConfirmed)
                 | (Self::PaymentDetected, Self::Expired)
                 | (Self::PaymentDetected, Self::FlaggedForReview)
+                | (Self::PaymentConfirmed, Self::AwaitingClaim)
                 | (Self::PaymentConfirmed, Self::UtilityDispatching)
+                | (Self::AwaitingClaim, Self::PaymentConfirmed)
+                | (Self::AwaitingClaim, Self::FlaggedForReview)
                 | (Self::UtilityDispatching, Self::Completed)
                 | (Self::UtilityDispatching, Self::Failed)
         )

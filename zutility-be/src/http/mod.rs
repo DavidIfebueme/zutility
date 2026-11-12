@@ -19,6 +19,7 @@ pub mod auth_handlers;
 pub mod admin_handlers;
 pub mod docs;
 pub mod error;
+pub mod gift_handlers;
 pub mod handlers;
 pub mod mw;
 pub mod notification_handlers;
@@ -37,10 +38,13 @@ use notification_handlers::{
     get_unread_count, list_notifications, mark_all_notifications_read, mark_notification_read,
 };
 use docs::{docs_ui, openapi_json};
+use gift_handlers::{
+    cancel_gift, claim_gift, create_gift, get_gift, list_gifts, rotate_gift_code,
+};
 use handlers::{
     HttpState, alerts, cancel_order, create_order, get_current_rate, get_order, health_live,
-    health_ready, list_utilities, list_utility_variations, metrics, stream_order,
-    validate_utility_reference, webhook_inlomax, webhook_remita, webhook_vtpass,
+    health_ready, list_utilities, list_utility_variations, metrics, rotate_order_access_token,
+    stream_order, validate_utility_reference, webhook_inlomax, webhook_remita, webhook_vtpass,
 };
 use waitlist_handlers::{waitlist_join, waitlist_resend, waitlist_stats, waitlist_verify};
 use support_handlers::support_contact;
@@ -109,6 +113,8 @@ fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool
         .route("/api/v1/webhooks/vtpass", post(webhook_vtpass))
         .route("/api/v1/webhooks/inlomax", post(webhook_inlomax))
         .route("/api/v1/webhooks/remita", post(webhook_remita))
+        .route("/api/v1/gifts/{code}", get(get_gift))
+        .route("/api/v1/gifts/{code}/claim", post(claim_gift))
         .route("/ops/health/live", get(health_live))
         .route("/ops/health/ready", get(health_ready))
         .route("/ops/openapi.json", get(openapi_json))
@@ -128,6 +134,10 @@ fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool
         .route("/api/v1/orders/{order_id}", get(get_order))
         .route("/api/v1/orders/{order_id}/stream", get(stream_order))
         .route("/api/v1/orders/{order_id}/cancel", post(cancel_order))
+        .route(
+            "/api/v1/orders/{order_id}/access-token",
+            post(rotate_order_access_token),
+        )
         .route("/api/v1/auth/logout", post(logout))
         .route("/api/v1/auth/me", get(get_me))
         .route("/api/v1/auth/profile", post(update_profile))
@@ -138,6 +148,9 @@ fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool
         .route("/api/v1/notifications/{id}/read", post(mark_notification_read))
         .route("/api/v1/notifications/mark-all-read", post(mark_all_notifications_read))
         .route("/api/v1/orders/history", get(get_order_history))
+        .route("/api/v1/gifts", post(create_gift).get(list_gifts))
+        .route("/api/v1/gifts/{gift_id}/cancel", post(cancel_gift))
+        .route("/api/v1/gifts/{gift_id}/rotate-code", post(rotate_gift_code))
         .with_state(state.clone())
         .layer(middleware::from_fn_with_state(
             jwt_secret_for_mw.clone(),

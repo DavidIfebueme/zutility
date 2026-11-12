@@ -34,7 +34,7 @@ function matchesFilter(status: string, filter: FilterId): boolean {
   if (filter === "all") return true
   if (filter === "delivered") return key === "completed"
   if (filter === "failed") return ["failed", "expired", "cancelled"].includes(key)
-  return ["awaiting_payment", "payment_detected", "payment_confirmed", "utility_dispatching", "pending"].includes(key)
+  return ["awaiting_payment", "payment_detected", "payment_confirmed", "awaiting_claim", "utility_dispatching", "pending"].includes(key)
 }
 
 export default function HistoryPage() {

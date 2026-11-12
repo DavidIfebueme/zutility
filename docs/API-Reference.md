@@ -23,6 +23,22 @@ base url: `https://api.zutility.xyz`
 | POST | `/api/v1/orders` | create order |
 | GET | `/api/v1/orders/:id` | get order by id |
 | GET | `/api/v1/orders` | list order history |
+| POST | `/api/v1/orders/:id/access-token` | issue a fresh order token for the owner |
+
+## gifts
+
+Prepaid utility gifts. The sender pays up front. The gift sits in `awaiting_claim` until the recipient enters their own account through the public link. The first claim wins.
+
+| method | path | description |
+|--------|------|-------------|
+| POST | `/api/v1/gifts` | create a gift and its order |
+| GET | `/api/v1/gifts` | list gifts sent by the current user |
+| GET | `/api/v1/gifts/:code` | public gift preview and status |
+| POST | `/api/v1/gifts/:code/claim` | claim a gift with the recipient account |
+| POST | `/api/v1/gifts/:id/rotate-code` | issue a fresh gift link |
+| POST | `/api/v1/gifts/:id/cancel` | cancel an unpaid gift |
+
+Limits: 100,000 naira per gift, 500,000 naira outstanding per sender, claim window from 12 hours to 7 days. School fees are excluded. Unclaimed gifts deliver to the sender's backup account, or go to review when no backup was set.
 
 ## utilities
 

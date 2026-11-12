@@ -2,9 +2,9 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { useParams, useRouter } from "next/navigation"
+import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { QRCodeSVG } from "qrcode.react"
-import { AlertTriangle, ArrowLeft, Check, Clock, Loader2, TimerOff, X } from "lucide-react"
+import { AlertTriangle, ArrowLeft, Check, Clock, Gift, Loader2, Share2, TimerOff, X } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { CopyField } from "@/components/ui/copy-field"
@@ -14,11 +14,11 @@ import { ConfirmationProgress } from "@/components/ui/confirmation-progress"
 import { useOrderStore } from "@/store/order"
 import { useAuthStore } from "@/store/auth"
 import { useOrderStream } from "@/lib/hooks/useOrderStream"
-import { apiGet } from "@/lib/api"
+import { apiGet, apiPost } from "@/lib/api"
 import { formatZEC } from "@/lib/utils"
 import { UTILITIES } from "@/lib/constants"
 import { getStatusMeta, STATUS_TONE_CLASS } from "@/lib/order-status"
-import type { CreateOrderResponse } from "@/lib/types"
+import type { CreateOrderResponse, OrderStatusResponse } from "@/lib/types"
 
 function getCompletionInfo(slug: string): { title: string; description: string; tokenLabel: string } {
   const utility = UTILITIES.find((item) => item.slug === slug)
@@ -78,9 +78,31 @@ function getCompletionInfo(slug: string): { title: string; description: string; 
   }
 }
 
+function fromStatus(status: OrderStatusResponse, token: string): CreateOrderResponse {
+  return {
+    order_id: status.order_id,
+    order_access_token: token,
+    deposit_address: status.deposit_address,
+    zec_amount: status.zec_amount,
+    expires_at: status.expires_at,
+    qr_data: status.qr_data,
+    required_confirmations: status.required_confirmations,
+    utility_slug: status.utility_slug,
+  }
+}
+
 export default function OrderPage() {
+  return (
+    <React.Suspense fallback={null}>
+      <OrderPageContent />
+    </React.Suspense>
+  )
+}
+
+function OrderPageContent() {
   const params = useParams()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const orderId = params.orderId as string
 
   const { user } = useAuthStore()
@@ -91,15 +113,37 @@ export default function OrderPage() {
   const isCurrentOrder = activeOrder?.order_id === orderId && activeOrderUserId === user?.id
   const order = isCurrentOrder ? activeOrder : recoveredOrder
 
+  const giftCode = searchParams.get("gift")
+  const giftPath = giftCode ? `/gift/${giftCode}` : null
+  const tokenParam = searchParams.get("token")
+  const recoverParam = searchParams.get("recover")
+
   React.useEffect(() => {
-    if (isCurrentOrder || recoveredOrder || requestedOrder.current) return
-    const token = new URLSearchParams(window.location.search).get("token")
-    if (!token || !orderId) return
-    requestedOrder.current = true
-    apiGet<CreateOrderResponse>(`/api/v1/orders/${orderId}?token=${encodeURIComponent(token)}`)
-      .then(setRecoveredOrder)
-      .catch(() => toast.error("Could not load the order"))
-  }, [isCurrentOrder, recoveredOrder, orderId])
+    if (isCurrentOrder || recoveredOrder || requestedOrder.current || !orderId) return
+
+    const token = tokenParam
+    const recover = recoverParam
+
+    if (token) {
+      requestedOrder.current = true
+      apiGet<OrderStatusResponse>(`/api/v1/orders/${orderId}?token=${encodeURIComponent(token)}`)
+        .then((status) => setRecoveredOrder(fromStatus(status, token)))
+        .catch(() => toast.error("Could not load the order"))
+      return
+    }
+
+    if (recover && user) {
+      requestedOrder.current = true
+      apiPost<{ order_access_token: string }>(`/api/v1/orders/${orderId}/access-token`, {})
+        .then(async ({ order_access_token }) => {
+          const status = await apiGet<OrderStatusResponse>(
+            `/api/v1/orders/${orderId}?token=${encodeURIComponent(order_access_token)}`
+          )
+          setRecoveredOrder(fromStatus(status, order_access_token))
+        })
+        .catch(() => toast.error("Could not load the order"))
+    }
+  }, [isCurrentOrder, recoveredOrder, orderId, tokenParam, recoverParam, user])
 
   const { status, confirmations, latestEvent, isConnected } = useOrderStream(
     order ? orderId : null,
@@ -137,6 +181,8 @@ export default function OrderPage() {
         return 1
       case "payment_confirmed":
         return 2
+      case "awaiting_claim":
+        return 1
       case "utility_dispatching":
         return 2
       case "completed":
@@ -155,6 +201,21 @@ export default function OrderPage() {
     if (status === "awaiting_payment") {
       toast.error("The order expired")
     }
+  }
+
+  const shareGift = async () => {
+    if (!giftPath) return
+    const url = `${window.location.origin}${giftPath}`
+    if (typeof navigator !== "undefined" && navigator.share) {
+      try {
+        await navigator.share({ title: "A utility gift from zutility", url })
+        return
+      } catch {
+        // fall through to copy
+      }
+    }
+    await navigator.clipboard.writeText(url)
+    toast.success("Gift link copied")
   }
 
   return (
@@ -190,6 +251,37 @@ export default function OrderPage() {
         <div className="border-b border-line px-5 py-4">
           <Stepper steps={steps} currentStep={stepIndex} />
         </div>
+
+        {giftPath && !isClosed && (
+          <div className="border-b border-line bg-paper-2/60 px-5 py-4">
+            <p className="flex items-center gap-1.5 text-[12px] font-medium text-gold-deep">
+              <Gift className="h-3.5 w-3.5" />
+              Gift link
+            </p>
+            <p className="mt-1 text-[12px] leading-relaxed text-muted">
+              Share this link. The recipient enters their own account, and the first claim wins.
+            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <code className="min-w-0 flex-1 truncate rounded-md border border-line bg-paper px-2.5 py-1.5 text-[11px] text-ink-2">
+                {giftPath}
+              </code>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => {
+                  navigator.clipboard.writeText(`${window.location.origin}${giftPath}`)
+                  toast.success("Gift link copied")
+                }}
+              >
+                Copy
+              </Button>
+              <Button size="sm" onClick={shareGift}>
+                <Share2 className="mr-1.5 h-3.5 w-3.5" />
+                Share
+              </Button>
+            </div>
+          </div>
+        )}
 
         {status === "awaiting_payment" && (
           <div className="grid gap-6 p-5 md:grid-cols-[200px_1fr] md:gap-8">
@@ -253,6 +345,23 @@ export default function OrderPage() {
                   ? "The payment is final on the Zcash network. The utility is being dispatched now."
                   : `The payment reached the deposit address. We are waiting for ${order.required_confirmations} confirmations before dispatch.`}
               </p>
+            </div>
+          </div>
+        )}
+
+        {status === "awaiting_claim" && (
+          <div className="space-y-3 p-6">
+            <div className="flex items-start gap-2.5">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gold/10">
+                <Gift className="h-4 w-4 text-gold-deep" />
+              </span>
+              <div>
+                <p className="text-lg text-ink">Gift paid. Waiting to be claimed.</p>
+                <p className="mt-1 max-w-lg text-[13px] leading-relaxed text-ink-2">
+                  The payment is confirmed. Send the link to the recipient. When they claim it, the
+                  utility is delivered to the account they enter.
+                </p>
+              </div>
             </div>
           </div>
         )}

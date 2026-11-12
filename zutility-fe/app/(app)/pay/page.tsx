@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
-import { Check, Info, Loader2, Search, ShieldCheck } from "lucide-react"
+import { Check, Gift, Info, Loader2, Search, ShieldCheck } from "lucide-react"
 import { BrandMark } from "@/components/ui/brand-mark"
 import { BRAND_TILE_BACKGROUND } from "@/lib/brand-logo"
 import { Button } from "@/components/ui/button"
@@ -15,7 +15,7 @@ import { useOrderStore } from "@/store/order"
 import { useAuthStore } from "@/store/auth"
 import { useRate } from "@/lib/hooks/useRate"
 import { apiGet, apiPost } from "@/lib/api"
-import { CreateOrderResponse, UtilityVariationResponse, UtilityValidateResponse } from "@/lib/types"
+import { CreateGiftResponse, CreateOrderResponse, UtilityVariationResponse, UtilityValidateResponse } from "@/lib/types"
 import { useCurrency } from "@/lib/hooks/useCurrency"
 import {
   CURRENCIES,
@@ -30,11 +30,19 @@ import { cn } from "@/lib/utils"
 
 const orderSchema = z.object({
   utilityId: z.string().min(1, "Select a service"),
-  serviceRef: z.string().min(1, "Enter the account number"),
+  serviceRef: z.string(),
   amountNgn: z.number().min(100, "Minimum is 100").max(5000000, "Maximum is 5,000,000"),
   addressType: z.enum(["shielded", "transparent"]),
   variationCode: z.string().optional(),
 })
+
+const GIFT_MAX_NGN = 100_000
+const GIFT_WINDOWS = [
+  { hours: 12, label: "12 hours" },
+  { hours: 24, label: "24 hours" },
+  { hours: 72, label: "3 days" },
+  { hours: 168, label: "7 days" },
+]
 
 type OrderFormValues = z.infer<typeof orderSchema>
 
@@ -68,6 +76,11 @@ export default function PayPage() {
   const [validating, setValidating] = React.useState(false)
   const [validated, setValidated] = React.useState<UtilityValidateResponse | null>(null)
   const [displayAmount, setDisplayAmount] = React.useState<string>("1000")
+  const [isGift, setIsGift] = React.useState(false)
+  const [giftMessage, setGiftMessage] = React.useState("")
+  const [giftFallbackRef, setGiftFallbackRef] = React.useState("")
+  const [giftWindowHours, setGiftWindowHours] = React.useState(168)
+  const [giftHideName, setGiftHideName] = React.useState(false)
 
   const fxRates: FxRates | null = React.useMemo(
     () =>
@@ -216,6 +229,23 @@ export default function PayPage() {
   const onSubmit = async (data: OrderFormValues) => {
     if (!selectedUtility) return
 
+    const amountNgn = Math.round(effectiveAmount)
+
+    if (!isGift && !data.serviceRef.trim()) {
+      toast.error("Enter the account number")
+      return
+    }
+
+    if (isGift && amountNgn > GIFT_MAX_NGN) {
+      toast.error(`Gifts are capped at ${formatCurrency(GIFT_MAX_NGN, "NGN")}`)
+      return
+    }
+
+    if (isGift && selectedUtility.type === "electricity" && !giftFallbackRef.trim()) {
+      toast.error("Electricity gifts need a fallback meter number")
+      return
+    }
+
     setIsLoading(true)
     try {
       const utilityType =
@@ -229,11 +259,31 @@ export default function PayPage() {
               : selectedUtility.slug === "jamb"
                 ? "jamb"
                 : selectedUtility.type
+
+      if (isGift) {
+        const gift = await apiPost<CreateGiftResponse>("/api/v1/gifts", {
+          utility_type: utilityType,
+          utility_slug: selectedUtility.slug,
+          amount_ngn: amountNgn,
+          zec_address_type: data.addressType,
+          variation_code: data.variationCode || undefined,
+          message: giftMessage.trim() || undefined,
+          fallback_service_ref: giftFallbackRef.trim() || undefined,
+          claim_window_hours: giftWindowHours,
+          hide_sender_name: giftHideName,
+        })
+
+        setActiveOrder(gift.order, user?.id ?? null)
+        toast.success("Gift created")
+        router.push(`/pay/${gift.order.order_id}?gift=${gift.gift_code}`)
+        return
+      }
+
       const order = await apiPost<CreateOrderResponse>("/api/v1/orders/create", {
         utility_type: utilityType,
         utility_slug: selectedUtility.slug,
         service_ref: data.serviceRef,
-        amount_ngn: Math.round(effectiveAmount),
+        amount_ngn: amountNgn,
         zec_address_type: data.addressType,
         variation_code: data.variationCode || undefined,
       })
@@ -242,7 +292,7 @@ export default function PayPage() {
       toast.success("Order created")
       router.push(`/pay/${order.order_id}`)
     } catch {
-      toast.error("Could not create the order")
+      toast.error(isGift ? "Could not create the gift" : "Could not create the order")
     } finally {
       setIsLoading(false)
     }
@@ -253,12 +303,37 @@ export default function PayPage() {
   return (
     <div className="space-y-7">
       <header>
-        <p className="label-xs text-muted">New order</p>
-        <h1 className="mt-2 text-3xl text-ink">Pay a bill</h1>
+        <p className="label-xs text-muted">{isGift ? "New gift" : "New order"}</p>
+        <h1 className="mt-2 text-3xl text-ink">{isGift ? "Send a utility gift" : "Pay a bill"}</h1>
         <p className="mt-1.5 max-w-lg text-[14px] leading-relaxed text-muted">
-          Choose the service, enter the account, and send the quoted ZEC amount. No identity
-          documents are needed.
+          {isGift
+            ? "Pick the utility and the amount, then share one link. The recipient enters their own account, so you never need their number."
+            : "Choose the service, enter the account, and send the quoted ZEC amount. No identity documents are needed."}
         </p>
+
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setIsGift(false)}
+            className={cn(
+              "rounded-md border px-3 py-1.5 text-[12px] transition-colors",
+              !isGift ? "border-ink bg-cream text-ink" : "border-line text-muted hover:text-ink"
+            )}
+          >
+            Pay for myself
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsGift(true)}
+            className={cn(
+              "flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-[12px] transition-colors",
+              isGift ? "border-ink bg-cream text-ink" : "border-line text-muted hover:text-ink"
+            )}
+          >
+            <Gift className="h-3.5 w-3.5" />
+            Send as a gift
+          </button>
+        </div>
       </header>
 
       <form onSubmit={handleSubmit(onSubmit)} className="grid gap-8 lg:grid-cols-[1fr_280px]">
@@ -346,46 +421,52 @@ export default function PayPage() {
             </div>
 
             <div className="mt-4 space-y-4">
-              <div className="space-y-1.5">
-                <div className="flex items-baseline justify-between">
-                  <label htmlFor="serviceRef" className="text-[13px] font-medium text-ink">
-                    {selectedUtility?.serviceRefLabel || "Account number"}
-                  </label>
-                  {serviceRef && serviceRef.length >= 5 && (
-                    <button
-                      type="button"
-                      onClick={handleValidate}
-                      disabled={validating}
-                      className="flex items-center gap-1 text-[12px] text-gold-deep u-link disabled:opacity-50"
+              {isGift ? (
+                <p className="rounded-md border border-dashed border-line-strong px-3 py-2.5 text-[12px] leading-relaxed text-muted">
+                  The recipient enters {selectedUtility?.serviceRefLabel?.toLowerCase() ?? "their account"} when they claim the link.
+                </p>
+              ) : (
+                <div className="space-y-1.5">
+                  <div className="flex items-baseline justify-between">
+                    <label htmlFor="serviceRef" className="text-[13px] font-medium text-ink">
+                      {selectedUtility?.serviceRefLabel || "Account number"}
+                    </label>
+                    {serviceRef && serviceRef.length >= 5 && (
+                      <button
+                        type="button"
+                        onClick={handleValidate}
+                        disabled={validating}
+                        className="flex items-center gap-1 text-[12px] text-gold-deep u-link disabled:opacity-50"
+                      >
+                        {validating && <Loader2 className="h-3 w-3 animate-spin" />}
+                        {validated ? "Check again" : "Check the account"}
+                      </button>
+                    )}
+                  </div>
+                  <Input
+                    id="serviceRef"
+                    {...register("serviceRef")}
+                    placeholder={selectedUtility?.serviceRefPlaceholder || "Enter the number"}
+                    error={errors.serviceRef?.message}
+                    disabled={!selectedUtilityId}
+                  />
+                  {validated && (
+                    <p
+                      className={cn(
+                        "flex items-center gap-1.5 text-[12px]",
+                        validated.valid ? "text-green" : "text-rust"
+                      )}
                     >
-                      {validating && <Loader2 className="h-3 w-3 animate-spin" />}
-                      {validated ? "Check again" : "Check the account"}
-                    </button>
+                      {validated.valid ? <Check className="h-3.5 w-3.5" /> : <Info className="h-3.5 w-3.5" />}
+                      {validated.customer_name
+                        ? `Account name: ${validated.customer_name}`
+                        : validated.valid
+                          ? "Account number validated"
+                          : "That number did not validate"}
+                    </p>
                   )}
                 </div>
-                <Input
-                  id="serviceRef"
-                  {...register("serviceRef")}
-                  placeholder={selectedUtility?.serviceRefPlaceholder || "Enter the number"}
-                  error={errors.serviceRef?.message}
-                  disabled={!selectedUtilityId}
-                />
-                {validated && (
-                  <p
-                    className={cn(
-                      "flex items-center gap-1.5 text-[12px]",
-                      validated.valid ? "text-green" : "text-rust"
-                    )}
-                  >
-                    {validated.valid ? <Check className="h-3.5 w-3.5" /> : <Info className="h-3.5 w-3.5" />}
-                    {validated.customer_name
-                      ? `Account name: ${validated.customer_name}`
-                      : validated.valid
-                        ? "Account number validated"
-                        : "That number did not validate"}
-                  </p>
-                )}
-              </div>
+              )}
 
               {selectedUtility?.hasVariations && (
                 <div className="space-y-1.5">
@@ -544,12 +625,95 @@ export default function PayPage() {
               })}
             </div>
           </section>
+
+          {isGift && (
+            <section>
+              <div className="flex items-baseline justify-between border-b border-line pb-2">
+                <h2 className="text-lg text-ink">Gift details</h2>
+                <span className="num text-[11px] text-muted">The good part</span>
+              </div>
+
+              <div className="mt-4 space-y-4">
+                <div className="space-y-1.5">
+                  <div className="flex items-baseline justify-between">
+                    <label htmlFor="giftMessage" className="text-[13px] font-medium text-ink">
+                      Message
+                    </label>
+                    <span className="num text-[11px] text-muted">{giftMessage.length}/240</span>
+                  </div>
+                  <textarea
+                    id="giftMessage"
+                    value={giftMessage}
+                    onChange={(event) => setGiftMessage(event.target.value.slice(0, 240))}
+                    rows={2}
+                    placeholder="For your data. Stay online."
+                    className="w-full rounded-md border border-line bg-cream px-3 py-2 text-[13px] text-ink outline-none transition-colors focus:border-ink"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <p className="text-[13px] font-medium text-ink">Claim window</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {GIFT_WINDOWS.map((option) => (
+                      <button
+                        key={option.hours}
+                        type="button"
+                        onClick={() => setGiftWindowHours(option.hours)}
+                        className={cn(
+                          "num rounded-md border px-2.5 py-1 text-[12px] transition-colors",
+                          giftWindowHours === option.hours
+                            ? "border-ink bg-cream text-ink"
+                            : "border-line text-muted hover:text-ink"
+                        )}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[11px] leading-relaxed text-muted">
+                    The clock starts when your payment confirms.
+                  </p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label htmlFor="giftFallback" className="text-[13px] font-medium text-ink">
+                    If nobody claims it{" "}
+                    {selectedUtility?.type === "electricity" ? "(required)" : "(optional)"}
+                  </label>
+                  <Input
+                    id="giftFallback"
+                    value={giftFallbackRef}
+                    onChange={(event) => setGiftFallbackRef(event.target.value)}
+                    placeholder={selectedUtility?.serviceRefPlaceholder ?? "Your own number"}
+                  />
+                  <p className="text-[11px] leading-relaxed text-muted">
+                    We deliver the utility here on the deadline if the gift is still unclaimed.
+                  </p>
+                </div>
+
+                <label className="flex items-center gap-2 text-[13px] text-ink">
+                  <input
+                    type="checkbox"
+                    checked={giftHideName}
+                    onChange={(event) => setGiftHideName(event.target.checked)}
+                    className="h-4 w-4 rounded border-line"
+                  />
+                  Hide my name on the gift
+                </label>
+
+                <p className="text-[11px] leading-relaxed text-muted">
+                  Gifts are capped at {formatCurrency(GIFT_MAX_NGN, "NGN")}. A gift link can be
+                  claimed once, by the first person who opens it.
+                </p>
+              </div>
+            </section>
+          )}
         </div>
 
         <aside className="lg:sticky lg:top-8 lg:self-start">
           <div className="rounded-lg border border-line bg-cream">
             <div className="border-b border-line px-4 py-3">
-              <p className="label-xs text-muted">Order summary</p>
+              <p className="label-xs text-muted">{isGift ? "Gift summary" : "Order summary"}</p>
             </div>
             <div className="space-y-3 px-4 py-4">
               <div className="flex items-baseline justify-between gap-3">
@@ -573,6 +737,15 @@ export default function PayPage() {
                 <span className="text-[13px] capitalize text-ink">{addressType}</span>
               </div>
 
+              {isGift && (
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="text-[13px] text-muted">Claim window</span>
+                  <span className="text-[13px] text-ink">
+                    {GIFT_WINDOWS.find((option) => option.hours === giftWindowHours)?.label}
+                  </span>
+                </div>
+              )}
+
               <div className="border-t border-line pt-3">
                 <p className="text-[13px] text-muted">You send</p>
                 <p className="num mt-1 text-2xl text-ink">
@@ -591,12 +764,13 @@ export default function PayPage() {
                 loading={isLoading}
                 disabled={!canSubmit}
               >
-                Create order
+                {isGift ? "Create gift" : "Create order"}
               </Button>
 
               <p className="text-[11px] leading-relaxed text-muted">
-                Delivery follows the network confirmations. A shielded payment needs one more
-                confirmation than a transparent one.
+                {isGift
+                  ? "After payment you get one link. Share it. The recipient claims the gift with their own account."
+                  : "Delivery follows the network confirmations. A shielded payment needs one more confirmation than a transparent one."}
               </p>
             </div>
           </div>

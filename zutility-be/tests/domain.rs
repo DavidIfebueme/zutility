@@ -89,3 +89,34 @@ proptest! {
         );
     }
 }
+
+#[test]
+fn gift_hold_transitions_are_allowed() {
+    assert!(
+        OrderStatusTransition::new(OrderStatus::PaymentConfirmed, OrderStatus::AwaitingClaim)
+            .is_ok()
+    );
+    assert!(
+        OrderStatusTransition::new(OrderStatus::AwaitingClaim, OrderStatus::PaymentConfirmed)
+            .is_ok()
+    );
+    assert!(
+        OrderStatusTransition::new(OrderStatus::AwaitingClaim, OrderStatus::FlaggedForReview)
+            .is_ok()
+    );
+}
+
+#[test]
+fn gift_hold_cannot_dispatch_or_reopen() {
+    assert!(
+        OrderStatusTransition::new(OrderStatus::AwaitingClaim, OrderStatus::UtilityDispatching)
+            .is_err()
+    );
+    assert!(
+        OrderStatusTransition::new(OrderStatus::Completed, OrderStatus::AwaitingClaim).is_err()
+    );
+    assert!(
+        OrderStatusTransition::new(OrderStatus::AwaitingPayment, OrderStatus::AwaitingClaim)
+            .is_err()
+    );
+}

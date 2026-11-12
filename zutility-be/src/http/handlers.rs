@@ -33,8 +33,8 @@ use super::{
     error::ApiError,
     types::{
         CancelOrderResponse, CreateOrderRequest, CreateOrderResponse,
-        OrderStatusResponse, OrderTokenQuery, RateResponse, UtilityItem, UtilityValidateQuery,
-        UtilityValidateResponse, UtilityVariationItem,
+        OrderAccessTokenResponse, OrderStatusResponse, OrderTokenQuery, RateResponse,
+        UtilityItem, UtilityValidateQuery, UtilityValidateResponse, UtilityVariationItem,
     },
 };
 
@@ -315,6 +315,12 @@ pub async fn get_order(
         service_ref: order.service_ref,
         amount_ngn: order.amount_ngn,
         zec_amount: order.zec_amount.round_dp(8).to_string(),
+        deposit_address: order.deposit_address.clone(),
+        qr_data: format!(
+            "zcash:{}?amount={}",
+            order.deposit_address,
+            order.zec_amount.round_dp(8)
+        ),
         expires_at: order.expires_at,
         completed_at: order.completed_at,
         delivery_token: order.delivery_token,
@@ -376,6 +382,42 @@ pub async fn cancel_order(
     .map_err(internal_err)?;
 
     Ok(Json(CancelOrderResponse { success: true }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/orders/{order_id}/access-token",
+    params(("order_id" = Uuid, Path, description = "Order id")),
+    responses(
+        (status = 200, description = "Fresh order access token", body = OrderAccessTokenResponse),
+        (status = 403, description = "Not the order owner", body = super::error::ErrorEnvelope),
+        (status = 404, description = "Order not found", body = super::error::ErrorEnvelope)
+    )
+)]
+pub async fn rotate_order_access_token(
+    Path(order_id): Path<Uuid>,
+    Extension(auth_user): Extension<crate::http::mw::AuthenticatedUser>,
+    State(state): State<HttpState>,
+) -> Result<Json<OrderAccessTokenResponse>, ApiError> {
+    let order = db::get_order_by_id(&state.pool, order_id)
+        .await
+        .map_err(internal_err)?
+        .ok_or_else(|| ApiError::not_found("order not found"))?;
+
+    if !order_matches_user(&order, &auth_user) {
+        return Err(ApiError::forbidden("access denied"));
+    }
+
+    let order_access_token = generate_token(48);
+    let access_token_hash =
+        auth::hash_order_token(&state.order_token_hmac_secret, &order_access_token)
+            .map_err(internal_err)?;
+
+    db::set_order_access_token_hash(&state.pool, order_id, &access_token_hash)
+        .await
+        .map_err(internal_err)?;
+
+    Ok(Json(OrderAccessTokenResponse { order_access_token }))
 }
 
 pub async fn stream_order(
@@ -771,7 +813,7 @@ fn validate_create_order_payload(payload: &CreateOrderRequest) -> Result<(), Api
     Ok(())
 }
 
-fn generate_token(length: usize) -> String {
+pub(crate) fn generate_token(length: usize) -> String {
     rand::rng()
         .sample_iter(&Alphanumeric)
         .take(length)
@@ -887,6 +929,7 @@ fn map_status_to_event(order: &OrderRow) -> Option<WsOrderEvent> {
         "payment_confirmed" => Some(WsOrderEvent::PaymentConfirmed {
             confirmations: u16::try_from(order.confirmations).unwrap_or(u16::MAX),
         }),
+        "awaiting_claim" => Some(WsOrderEvent::AwaitingClaim),
         "utility_dispatching" => Some(WsOrderEvent::Dispatching),
         "completed" => Some(WsOrderEvent::Completed {
             delivery_token: order.delivery_token.clone(),
@@ -1133,7 +1176,7 @@ fn slug_to_utility_type(slug: &str) -> String {
     }
 }
 
-async fn get_or_create_rate_snapshot(
+pub(crate) async fn get_or_create_rate_snapshot(
     pool: &PgPool,
     rate: &CurrentRate,
 ) -> Result<Uuid, anyhow::Error> {
