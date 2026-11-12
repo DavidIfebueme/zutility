@@ -1,0 +1,11 @@
+[Unit]
+Description=Publish Zakura mainnet node metrics every 5 minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Unit=zakura-metrics.service
+
+[Install]
+WantedBy=timers.target
