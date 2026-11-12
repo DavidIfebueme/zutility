@@ -271,8 +271,7 @@ async fn resolve_order_amount(
     }
 
     let reference = payload.service_ref.trim();
-    let is_rrr = reference.len() == 12 && reference.chars().all(|c| c.is_ascii_digit());
-    if !is_rrr {
+    if !is_rrr(reference) {
         return Err(ApiError::bad_request(
             "school fees need a 12 digit Remita RRR",
         ));
@@ -815,10 +814,14 @@ pub async fn validate_utility_reference(
 
     let utility_type = slug_to_utility_type(&slug);
 
+    if utility_type == "school_fees" && !is_rrr(query.reference.trim()) {
+        return Err(ApiError::bad_request("school fees need a 12 digit Remita RRR"));
+    }
+
     if let Some(dispatcher) = &state.provider_dispatcher {
         let request = crate::integrations::utility_provider::ValidateRefRequest {
             service_id: slug.clone(),
-            billers_code: query.reference.clone(),
+            billers_code: query.reference.trim().to_owned(),
         };
         match dispatcher.validate_reference(&utility_type, &request).await {
             Ok(response) => {
@@ -892,10 +895,26 @@ pub async fn list_utility_variations(
 }
 
 const MAX_ORDER_AMOUNT_NGN: i64 = 5_000_000;
+const MAX_REMITA_NOTIFICATIONS: usize = 10;
 
 fn validate_create_order_payload(payload: &CreateOrderRequest) -> Result<(), ApiError> {
     if payload.utility_type.trim().is_empty() {
         return Err(ApiError::bad_request("utility_type is required"));
+    }
+    if !matches!(
+        payload.utility_type.as_str(),
+        "airtime"
+            | "data"
+            | "dstv"
+            | "gotv"
+            | "startimes"
+            | "showmax"
+            | "electricity"
+            | "school_fees"
+            | "waec"
+            | "jamb"
+    ) {
+        return Err(ApiError::bad_request("unsupported utility_type"));
     }
     if payload.utility_slug.trim().is_empty() {
         return Err(ApiError::bad_request("utility_slug is required"));
@@ -1053,7 +1072,8 @@ fn map_status_to_event(order: &OrderRow) -> Option<WsOrderEvent> {
 }
 
 fn internal_err(error: impl std::fmt::Display) -> ApiError {
-    ApiError::internal(error.to_string())
+    tracing::error!(error = %error, "internal error");
+    ApiError::internal("something went wrong on our side. Try again.")
 }
 
 fn remita_lookup_error(error: ProviderError) -> ApiError {
@@ -1071,6 +1091,10 @@ fn remita_lookup_error(error: ProviderError) -> ApiError {
             ApiError::service_unavailable("School fees are temporarily unavailable.")
         }
     }
+}
+
+fn is_rrr(reference: &str) -> bool {
+    reference.len() == 12 && reference.chars().all(|c| c.is_ascii_digit())
 }
 
 fn is_school_fee_rrr_conflict(error: &anyhow::Error) -> bool {
@@ -1248,6 +1272,11 @@ pub async fn webhook_remita(
             continue;
         };
 
+        if order.utility_type != "school_fees" {
+            tracing::warn!(order_id = %order.id, "remita webhook matched a non school fees order");
+            continue;
+        }
+
         if let Some(claimed_amount) = notification
             .get("amount")
             .and_then(serde_json::Value::as_f64)
@@ -1267,17 +1296,19 @@ pub async fn webhook_remita(
             continue;
         };
 
-        let status = match dispatcher.requery("school_fees", rrr).await {
-            Ok(result) => result.status,
+        let result = match dispatcher.requery("school_fees", rrr).await {
+            Ok(result) => result,
             Err(error) => {
                 tracing::warn!(order_id = %order.id, error = %error, "remita webhook lookup failed");
                 continue;
             }
         };
 
-        if status != ProviderTxnStatus::Delivered {
+        if result.status != ProviderTxnStatus::Delivered {
             continue;
         }
+
+        let token = result.token.as_deref();
 
         let accepted = order
             .metadata
@@ -1305,11 +1336,11 @@ pub async fn webhook_remita(
         }
 
         let completed = if order.status == "flagged_for_review" {
-            db::complete_flagged_school_fee_order(&state.pool, order.id, Some(rrr), Some(rrr))
+            db::complete_flagged_school_fee_order(&state.pool, order.id, token, Some(rrr))
                 .await
                 .map_err(internal_err)?
         } else {
-            db::complete_order(&state.pool, order.id, Some(rrr), Some(rrr))
+            db::complete_order(&state.pool, order.id, token, Some(rrr))
                 .await
                 .map_err(internal_err)?;
             true
@@ -1324,7 +1355,7 @@ pub async fn webhook_remita(
             .broadcast_event(
                 order.id,
                 &WsOrderEvent::Completed {
-                    delivery_token: Some(rrr.to_owned()),
+                    delivery_token: token.map(str::to_owned),
                     reference: order.id.to_string(),
                 },
             )
@@ -1348,11 +1379,32 @@ pub async fn webhook_remita(
 }
 
 fn remita_notifications(payload: serde_json::Value) -> Vec<serde_json::Value> {
-    match payload {
+    let items = match payload {
         serde_json::Value::Array(items) => items,
         serde_json::Value::Object(_) => vec![payload],
         _ => Vec::new(),
+    };
+
+    let mut seen = std::collections::HashSet::new();
+    let mut notifications = Vec::new();
+
+    for item in items {
+        let Some(rrr) = item.get("rrr").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+
+        if !is_rrr(rrr) || !seen.insert(rrr.to_owned()) {
+            continue;
+        }
+
+        notifications.push(item);
+
+        if notifications.len() == MAX_REMITA_NOTIFICATIONS {
+            break;
+        }
     }
+
+    notifications
 }
 
 fn slug_to_utility_type(slug: &str) -> String {
@@ -1421,13 +1473,43 @@ mod tests {
 
     #[test]
     fn parses_remita_webhook_array_and_object() {
-        let array = serde_json::json!([{"rrr": "1"}, {"rrr": "2"}]);
+        let array = serde_json::json!([
+            {"rrr": "171523991694"},
+            {"rrr": "141523991664"}
+        ]);
         assert_eq!(remita_notifications(array).len(), 2);
 
-        let object = serde_json::json!({"rrr": "1"});
+        let object = serde_json::json!({"rrr": "171523991694"});
         assert_eq!(remita_notifications(object).len(), 1);
 
         assert!(remita_notifications(serde_json::json!("text")).is_empty());
+    }
+
+    #[test]
+    fn drops_malformed_and_repeated_remita_notifications() {
+        let notifications = serde_json::json!([
+            {"rrr": "171523991694"},
+            {"rrr": "171523991694"},
+            {"rrr": "17152399169"},
+            {"rrr": "../../admin"},
+            {"amount": 1000},
+            {"rrr": "141523991664"}
+        ]);
+
+        let parsed = remita_notifications(notifications);
+        assert_eq!(parsed.len(), 2);
+    }
+
+    #[test]
+    fn caps_remita_notification_batch() {
+        let items: Vec<serde_json::Value> = (0..50)
+            .map(|index| serde_json::json!({ "rrr": format!("{:012}", index) }))
+            .collect();
+
+        assert_eq!(
+            remita_notifications(serde_json::Value::Array(items)).len(),
+            MAX_REMITA_NOTIFICATIONS
+        );
     }
 
     #[test]

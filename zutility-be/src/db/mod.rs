@@ -484,13 +484,39 @@ pub async fn complete_order(
 }
 
 pub async fn fail_order(pool: &PgPool, order_id: Uuid) -> Result<()> {
-    sqlx::query(
-        "UPDATE orders SET status = 'failed' WHERE id = $1 AND status = 'utility_dispatching'",
+    let mut tx = begin_tx(pool).await?;
+
+    let reference: Option<String> = sqlx::query_scalar(
+        "SELECT vtpass_request_id FROM orders
+         WHERE id = $1 AND status = 'utility_dispatching'
+         FOR UPDATE",
     )
     .bind(order_id)
-    .execute(pool)
-    .await?;
+    .fetch_optional(tx.as_mut())
+    .await?
+    .flatten();
 
+    let rows_affected = sqlx::query(
+        "UPDATE orders SET status = 'failed', vtpass_request_id = NULL
+         WHERE id = $1 AND status = 'utility_dispatching'",
+    )
+    .bind(order_id)
+    .execute(tx.as_mut())
+    .await?
+    .rows_affected();
+
+    if rows_affected > 0 {
+        sqlx::query(
+            "INSERT INTO audit_log (order_id, event, old_status, new_status, detail)
+             VALUES ($1, 'order_failed', 'utility_dispatching', 'failed', $2)",
+        )
+        .bind(order_id)
+        .bind(serde_json::json!({ "reference": reference }))
+        .execute(tx.as_mut())
+        .await?;
+    }
+
+    tx.commit().await?;
     Ok(())
 }
 

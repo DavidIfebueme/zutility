@@ -1,6 +1,7 @@
 use axum::http::{header::HeaderName, HeaderValue};
 use axum::{
     Router,
+    extract::DefaultBodyLimit,
     middleware,
     routing::{get, post},
 };
@@ -112,7 +113,10 @@ fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool
         )
         .route("/api/v1/webhooks/vtpass", post(webhook_vtpass))
         .route("/api/v1/webhooks/inlomax", post(webhook_inlomax))
-        .route("/api/v1/webhooks/remita", post(webhook_remita))
+        .route(
+            "/api/v1/webhooks/remita",
+            post(webhook_remita).layer(DefaultBodyLimit::max(8 * 1024)),
+        )
         .route("/api/v1/gifts/{code}", get(get_gift))
         .route("/api/v1/gifts/{code}/claim", post(claim_gift))
         .route("/ops/openapi.json", get(openapi_json))
