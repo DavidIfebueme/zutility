@@ -1,0 +1,238 @@
+#cloud-config
+hostname: zutility-mainnet-node
+timezone: UTC
+package_update: true
+packages:
+  - curl
+  - ca-certificates
+  - zstd
+  - aria2
+  - jq
+  - ufw
+  - unattended-upgrades
+  - docker.io
+  - logrotate
+
+write_files:
+  - path: /etc/zakura/zakura.toml
+    permissions: '0644'
+    owner: root:root
+    content: |
+      [network]
+      network = "Mainnet"
+      listen_addr = "[::]:18233"
+      p2p_stack = "legacy"
+      peerset_initial_target_size = 50
+      max_connections_per_ip = 4
+      cache_dir = "/var/lib/zakura/peers"
+      identity_dir = "/var/lib/zakura/identity"
+
+      [network.zakura]
+      max_connections = 40
+      max_connections_per_ip = 4
+      peer_memory_budget_bytes = 6442450944
+
+      [rpc]
+      listen_addr = "127.0.0.1:18232"
+      enable_cookie_auth = false
+      cookie_dir = "/var/lib/zakura"
+
+      [state]
+      cache_dir = "/var/lib/zakura"
+      storage_mode = "archive"
+
+      [consensus]
+      checkpoint_sync = true
+
+      [tracing]
+      use_color = false
+      log_file = "/var/log/zakura/zakurad.log"
+
+      [metrics]
+      endpoint_addr = "127.0.0.1:9999"
+
+      [health]
+      listen_addr = "127.0.0.1:8080"
+
+  - path: /etc/systemd/system/zakurad.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Zakura mainnet archive node
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=simple
+      User=zakura
+      Group=zakura
+      Environment=HOME=/var/lib/zakura
+      ExecStart=/usr/local/bin/zakurad -c /etc/zakura/zakura.toml start
+      Restart=always
+      RestartSec=5
+      TimeoutStopSec=300
+      LimitNOFILE=1048576
+      NoNewPrivileges=true
+      PrivateTmp=true
+      ProtectSystem=strict
+      ProtectHome=true
+      ReadWritePaths=/var/lib/zakura /var/log/zakura
+
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /etc/systemd/system/lightwalletd.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=lightwalletd mainnet indexer
+      After=network-online.target docker.service
+      Requires=docker.service
+
+      [Service]
+      ExecStartPre=-/usr/bin/docker rm -f lightwalletd
+      ExecStart=/usr/bin/docker run --rm --name lightwalletd --network host \
+        --log-driver json-file --log-opt max-size=50m --log-opt max-file=2 \
+        --security-opt no-new-privileges \
+        -v /var/lib/lightwalletd:/var/lib/lightwalletd \
+        -v /etc/zakura/zakura.toml:/etc/zakura/zakura.toml:ro \
+        electriccoinco/lightwalletd@sha256:7be272c4eff6b0a8ac83b61cc98b8ffbf14f3bdad512fa6f17a8ed93d768552f \
+        --no-tls-very-insecure \
+        --grpc-bind-addr 0.0.0.0:9067 \
+        --http-bind-addr 127.0.0.1:9068 \
+        --zcash-conf-path /etc/zakura/zakura.toml \
+        --data-dir /var/lib/lightwalletd \
+        --log-file /dev/stdout
+      ExecStop=/usr/bin/docker stop -t 30 lightwalletd
+      Restart=always
+      RestartSec=30
+      TimeoutStopSec=60
+
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /usr/local/bin/zakurad-bootstrap.sh
+    permissions: '0755'
+    owner: root:root
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+
+      SNAP_URL="https://zakura.valargroup.dev/mainnet/zakura-mainnet-20261112T140818Z-3565614.tar.zst"
+      SNAP_SHA="610ccda8eff4b0fa671eeda9575c110ae7ac530b6761781efe1a4b19f57b7d47"
+      DEST="/var/lib/zakura"
+      MARK="$DEST/.bootstrap-done"
+
+      if [ -f "$MARK" ]; then
+        echo "bootstrap already complete"
+        exit 0
+      fi
+
+      mkdir -p "$DEST"
+      cd "$DEST"
+
+      echo "download start $(date -u +%FT%TZ)"
+      aria2c -x16 -s16 -j1 \
+        --file-allocation=falloc \
+        --console-log-level=warn \
+        --summary-interval=60 \
+        --max-tries=10 \
+        --retry-wait=15 \
+        --checksum="sha-256=$SNAP_SHA" \
+        -d "$DEST" -o snapshot.tar.zst "$SNAP_URL"
+      echo "download done $(date -u +%FT%TZ)"
+
+      echo "extract start $(date -u +%FT%TZ)"
+      zstd -d -T0 -c snapshot.tar.zst | tar -x -C "$DEST"
+      echo "extract done $(date -u +%FT%TZ)"
+
+      rm -f snapshot.tar.zst
+      chown -R zakura:zakura "$DEST"
+      touch "$MARK"
+      echo "bootstrap complete $(date -u +%FT%TZ)"
+
+  - path: /etc/systemd/system/zakurad-bootstrap.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Zakura mainnet snapshot bootstrap
+      After=network-online.target
+      Wants=network-online.target
+      ConditionPathExists=!/var/lib/zakura/.bootstrap-done
+
+      [Service]
+      Type=oneshot
+      TimeoutStartSec=infinity
+      ExecStart=/usr/local/bin/zakurad-bootstrap.sh
+      RemainAfterExit=yes
+      StandardOutput=journal
+      StandardError=journal
+
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /etc/systemd/journald.conf.d/limits.conf
+    permissions: '0644'
+    content: |
+      [Journal]
+      SystemMaxUse=1G
+      SystemMaxFileSize=100M
+
+  - path: /etc/docker/daemon.json
+    permissions: '0644'
+    content: |
+      {
+        "log-driver": "json-file",
+        "log-opts": { "max-size": "50m", "max-file": "2" }
+      }
+
+runcmd:
+  - |
+    exec >>/var/log/mainnet-bootstrap.log 2>&1
+    set -eux
+
+    id -u zakura >/dev/null 2>&1 || useradd --system --home /var/lib/zakura --shell /usr/sbin/nologin zakura
+    mkdir -p /var/lib/zakura /var/log/zakura /var/lib/lightwalletd /etc/zakura
+    chown -R zakura:zakura /var/lib/zakura /var/log/zakura
+    chmod 0750 /var/lib/zakura
+
+    cd /tmp
+    curl -sSLo zakurad.tar.gz https://github.com/zakura-core/zakura/releases/download/v1.8.6/zakurad-v1.8.6-linux-x86_64.tar.gz
+    echo "21be653c668cafada126aae91a1fc4769d02ae4905efdccaf102602d474f9c94  zakurad.tar.gz" | sha256sum -c -
+    mkdir -p /tmp/zakurad-extract
+    tar -xzf zakurad.tar.gz -C /tmp/zakurad-extract
+    ZAKURAD_BIN=$(find /tmp/zakurad-extract -type f -name zakurad -print -quit)
+    install -m 0755 "$ZAKURAD_BIN" /usr/local/bin/zakurad
+    ZAKURA_BIN=$(find /tmp/zakurad-extract -type f -name zakura -print -quit)
+    if [ -n "$ZAKURA_BIN" ]; then install -m 0755 "$ZAKURA_BIN" /usr/local/bin/zakura; fi
+    /usr/local/bin/zakurad --version
+
+    curl -sSLo grpcurl.tar.gz https://github.com/fullstorydev/grpcurl/releases/download/v1.9.4/grpcurl_1.9.4_linux_x86_64.tar.gz
+    echo "97e13d58d2733a0e62cd2571d1d5f0c02823f0d25282f08bddedf1ad9c5d1736  grpcurl.tar.gz" | sha256sum -c -
+    tar -xzf grpcurl.tar.gz -C /usr/local/bin grpcurl
+    /usr/local/bin/grpcurl --version
+
+    ufw --force reset
+    ufw default deny incoming
+    ufw default allow outgoing
+    ufw allow 18233/tcp comment 'zcash mainnet p2p'
+    ufw allow from 172.31.0.0/16 to any port 9067 proto tcp comment 'indexer from vpc'
+    ufw --force enable
+    ufw status verbose
+
+    systemctl disable --now ssh || true
+    systemctl disable --now ssh.socket || true
+    systemctl mask ssh.socket || true
+
+    systemctl daemon-reload
+    systemctl enable docker
+    systemctl enable zakurad
+    systemctl enable lightwalletd
+    systemctl enable zakurad-bootstrap
+
+    systemctl start docker
+    docker pull electriccoinco/lightwalletd@sha256:7be272c4eff6b0a8ac83b61cc98b8ffbf14f3bdad512fa6f17a8ed93d768552f
+
+    systemctl start zakurad-bootstrap
+
+final_message: "zutility mainnet node bootstrap started at $TIMESTAMP"
