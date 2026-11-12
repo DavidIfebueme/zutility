@@ -71,10 +71,7 @@ impl ZcashClient for MockZcashClient {
     }
 
     async fn get_blockchain_info(&self) -> Result<BlockchainInfo> {
-        let chain = match self.network {
-            crate::config::ZcashNetwork::Mainnet => "main",
-            crate::config::ZcashNetwork::Testnet => "test",
-        };
+        let chain = self.network.expected_chain();
         Ok(BlockchainInfo {
             chain: chain.to_owned(),
             blocks: 2_500_000,
