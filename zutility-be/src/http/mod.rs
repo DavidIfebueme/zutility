@@ -1,6 +1,7 @@
 use axum::http::{header::HeaderName, HeaderValue};
 use axum::{
     Router,
+    extract::DefaultBodyLimit,
     middleware,
     routing::{get, post},
 };
@@ -112,7 +113,10 @@ fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool
         )
         .route("/api/v1/webhooks/vtpass", post(webhook_vtpass))
         .route("/api/v1/webhooks/inlomax", post(webhook_inlomax))
-        .route("/api/v1/webhooks/remita", post(webhook_remita))
+        .route(
+            "/api/v1/webhooks/remita",
+            post(webhook_remita).layer(DefaultBodyLimit::max(8 * 1024)),
+        )
         .route("/api/v1/gifts/{code}", get(get_gift))
         .route("/api/v1/gifts/{code}/claim", post(claim_gift))
         .route("/ops/openapi.json", get(openapi_json))
@@ -255,6 +259,8 @@ pub fn router() -> Router {
         remita_service_type_id: Some(String::from("demo_service_type")),
         remita_base_url: Some(String::from("https://remitademo.net/remita/exapp/api/v1")),
         remita_webhook_secret: Some(secrecy::SecretString::from(String::from("remita_webhook"))),
+        remita_collections_base_url: None,
+        remita_collections_secret_key: None,
         inlomax_api_key: None,
         inlomax_base_url: None,
         inlomax_webhook_secret: None,

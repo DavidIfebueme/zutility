@@ -93,6 +93,10 @@ pub struct UtilityVariationItem {
 pub struct UtilityValidateResponse {
     pub valid: bool,
     pub customer_name: Option<String>,
+    pub amount_ngn: Option<i64>,
+    pub biller_name: Option<String>,
+    pub product_name: Option<String>,
+    pub reference: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

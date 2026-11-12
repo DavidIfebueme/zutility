@@ -484,13 +484,39 @@ pub async fn complete_order(
 }
 
 pub async fn fail_order(pool: &PgPool, order_id: Uuid) -> Result<()> {
-    sqlx::query(
-        "UPDATE orders SET status = 'failed' WHERE id = $1 AND status = 'utility_dispatching'",
+    let mut tx = begin_tx(pool).await?;
+
+    let reference: Option<String> = sqlx::query_scalar(
+        "SELECT vtpass_request_id FROM orders
+         WHERE id = $1 AND status = 'utility_dispatching'
+         FOR UPDATE",
     )
     .bind(order_id)
-    .execute(pool)
-    .await?;
+    .fetch_optional(tx.as_mut())
+    .await?
+    .flatten();
 
+    let rows_affected = sqlx::query(
+        "UPDATE orders SET status = 'failed', vtpass_request_id = NULL
+         WHERE id = $1 AND status = 'utility_dispatching'",
+    )
+    .bind(order_id)
+    .execute(tx.as_mut())
+    .await?
+    .rows_affected();
+
+    if rows_affected > 0 {
+        sqlx::query(
+            "INSERT INTO audit_log (order_id, event, old_status, new_status, detail)
+             VALUES ($1, 'order_failed', 'utility_dispatching', 'failed', $2)",
+        )
+        .bind(order_id)
+        .bind(serde_json::json!({ "reference": reference }))
+        .execute(tx.as_mut())
+        .await?;
+    }
+
+    tx.commit().await?;
     Ok(())
 }
 
@@ -512,6 +538,8 @@ pub async fn set_order_dispatching(
     provider: &str,
     vtpass_request_id: Option<&str>,
 ) -> Result<bool> {
+    let mut tx = begin_tx(pool).await?;
+
     let rows_affected = sqlx::query(
         "UPDATE orders
          SET status = 'utility_dispatching', provider = $2, vtpass_request_id = COALESCE($3, vtpass_request_id)
@@ -520,11 +548,101 @@ pub async fn set_order_dispatching(
     .bind(order_id)
     .bind(provider)
     .bind(vtpass_request_id)
+    .execute(tx.as_mut())
+    .await?
+    .rows_affected();
+
+    if rows_affected > 0 {
+        sqlx::query(
+            "INSERT INTO audit_log (order_id, event, old_status, new_status, detail)
+             VALUES ($1, 'dispatch_started', 'payment_confirmed', 'utility_dispatching', $2)",
+        )
+        .bind(order_id)
+        .bind(serde_json::json!({
+            "provider": provider,
+            "reference": vtpass_request_id,
+        }))
+        .execute(tx.as_mut())
+        .await?;
+    }
+
+    tx.commit().await?;
+    Ok(rows_affected > 0)
+}
+
+pub async fn mark_provider_accepted(pool: &PgPool, order_id: Uuid) -> Result<()> {
+    sqlx::query(
+        "UPDATE orders
+         SET metadata = metadata || '{\"provider_accepted\": true}'::jsonb
+         WHERE id = $1",
+    )
+    .bind(order_id)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn complete_flagged_school_fee_order(
+    pool: &PgPool,
+    order_id: Uuid,
+    delivery_token: Option<&str>,
+    provider_request_id: Option<&str>,
+) -> Result<bool> {
+    let rows_affected = sqlx::query(
+        "UPDATE orders
+         SET status = 'completed',
+             delivery_token = COALESCE($2, delivery_token),
+             vtpass_request_id = COALESCE($3, vtpass_request_id),
+             completed_at = now()
+         WHERE id = $1
+           AND status = 'flagged_for_review'
+           AND utility_type = 'school_fees'",
+    )
+    .bind(order_id)
+    .bind(delivery_token)
+    .bind(provider_request_id)
     .execute(pool)
     .await?
     .rows_affected();
 
     Ok(rows_affected > 0)
+}
+
+pub async fn active_school_fee_order_exists(pool: &PgPool, service_ref: &str) -> Result<bool> {
+    let exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(
+            SELECT 1 FROM orders
+            WHERE utility_type = 'school_fees'
+              AND service_ref = $1
+              AND status IN (
+                  'awaiting_payment',
+                  'payment_detected',
+                  'payment_confirmed',
+                  'utility_dispatching',
+                  'flagged_for_review'
+              )
+        )",
+    )
+    .bind(service_ref)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(exists)
+}
+
+pub async fn dispatch_started_at(pool: &PgPool, order_id: Uuid) -> Result<Option<DateTime<Utc>>> {
+    let started_at: Option<DateTime<Utc>> = sqlx::query_scalar(
+        "SELECT created_at FROM audit_log
+         WHERE order_id = $1 AND event = 'dispatch_started'
+         ORDER BY created_at DESC
+         LIMIT 1",
+    )
+    .bind(order_id)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(started_at)
 }
 
 pub async fn list_active_orders(pool: &PgPool) -> Result<Vec<OrderRow>> {
@@ -535,7 +653,8 @@ pub async fn list_active_orders(pool: &PgPool) -> Result<Vec<OrderRow>> {
                 expires_at, confirmed_at, completed_at, vtpass_request_id,
                 delivery_token, ip_hash, metadata, variation_code, provider, customer_name, user_id
          FROM orders
-         WHERE status IN ('awaiting_payment', 'payment_detected', 'payment_confirmed', 'awaiting_claim', 'utility_dispatching')
+         WHERE (status IN ('awaiting_payment', 'payment_detected', 'payment_confirmed', 'awaiting_claim', 'utility_dispatching')
+                OR (status = 'flagged_for_review' AND utility_type = 'school_fees'))
          ORDER BY created_at ASC",
     )
     .fetch_all(pool)
@@ -552,7 +671,8 @@ pub async fn find_order_by_provider_reference(pool: &PgPool, reference: &str) ->
                 expires_at, confirmed_at, completed_at, vtpass_request_id,
                 delivery_token, ip_hash, metadata, variation_code, provider, customer_name, user_id
          FROM orders
-         WHERE vtpass_request_id = $1 AND status = 'utility_dispatching'",
+         WHERE (vtpass_request_id = $1 AND status = 'utility_dispatching')
+            OR (vtpass_request_id = $1 AND status = 'flagged_for_review' AND utility_type = 'school_fees')",
     )
     .bind(reference)
     .fetch_all(pool)

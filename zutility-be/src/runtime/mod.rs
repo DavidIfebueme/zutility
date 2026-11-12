@@ -20,7 +20,7 @@ use crate::{
         provider_dispatcher::ProviderDispatcher,
         rates::RateOracle,
         remita::RemitaClient,
-        utility_provider::{ProviderTxnStatus, UtilityPurchaseRequest},
+        utility_provider::{ProviderErrorKind, ProviderTxnStatus, UtilityPurchaseRequest},
         vtpass::VtpassClient,
         zcash::{ReceivedNote, group_notes_by_address},
     },
@@ -104,7 +104,19 @@ fn start_order_orchestrator(state: HttpState, config: AppConfig, pool: PgPool) {
             }
         };
 
-        let dispatcher = ProviderDispatcher::new(vtpass, remita, inlomax);
+        let remita_collections = match crate::integrations::remita_collections::RemitaCollectionsClient::from_config(&config) {
+            Ok(client) => {
+                tracing::info!("remita collections client initialized successfully");
+                Some(client)
+            }
+            Err(error) => {
+                tracing::warn!(error = %error, "remita collections client not configured — school fees will be unavailable");
+                None
+            }
+        };
+
+        let dispatcher =
+            ProviderDispatcher::new(vtpass, remita, remita_collections, inlomax);
 
         let mut ticker = interval(Duration::from_secs(25));
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -577,16 +589,15 @@ async fn dispatch_utility(
     let provider_name = format!("{provider_kind:?}").to_lowercase();
 
     let request_id = match provider_kind {
-        crate::integrations::utility_provider::ProviderKind::Remita => {
-            format!("rm-{}", order.id.as_simple())
-        }
+        crate::integrations::utility_provider::ProviderKind::Remita => order.service_ref.clone(),
         crate::integrations::utility_provider::ProviderKind::Inlomax => {
             format!("inl-{}", order.id.as_simple())
         }
         _ => format!("vp-{}", order.id.as_simple()),
     };
 
-    let transitioned = db::set_order_dispatching(pool, order.id, &provider_name, Some(&request_id)).await?;
+    let transitioned =
+        db::set_order_dispatching(pool, order.id, &provider_name, Some(&request_id)).await?;
     if !transitioned {
         return Ok(());
     }
@@ -601,7 +612,10 @@ async fn dispatch_utility(
         order,
         "utility_dispatching",
         "Processing Your Order",
-        &format!("We're sending your {} payment for processing.", order.utility_slug),
+        &format!(
+            "We're sending your {} payment for processing.",
+            order.utility_slug
+        ),
         serde_json::json!({ "utility_slug": order.utility_slug }),
     );
 
@@ -623,17 +637,56 @@ async fn dispatch_utility(
         .await;
 
     match response {
-        Ok(result) if result.status == ProviderTxnStatus::Delivered => {
-            complete_order(state, pool, order.id, result.token.as_deref(), Some(result.provider_request_id.as_str())).await;
-        }
-        Ok(result) if result.status == ProviderTxnStatus::Failed => {
-            fail_order(state, pool, order.id, "provider_failed").await;
-        }
         Ok(result) => {
-            if !result.provider_request_id.is_empty() {
-                if let Err(error) = db::store_provider_reference(pool, order.id, &result.provider_request_id).await {
+            if result.status != ProviderTxnStatus::Failed
+                && let Err(error) = db::mark_provider_accepted(pool, order.id).await
+            {
+                tracing::warn!(order_id = %order.id, error = %error, "failed to record provider acceptance");
+            }
+
+            if result.status == ProviderTxnStatus::Delivered {
+                complete_order(
+                    state,
+                    pool,
+                    order.id,
+                    result.token.as_deref(),
+                    Some(result.provider_request_id.as_str()),
+                )
+                .await;
+            } else if result.status == ProviderTxnStatus::Failed {
+                fail_order(state, pool, order.id, "provider_failed").await;
+            } else if !result.provider_request_id.is_empty() {
+                if let Err(error) =
+                    db::store_provider_reference(pool, order.id, &result.provider_request_id).await
+                {
                     tracing::warn!(order_id = %order.id, error = %error, "failed to store provider reference for requery");
                 }
+            }
+        }
+        Err(error)
+            if order.utility_type == "school_fees"
+                && matches!(error.kind, ProviderErrorKind::Permanent) =>
+        {
+            let transitioned = db::update_order_status_cas(
+                pool,
+                order.id,
+                "utility_dispatching",
+                "flagged_for_review",
+                "provider_rejected",
+                serde_json::json!({ "reason": error.message }),
+            )
+            .await?;
+
+            if transitioned {
+                tracing::error!(order_id = %order.id, "provider rejected the RRR, flagged for review");
+                notify_order(
+                    pool,
+                    order,
+                    "order_flagged",
+                    "Order Under Review",
+                    "The provider rejected this RRR. Support will follow up.",
+                    serde_json::json!({ "utility_slug": order.utility_slug }),
+                );
             }
         }
         Err(error) => {
@@ -655,14 +708,123 @@ async fn requery_utility_dispatch(
     if order.vtpass_request_id.is_none() {
         tracing::warn!(order_id = %order.id, "requery has no stored provider reference, falling back to order ID");
     }
+
+    let accepted = order
+        .metadata
+        .get("provider_accepted")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+
+    let mut current_status = order.status().unwrap_or(OrderStatus::UtilityDispatching);
+
+    if current_status == OrderStatus::UtilityDispatching && order.utility_type == "school_fees" {
+        let started_at = db::dispatch_started_at(pool, order.id)
+            .await?
+            .unwrap_or_else(|| order.confirmed_at.unwrap_or(order.created_at));
+
+        if Utc::now() - started_at > chrono::Duration::minutes(120) {
+            let transitioned = db::update_order_status_cas(
+                pool,
+                order.id,
+                "utility_dispatching",
+                "flagged_for_review",
+                "dispatch_stuck",
+                serde_json::json!({ "reference": reference, "minutes": 120 }),
+            )
+            .await?;
+
+            if transitioned {
+                current_status = OrderStatus::FlaggedForReview;
+                tracing::error!(order_id = %order.id, "dispatch stuck for 2 hours, flagged");
+                notify_order(
+                    pool,
+                    order,
+                    "order_flagged",
+                    "Order Under Review",
+                    "The provider has not confirmed this order. Support will follow up.",
+                    serde_json::json!({ "utility_slug": order.utility_slug }),
+                );
+            }
+        }
+    }
+
     let response = dispatcher.requery(&order.utility_type, reference).await;
 
     match response {
         Ok(result) if result.status == ProviderTxnStatus::Delivered => {
-            complete_order(state, pool, order.id, result.token.as_deref(), Some(result.provider_request_id.as_str())).await;
+            if order.utility_type == "school_fees" && !accepted {
+                let transitioned = db::update_order_status_cas(
+                    pool,
+                    order.id,
+                    "utility_dispatching",
+                    "flagged_for_review",
+                    "provider_paid_without_acceptance",
+                    serde_json::json!({ "reference": reference }),
+                )
+                .await?;
+
+                if transitioned {
+                    tracing::error!(
+                        order_id = %order.id,
+                        "RRR paid without an accepted process call, flagged"
+                    );
+                    notify_order(
+                        pool,
+                        order,
+                        "order_flagged",
+                        "Order Under Review",
+                        "The RRR was paid without our settlement acknowledgement. Support will follow up.",
+                        serde_json::json!({ "utility_slug": order.utility_slug }),
+                    );
+                }
+
+                return Ok(());
+            }
+
+            if current_status == OrderStatus::FlaggedForReview {
+                let completed = db::complete_flagged_school_fee_order(
+                    pool,
+                    order.id,
+                    result.token.as_deref(),
+                    Some(result.provider_request_id.as_str()),
+                )
+                .await?;
+
+                if completed {
+                    let _ = state
+                        .ws_hub
+                        .broadcast_event(
+                            order.id,
+                            &WsOrderEvent::Completed {
+                                delivery_token: result.token.clone(),
+                                reference: order.id.to_string(),
+                            },
+                        )
+                        .await;
+                    notify_order(
+                        pool,
+                        order,
+                        "order_completed",
+                        "Order Completed",
+                        "Your school fees payment was delivered.",
+                        serde_json::json!({ "utility_slug": order.utility_slug }),
+                    );
+                }
+            } else {
+                complete_order(
+                    state,
+                    pool,
+                    order.id,
+                    result.token.as_deref(),
+                    Some(result.provider_request_id.as_str()),
+                )
+                .await;
+            }
         }
         Ok(result) if result.status == ProviderTxnStatus::Failed => {
-            fail_order(state, pool, order.id, "provider_failed").await;
+            if current_status == OrderStatus::UtilityDispatching {
+                fail_order(state, pool, order.id, "provider_failed").await;
+            }
         }
         Ok(_) => {}
         Err(error) => {

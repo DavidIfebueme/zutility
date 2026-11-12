@@ -12,7 +12,7 @@ export type BrandIconId =
   | 'ikeja-electric' | 'eko-electric' | 'abuja-electric' | 'ibadan-electric'
   | 'kano-electric' | 'phed-electric' | 'jos-electric' | 'kaduna-electric'
   | 'enugu-electric' | 'benin-electric' | 'yola-electric' | 'aba-electric'
-  | 'waec' | 'jamb' | 'school-fees'
+  | 'waec' | 'jamb' | 'school-fees' | 'unn'
 
 export interface Utility {
   id: string
@@ -61,7 +61,7 @@ export const UTILITIES: Utility[] = [
   { id: 'waec-registration', type: 'education', slug: 'waec-registration', name: 'WAEC Registration', descriptor: 'Exam registration PIN', iconType: 'education', brandIcon: 'waec', serviceRefLabel: 'Phone Number', serviceRefPlaceholder: '08012345678', serviceRefPattern: '^0[7-9][0-1]\\d{8}$', hasVariations: true, hasAmountPicker: false },
   { id: 'waec-result-checker', type: 'education', slug: 'waec-result-checker', name: 'WAEC Result Checker', descriptor: 'Result checker PIN', iconType: 'education', brandIcon: 'waec', serviceRefLabel: 'Phone Number', serviceRefPlaceholder: '08012345678', serviceRefPattern: '^0[7-9][0-1]\\d{8}$', hasVariations: true, hasAmountPicker: false },
   { id: 'jamb', type: 'education', slug: 'jamb', name: 'JAMB Pin', descriptor: 'UTME registration PIN', iconType: 'education', brandIcon: 'jamb', serviceRefLabel: 'Phone Number', serviceRefPlaceholder: '08012345678', serviceRefPattern: '^0[7-9][0-1]\\d{8}$', hasVariations: false, hasAmountPicker: false, fixedAmountKobo: 650000 },
-  { id: 'school-fees', type: 'school', slug: 'school-fees', name: 'School Fees', descriptor: 'Pay via RRR or Student ID', iconType: 'school', brandIcon: 'school-fees', serviceRefLabel: 'RRR or Student ID', serviceRefPlaceholder: 'Enter RRR or Student ID', hasVariations: false, hasAmountPicker: true, amountMinKobo: 50000, amountMaxKobo: 500000000, quickAmounts: [10000, 25000, 50000, 100000] },
+  { id: 'school-fees', type: 'school', slug: 'school-fees', name: 'School Fees', descriptor: 'Any Remita school', iconType: 'school', brandIcon: 'school-fees', serviceRefLabel: 'Remita RRR', serviceRefPlaceholder: '12 digit RRR from the school portal', hasVariations: false, hasAmountPicker: false },
 ]
 
 export const UTILITY_CATEGORIES: { label: string; type: UtilityType | 'school'; icon: string }[] = [

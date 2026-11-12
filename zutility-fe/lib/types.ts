@@ -63,6 +63,10 @@ export interface UtilityVariationResponse {
 export interface UtilityValidateResponse {
   valid: boolean
   customer_name: string | null
+  amount_ngn: number | null
+  biller_name: string | null
+  product_name: string | null
+  reference: string | null
 }
 
 export type OrderStreamEvent =

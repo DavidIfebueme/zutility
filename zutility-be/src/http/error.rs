@@ -10,6 +10,7 @@ pub enum ApiError {
     NotFound(String),
     Conflict(String),
     TooManyRequests(String),
+    ServiceUnavailable(String),
     Internal(String),
 }
 
@@ -46,6 +47,10 @@ impl ApiError {
     pub fn too_many_requests(message: impl Into<String>) -> Self {
         Self::TooManyRequests(message.into())
     }
+
+    pub fn service_unavailable(message: impl Into<String>) -> Self {
+        Self::ServiceUnavailable(message.into())
+    }
 }
 
 impl IntoResponse for ApiError {
@@ -57,6 +62,7 @@ impl IntoResponse for ApiError {
             Self::NotFound(message) => (StatusCode::NOT_FOUND, message),
             Self::Conflict(message) => (StatusCode::CONFLICT, message),
             Self::TooManyRequests(message) => (StatusCode::TOO_MANY_REQUESTS, message),
+            Self::ServiceUnavailable(message) => (StatusCode::SERVICE_UNAVAILABLE, message),
             Self::Internal(message) => (StatusCode::INTERNAL_SERVER_ERROR, message),
         };
         (status, Json(ErrorEnvelope { error: message })).into_response()

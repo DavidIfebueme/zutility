@@ -445,6 +445,10 @@ impl UtilityProvider for InlomaxClient {
                 return Ok(ValidateRefResponse {
                     is_valid: true,
                     customer_name: None,
+                    amount_ngn: None,
+                    biller_name: None,
+                    product_name: None,
+                    reference: None,
                     raw: serde_json::json!({"status": "success", "message": "no validation required"}),
                 });
             }
@@ -461,6 +465,10 @@ impl UtilityProvider for InlomaxClient {
         Ok(ValidateRefResponse {
             is_valid,
             customer_name,
+            amount_ngn: None,
+            biller_name: None,
+            product_name: None,
+            reference: None,
             raw: response,
         })
     }

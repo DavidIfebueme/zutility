@@ -67,7 +67,14 @@ async function handleResponse<T>(response: Response, originalRequest: () => Prom
     throw new Error('Session expired')
   }
   if (!response.ok) {
-    throw new Error(`Request failed with status ${response.status}`)
+    let message = `Request failed with status ${response.status}`
+    try {
+      const body: { error?: unknown } = await response.json()
+      if (typeof body.error === "string") message = body.error
+    } catch {
+      message = `Request failed with status ${response.status}`
+    }
+    throw new Error(message)
   }
   return response.json() as Promise<T>
 }

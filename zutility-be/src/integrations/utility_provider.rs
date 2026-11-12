@@ -74,6 +74,10 @@ pub struct ValidateRefRequest {
 pub struct ValidateRefResponse {
     pub is_valid: bool,
     pub customer_name: Option<String>,
+    pub amount_ngn: Option<i64>,
+    pub biller_name: Option<String>,
+    pub product_name: Option<String>,
+    pub reference: Option<String>,
     pub raw: serde_json::Value,
 }
 
@@ -256,6 +260,10 @@ mod tests {
             Ok(ValidateRefResponse {
                 is_valid: true,
                 customer_name: Some(String::from("ok")),
+                amount_ngn: None,
+                biller_name: None,
+                product_name: None,
+                reference: None,
                 raw: serde_json::json!({}),
             })
         }

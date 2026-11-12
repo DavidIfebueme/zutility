@@ -120,3 +120,14 @@ fn gift_hold_cannot_dispatch_or_reopen() {
             .is_err()
     );
 }
+
+#[test]
+fn stuck_dispatch_can_be_flagged() {
+    assert!(
+        OrderStatusTransition::new(
+            OrderStatus::UtilityDispatching,
+            OrderStatus::FlaggedForReview
+        )
+        .is_ok()
+    );
+}

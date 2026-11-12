@@ -1,4 +1,5 @@
 import Image from "next/image"
+import { School } from "lucide-react"
 import type { BrandIconId } from "@/lib/constants"
 import { BRAND_LOGOS, BRAND_MONOGRAMS } from "@/lib/brand-logo"
 
@@ -9,6 +10,17 @@ interface BrandMarkProps {
 }
 
 export function BrandMark({ id, size = 24, className }: BrandMarkProps) {
+  if (id === "school-fees") {
+    return (
+      <School
+        className={className}
+        style={{ width: size, height: size }}
+        strokeWidth={1.7}
+        aria-hidden="true"
+      />
+    )
+  }
+
   const src = BRAND_LOGOS[id]
 
   if (!src) {
