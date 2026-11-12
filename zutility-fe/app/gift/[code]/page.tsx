@@ -1,11 +1,12 @@
 import type { Metadata } from "next"
+import { cache } from "react"
 import { formatNGN } from "@/lib/utils"
 import type { GiftView } from "@/lib/types"
 import { GiftClaim } from "./gift-claim"
 
 const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "http://127.0.0.1:3001"
 
-async function fetchGift(code: string): Promise<GiftView | null> {
+const fetchGift = cache(async (code: string): Promise<GiftView | null> => {
   try {
     const response = await fetch(`${apiBase}/api/v1/gifts/${encodeURIComponent(code)}`, {
       cache: "no-store",
@@ -15,7 +16,7 @@ async function fetchGift(code: string): Promise<GiftView | null> {
   } catch {
     return null
   }
-}
+})
 
 export async function generateMetadata({
   params,

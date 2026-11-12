@@ -75,6 +75,30 @@ pub fn validate_gift_amount_ngn(amount_ngn: i64) -> Result<(), GiftValidationErr
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HeldGiftOutcome {
+    KeepHeld,
+    ReleaseToDispatch,
+    ResolveExpired,
+    FlagForReview,
+}
+
+pub fn held_gift_outcome(
+    status: GiftStatus,
+    claim_expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> HeldGiftOutcome {
+    match status {
+        GiftStatus::Claimed => HeldGiftOutcome::ReleaseToDispatch,
+        GiftStatus::Expired => HeldGiftOutcome::ResolveExpired,
+        GiftStatus::Cancelled => HeldGiftOutcome::FlagForReview,
+        GiftStatus::Open => match claim_expires_at {
+            Some(deadline) if deadline <= now => HeldGiftOutcome::ResolveExpired,
+            _ => HeldGiftOutcome::KeepHeld,
+        },
+    }
+}
+
 pub fn is_giftable_utility(utility_type: &str) -> bool {
     matches!(
         utility_type,
@@ -140,5 +164,37 @@ mod tests {
     fn school_fees_is_not_giftable() {
         assert!(!is_giftable_utility("school_fees"));
         assert!(is_giftable_utility("airtime"));
+    }
+
+    #[test]
+    fn held_gift_outcome_covers_the_claim_and_expiry_matrix() {
+        let now = chrono::Utc::now();
+        let past = now - chrono::Duration::minutes(1);
+        let future = now + chrono::Duration::hours(1);
+
+        assert_eq!(
+            held_gift_outcome(GiftStatus::Claimed, None, now),
+            HeldGiftOutcome::ReleaseToDispatch
+        );
+        assert_eq!(
+            held_gift_outcome(GiftStatus::Expired, None, now),
+            HeldGiftOutcome::ResolveExpired
+        );
+        assert_eq!(
+            held_gift_outcome(GiftStatus::Cancelled, None, now),
+            HeldGiftOutcome::FlagForReview
+        );
+        assert_eq!(
+            held_gift_outcome(GiftStatus::Open, None, now),
+            HeldGiftOutcome::KeepHeld
+        );
+        assert_eq!(
+            held_gift_outcome(GiftStatus::Open, Some(future), now),
+            HeldGiftOutcome::KeepHeld
+        );
+        assert_eq!(
+            held_gift_outcome(GiftStatus::Open, Some(past), now),
+            HeldGiftOutcome::ResolveExpired
+        );
     }
 }

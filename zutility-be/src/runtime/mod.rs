@@ -11,7 +11,10 @@ use uuid::Uuid;
 use crate::{
     config::AppConfig,
     db,
-    domain::order::OrderStatus,
+    domain::{
+        gift::{GiftStatus, HeldGiftOutcome, held_gift_outcome},
+        order::OrderStatus,
+    },
     http::handlers::HttpState,
     integrations::{
         provider_dispatcher::ProviderDispatcher,
@@ -251,19 +254,7 @@ async fn process_order(
     let updated_status = updated.status()?;
 
     if updated_status == OrderStatus::AwaitingClaim {
-        if let Some(gift) = db::find_gift_by_order_id(pool, updated.id).await?
-            && gift.status() == Some(crate::domain::gift::GiftStatus::Claimed)
-        {
-            db::update_order_status_cas(
-                pool,
-                updated.id,
-                "awaiting_claim",
-                "payment_confirmed",
-                "gift_claim_released",
-                serde_json::json!({ "gift_id": gift.id }),
-            )
-            .await?;
-        }
+        resolve_held_gift(pool, &updated).await?;
         return Ok(());
     }
 
@@ -279,80 +270,139 @@ async fn process_order(
 async fn expire_claim_windows(pool: &PgPool) -> Result<()> {
     let now = Utc::now();
     for gift in db::list_expired_open_gifts(pool, now).await? {
-        let Some(order_id) = gift.order_id else {
-            let _ = db::expire_gift_cas(pool, gift.id).await?;
-            continue;
-        };
-        let Some(order) = db::get_order_by_id(pool, order_id).await? else {
-            let _ = db::expire_gift_cas(pool, gift.id).await?;
-            continue;
-        };
-
-        let status = order.status().ok();
-
-        if matches!(
-            status,
-            Some(OrderStatus::AwaitingPayment)
-                | Some(OrderStatus::PaymentDetected)
-                | Some(OrderStatus::PaymentConfirmed)
-        ) {
-            continue;
+        if let Err(error) = expire_one_gift(pool, gift).await {
+            tracing::warn!(error = %error, "gift expiry iteration failed");
         }
+    }
 
-        if !db::expire_gift_cas(pool, gift.id).await? {
-            continue;
+    Ok(())
+}
+
+async fn expire_one_gift(pool: &PgPool, gift: db::GiftRow) -> Result<()> {
+    let Some(order_id) = gift.order_id else {
+        let _ = db::expire_gift_cas(pool, gift.id).await?;
+        return Ok(());
+    };
+    let Some(order) = db::get_order_by_id(pool, order_id).await? else {
+        let _ = db::expire_gift_cas(pool, gift.id).await?;
+        return Ok(());
+    };
+
+    let status = order.status().ok();
+
+    if matches!(
+        status,
+        Some(OrderStatus::AwaitingPayment)
+            | Some(OrderStatus::PaymentDetected)
+            | Some(OrderStatus::PaymentConfirmed)
+    ) {
+        return Ok(());
+    }
+
+    if !db::expire_gift_cas(pool, gift.id).await? {
+        return Ok(());
+    }
+
+    if status == Some(OrderStatus::AwaitingClaim) {
+        deliver_expired_gift(pool, &gift, &order).await?;
+    }
+
+    Ok(())
+}
+
+async fn resolve_held_gift(pool: &PgPool, order: &db::OrderRow) -> Result<()> {
+    let Some(gift) = db::find_gift_by_order_id(pool, order.id).await? else {
+        return Ok(());
+    };
+    let Some(status) = gift.status() else {
+        return Ok(());
+    };
+
+    match held_gift_outcome(status, gift.claim_expires_at, Utc::now()) {
+        HeldGiftOutcome::KeepHeld => {}
+        HeldGiftOutcome::ReleaseToDispatch => {
+            db::update_order_status_cas(
+                pool,
+                order.id,
+                "awaiting_claim",
+                "payment_confirmed",
+                "gift_claim_released",
+                serde_json::json!({ "gift_id": gift.id }),
+            )
+            .await?;
         }
-
-        if status != Some(OrderStatus::AwaitingClaim) {
-            continue;
-        }
-
-        let fallback = gift
-            .fallback_service_ref
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty());
-
-        match fallback {
-            Some(service_ref) => {
-                db::update_order_service_ref(pool, order_id, service_ref, None).await?;
-                db::update_order_status_cas(
-                    pool,
-                    order_id,
-                    "awaiting_claim",
-                    "payment_confirmed",
-                    "gift_expired_fallback",
-                    serde_json::json!({ "gift_id": gift.id }),
-                )
-                .await?;
-                notify_order(
-                    pool,
-                    &order,
-                    "gift_expired_fallback",
-                    "Gift Expired",
-                    "Nobody claimed the gift in time, so it was delivered to your backup account.",
-                    serde_json::json!({ "gift_id": gift.id, "utility_slug": gift.utility_slug }),
-                );
+        HeldGiftOutcome::ResolveExpired => {
+            if status == GiftStatus::Open && !db::expire_gift_cas(pool, gift.id).await? {
+                return Ok(());
             }
-            None => {
-                db::update_order_status_cas(
-                    pool,
-                    order_id,
-                    "awaiting_claim",
-                    "flagged_for_review",
-                    "gift_expired_unclaimed",
-                    serde_json::json!({ "gift_id": gift.id }),
-                )
-                .await?;
-                notify_order(
-                    pool,
-                    &order,
-                    "gift_expired_unclaimed",
-                    "Gift Needs Attention",
-                    "Nobody claimed the gift and no backup account was set. Support will follow up.",
-                    serde_json::json!({ "gift_id": gift.id, "utility_slug": gift.utility_slug }),
-                );
-            }
+            deliver_expired_gift(pool, &gift, order).await?;
+        }
+        HeldGiftOutcome::FlagForReview => {
+            db::update_order_status_cas(
+                pool,
+                order.id,
+                "awaiting_claim",
+                "flagged_for_review",
+                "gift_cancelled_while_held",
+                serde_json::json!({ "gift_id": gift.id }),
+            )
+            .await?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn deliver_expired_gift(
+    pool: &PgPool,
+    gift: &db::GiftRow,
+    order: &db::OrderRow,
+) -> Result<()> {
+    let fallback = gift
+        .fallback_service_ref
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    match fallback {
+        Some(service_ref) => {
+            db::update_order_service_ref(pool, order.id, service_ref, None).await?;
+            db::update_order_status_cas(
+                pool,
+                order.id,
+                "awaiting_claim",
+                "payment_confirmed",
+                "gift_expired_fallback",
+                serde_json::json!({ "gift_id": gift.id }),
+            )
+            .await?;
+            notify_order(
+                pool,
+                order,
+                "gift_expired_fallback",
+                "Gift Expired",
+                "Nobody claimed the gift in time, so it was delivered to your backup account.",
+                serde_json::json!({ "gift_id": gift.id, "utility_slug": gift.utility_slug }),
+            );
+        }
+        None => {
+            db::update_order_status_cas(
+                pool,
+                order.id,
+                "awaiting_claim",
+                "flagged_for_review",
+                "gift_expired_unclaimed",
+                serde_json::json!({ "gift_id": gift.id }),
+            )
+            .await?;
+            notify_order(
+                pool,
+                order,
+                "gift_expired_unclaimed",
+                "Gift Needs Attention",
+                "Nobody claimed the gift and no backup account was set. Support will follow up.",
+                serde_json::json!({ "gift_id": gift.id, "utility_slug": gift.utility_slug }),
+            );
         }
     }
 

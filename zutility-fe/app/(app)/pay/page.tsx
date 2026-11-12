@@ -136,6 +136,7 @@ export default function PayPage() {
   const selectedUtility = UTILITIES.find((utility) => utility.id === selectedUtilityId)
 
   const filteredUtilities = UTILITIES.filter((utility) => {
+    if (isGift && utility.type === "school") return false
     if (utility.type !== activeCategory) return false
     if (!query.trim()) return true
     return utility.name.toLowerCase().includes(query.trim().toLowerCase())
@@ -236,6 +237,11 @@ export default function PayPage() {
       return
     }
 
+    if (isGift && selectedUtility.type === "school") {
+      toast.error("School fees cannot be gifted yet")
+      return
+    }
+
     if (isGift && amountNgn > GIFT_MAX_NGN) {
       toast.error(`Gifts are capped at ${formatCurrency(GIFT_MAX_NGN, "NGN")}`)
       return
@@ -324,7 +330,12 @@ export default function PayPage() {
           </button>
           <button
             type="button"
-            onClick={() => setIsGift(true)}
+            onClick={() => {
+              setIsGift(true)
+              if (selectedUtility?.type === "school") {
+                setValue("utilityId", "", { shouldValidate: true })
+              }
+            }}
             className={cn(
               "flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-[12px] transition-colors",
               isGift ? "border-ink bg-cream text-ink" : "border-line text-muted hover:text-ink"

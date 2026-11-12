@@ -13,6 +13,14 @@ import type { GiftSummary } from "@/lib/types"
 
 function giftState(gift: GiftSummary): { label: string; tone: string } {
   if (gift.status === "cancelled") return { label: "Cancelled", tone: "border-line text-muted" }
+  if (gift.order_status === "cancelled") return { label: "Cancelled", tone: "border-line text-muted" }
+
+  if (gift.order_status === "expired") {
+    return gift.status === "claimed"
+      ? { label: "Claimed, unpaid", tone: "border-rust/40 text-rust" }
+      : { label: "Expired", tone: "border-line text-muted" }
+  }
+
   if (gift.status === "expired") return { label: "Expired", tone: "border-line text-muted" }
 
   if (gift.status === "open") {
@@ -127,6 +135,12 @@ export default function GiftsPage() {
           const canCancel =
             gift.status === "open" && gift.order_status === "awaiting_payment"
           const canPay = Boolean(gift.order_id) && gift.order_status === "awaiting_payment"
+          const isTerminalOrder =
+            !gift.order_status ||
+            ["completed", "failed", "cancelled", "expired", "flagged_for_review"].includes(
+              gift.order_status
+            )
+          const canOpen = Boolean(gift.order_id) && !isTerminalOrder
           const busy = working === gift.gift_id
 
           return (
@@ -161,6 +175,11 @@ export default function GiftsPage() {
                 {canPay && (
                   <Button asChild size="sm">
                     <Link href={`/pay/${gift.order_id}?recover=1`}>Pay now</Link>
+                  </Button>
+                )}
+                {canOpen && !canPay && (
+                  <Button asChild size="sm" variant="secondary">
+                    <Link href={`/pay/${gift.order_id}?recover=1`}>Open</Link>
                   </Button>
                 )}
                 {canShare && (

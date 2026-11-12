@@ -91,6 +91,17 @@ function fromStatus(status: OrderStatusResponse, token: string): CreateOrderResp
   }
 }
 
+async function tryNativeShare(url: string): Promise<boolean> {
+  if (typeof navigator === "undefined" || !navigator.share) return false
+
+  try {
+    await navigator.share({ title: "A utility gift from zutility", url })
+    return true
+  } catch {
+    return false
+  }
+}
+
 export default function OrderPage() {
   return (
     <React.Suspense fallback={null}>
@@ -128,7 +139,10 @@ function OrderPageContent() {
       requestedOrder.current = true
       apiGet<OrderStatusResponse>(`/api/v1/orders/${orderId}?token=${encodeURIComponent(token)}`)
         .then((status) => setRecoveredOrder(fromStatus(status, token)))
-        .catch(() => toast.error("Could not load the order"))
+        .catch(() => {
+          requestedOrder.current = false
+          toast.error("Could not load the order")
+        })
       return
     }
 
@@ -141,7 +155,10 @@ function OrderPageContent() {
           )
           setRecoveredOrder(fromStatus(status, order_access_token))
         })
-        .catch(() => toast.error("Could not load the order"))
+        .catch(() => {
+          requestedOrder.current = false
+          toast.error("Could not load the order")
+        })
     }
   }, [isCurrentOrder, recoveredOrder, orderId, tokenParam, recoverParam, user])
 
@@ -206,14 +223,8 @@ function OrderPageContent() {
   const shareGift = async () => {
     if (!giftPath) return
     const url = `${window.location.origin}${giftPath}`
-    if (typeof navigator !== "undefined" && navigator.share) {
-      try {
-        await navigator.share({ title: "A utility gift from zutility", url })
-        return
-      } catch {
-        // fall through to copy
-      }
-    }
+    const shared = await tryNativeShare(url)
+    if (shared) return
     await navigator.clipboard.writeText(url)
     toast.success("Gift link copied")
   }
@@ -252,7 +263,7 @@ function OrderPageContent() {
           <Stepper steps={steps} currentStep={stepIndex} />
         </div>
 
-        {giftPath && !isClosed && (
+        {giftPath && (status === "awaiting_payment" || status === "awaiting_claim") && (
           <div className="border-b border-line bg-paper-2/60 px-5 py-4">
             <p className="flex items-center gap-1.5 text-[12px] font-medium text-gold-deep">
               <Gift className="h-3.5 w-3.5" />

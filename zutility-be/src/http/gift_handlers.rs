@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use axum::{
     Json,
     extract::{Extension, Path, State},
@@ -45,24 +47,12 @@ fn generate_gift_code() -> String {
         .collect()
 }
 
-fn resolve_sender_name(
-    display_name: Option<String>,
-    email: &str,
-    hide_sender_name: bool,
-) -> Option<String> {
+fn resolve_sender_name(display_name: Option<String>, hide_sender_name: bool) -> Option<String> {
     if hide_sender_name {
         return None;
     }
-    let name = display_name
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| {
-            email
-                .split('@')
-                .next()
-                .unwrap_or(FRIENDLY_SENDER_NAME)
-                .to_owned()
-        });
-    Some(name)
+
+    display_name.filter(|value| !value.trim().is_empty())
 }
 
 async fn validate_service_ref(
@@ -71,6 +61,7 @@ async fn validate_service_ref(
     utility_slug: &str,
     service_ref: &str,
     label: &str,
+    strict: bool,
 ) -> Result<Option<String>, ApiError> {
     let Some(dispatcher) = state.provider_dispatcher.as_ref() else {
         return Ok(None);
@@ -92,8 +83,15 @@ async fn validate_service_ref(
                 utility_slug = %utility_slug,
                 label = %label,
                 error = %error,
-                "provider reference validation unavailable, accepting the reference"
+                "provider reference validation unavailable"
             );
+
+            if strict {
+                return Err(ApiError::bad_request(
+                    "we could not verify that account right now. Try again in a moment.",
+                ));
+            }
+
             Ok(None)
         }
     }
@@ -224,6 +222,7 @@ pub async fn create_gift(
             payload.utility_slug.trim(),
             fallback,
             "fallback",
+            false,
         )
         .await?;
     }
@@ -252,7 +251,7 @@ pub async fn create_gift(
         .ok_or_else(|| ApiError::unauthorized("user not found"))?;
 
     let hide_sender_name = payload.hide_sender_name.unwrap_or(false);
-    let sender_name = resolve_sender_name(user.display_name, &auth_user.email, hide_sender_name);
+    let sender_name = resolve_sender_name(user.display_name, hide_sender_name);
     let claim_window_hours = i32::try_from(payload.claim_window_hours)
         .map_err(|_| ApiError::bad_request("claim window is out of range"))?;
 
@@ -361,18 +360,22 @@ pub async fn list_gifts(
     let gifts = db::list_gifts_by_sender(&state.pool, auth_user.user_id)
         .await
         .map_err(internal_err)?;
+    let statuses: HashMap<Uuid, String> =
+        db::list_order_statuses_by_user(&state.pool, auth_user.user_id)
+            .await
+            .map_err(internal_err)?
+            .into_iter()
+            .collect();
 
     let mut summaries = Vec::with_capacity(gifts.len());
     for gift in gifts {
         let status = gift
             .status()
             .ok_or_else(|| ApiError::internal("unknown gift status"))?;
-        let order = match gift.order_id {
-            Some(order_id) => db::get_order_by_id(&state.pool, order_id)
-                .await
-                .map_err(internal_err)?,
-            None => None,
-        };
+        let order_status = gift
+            .order_id
+            .and_then(|order_id| statuses.get(&order_id))
+            .and_then(|value| OrderStatus::from_db(value));
 
         summaries.push(GiftSummary {
             gift_id: gift.id,
@@ -381,7 +384,7 @@ pub async fn list_gifts(
             utility_slug: gift.utility_slug,
             amount_ngn: gift.amount_ngn,
             status,
-            order_status: order.as_ref().and_then(|row| row.status().ok()),
+            order_status,
             claimed_service_ref: gift.claimed_service_ref,
             claim_window_hours: i64::from(gift.claim_window_hours),
             claim_expires_at: gift.claim_expires_at,
@@ -471,11 +474,9 @@ pub async fn claim_gift(
         &gift.utility_slug,
         service_ref,
         "recipient",
+        true,
     )
-    .await?
-    .or(payload
-        .customer_name
-        .filter(|value| !value.trim().is_empty()));
+    .await?;
 
     let mut tx = db::begin_tx(&state.pool).await.map_err(internal_err)?;
 
@@ -486,11 +487,21 @@ pub async fn claim_gift(
         return Err(ApiError::conflict("this gift has already been claimed"));
     }
 
-    db::update_order_service_ref_tx(&mut tx, order_id, service_ref, customer_name.as_deref())
+    let locked_status = db::lock_order_status_tx(&mut tx, order_id)
         .await
         .map_err(internal_err)?;
 
-    let locked_status = db::lock_order_status_tx(&mut tx, order_id)
+    match locked_status.as_deref() {
+        Some("awaiting_payment")
+        | Some("payment_detected")
+        | Some("payment_confirmed")
+        | Some("awaiting_claim") => {}
+        _ => {
+            return Err(ApiError::conflict("this gift can no longer be claimed"));
+        }
+    }
+
+    db::update_order_service_ref_tx(&mut tx, order_id, service_ref, customer_name.as_deref())
         .await
         .map_err(internal_err)?;
 

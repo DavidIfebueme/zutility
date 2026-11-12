@@ -19,6 +19,22 @@ pub enum OrderStatus {
 }
 
 impl OrderStatus {
+    pub fn from_db(value: &str) -> Option<Self> {
+        match value {
+            "awaiting_payment" => Some(Self::AwaitingPayment),
+            "payment_detected" => Some(Self::PaymentDetected),
+            "payment_confirmed" => Some(Self::PaymentConfirmed),
+            "awaiting_claim" => Some(Self::AwaitingClaim),
+            "utility_dispatching" => Some(Self::UtilityDispatching),
+            "completed" => Some(Self::Completed),
+            "expired" => Some(Self::Expired),
+            "failed" => Some(Self::Failed),
+            "flagged_for_review" => Some(Self::FlaggedForReview),
+            "cancelled" => Some(Self::Cancelled),
+            _ => None,
+        }
+    }
+
     pub fn as_db(self) -> &'static str {
         match self {
             Self::AwaitingPayment => "awaiting_payment",

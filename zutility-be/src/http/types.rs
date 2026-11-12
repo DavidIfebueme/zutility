@@ -287,7 +287,6 @@ pub struct CreateGiftResponse {
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct ClaimGiftRequest {
     pub service_ref: String,
-    pub customer_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]

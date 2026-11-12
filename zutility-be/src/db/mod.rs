@@ -845,6 +845,31 @@ pub async fn cancel_gift_tx(tx: &mut Transaction<'_, Postgres>, gift_id: Uuid) -
     Ok(rows_affected == 1)
 }
 
+pub async fn cancel_gift_by_order_id(pool: &PgPool, order_id: Uuid) -> Result<()> {
+    sqlx::query(
+        "UPDATE gift_invites SET status = 'cancelled' WHERE order_id = $1 AND status = 'open'",
+    )
+    .bind(order_id)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn list_order_statuses_by_user(
+    pool: &PgPool,
+    user_id: Uuid,
+) -> Result<Vec<(Uuid, String)>> {
+    let rows = sqlx::query("SELECT id, status FROM orders WHERE user_id = $1")
+        .bind(user_id)
+        .fetch_all(pool)
+        .await?;
+
+    rows.into_iter()
+        .map(|row| Ok((row.try_get("id")?, row.try_get("status")?)))
+        .collect()
+}
+
 pub async fn set_gift_claim_expiry(
     pool: &PgPool,
     gift_id: Uuid,

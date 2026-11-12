@@ -381,6 +381,10 @@ pub async fn cancel_order(
     .await
     .map_err(internal_err)?;
 
+    db::cancel_gift_by_order_id(&state.pool, order_id)
+        .await
+        .map_err(internal_err)?;
+
     Ok(Json(CancelOrderResponse { success: true }))
 }
 

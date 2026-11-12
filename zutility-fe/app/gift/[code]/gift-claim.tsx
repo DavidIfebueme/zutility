@@ -25,10 +25,10 @@ async function giftRequest<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     let message = `Request failed with status ${response.status}`
     try {
-      const body = await response.json()
-      if (typeof body?.error === "string") message = body.error
+      const body: { error?: unknown } = await response.json()
+      if (typeof body.error === "string") message = body.error
     } catch {
-      // keep the status message
+      message = `Request failed with status ${response.status}`
     }
     throw new Error(message)
   }
@@ -58,6 +58,10 @@ function deliveryHeadline(status: OrderStatus | null): string {
       return "Delivery failed"
     case "flagged_for_review":
       return "Under review"
+    case "expired":
+      return "The sender did not pay in time"
+    case "cancelled":
+      return "This order was cancelled"
     default:
       return "Claimed"
   }
@@ -130,6 +134,9 @@ export function GiftClaim({ code, initialGift }: { code: string; initialGift: Gi
             <p className="mt-2 text-[13px] leading-relaxed text-muted">
               This link is wrong or the gift does not exist. Ask the sender for a fresh link.
             </p>
+            <Button variant="secondary" className="mt-5" onClick={refresh}>
+              Try again
+            </Button>
           </div>
         )}
 
@@ -210,7 +217,11 @@ export function GiftClaim({ code, initialGift }: { code: string; initialGift: Gi
                           ? "The sender has not paid yet. This page updates on its own."
                           : gift.order_status === "completed"
                             ? "The utility has been delivered to the account you entered."
-                            : "Keep this page open. It updates on its own."}
+                            : gift.order_status === "expired" || gift.order_status === "cancelled"
+                              ? "The order closed before delivery. Ask the sender to send a new gift."
+                              : gift.order_status === "flagged_for_review"
+                                ? "This order is being reviewed. Support will follow up."
+                                : "Keep this page open. It updates on its own."}
                       </p>
                     </div>
                   </div>

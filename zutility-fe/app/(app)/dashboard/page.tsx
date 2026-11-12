@@ -4,7 +4,6 @@ import * as React from "react"
 import Link from "next/link"
 import { ArrowRight, Loader2, Receipt } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import { useAuthStore } from "@/store/auth"
 import { useOrderStore } from "@/store/order"
 import { useRate } from "@/lib/hooks/useRate"
@@ -60,6 +59,11 @@ export default function DashboardPage() {
   }, [])
 
   const recent = orders.slice(0, 5)
+  const activeStatus = activeOrder
+    ? (orders.find((order) => order.order_id === activeOrder.order_id)?.status ?? "awaiting_payment")
+    : "awaiting_payment"
+  const activeMeta = getStatusMeta(activeStatus)
+  const activeIsPaid = activeStatus !== "awaiting_payment"
 
   return (
     <div className="space-y-9">
@@ -77,7 +81,11 @@ export default function DashboardPage() {
         <section className="rounded-lg border border-line bg-cream">
           <div className="flex items-center justify-between border-b border-line px-5 py-3">
             <p className="label-xs text-muted">Open order</p>
-            <Badge variant="warning">Awaiting payment</Badge>
+            <span
+              className={`inline-flex rounded-full border px-2.5 py-0.5 text-[11px] ${STATUS_TONE_CLASS[activeMeta.tone]}`}
+            >
+              {activeMeta.label}
+            </span>
           </div>
           <div className="flex flex-col gap-5 p-5 sm:flex-row sm:items-end sm:justify-between">
             <div>
@@ -86,8 +94,9 @@ export default function DashboardPage() {
                 <span className="num">{formatZEC(activeOrder.zec_amount)} ZEC</span>
               </p>
               <p className="mt-1 text-[13px] text-ink-2">
-                Send this amount to the deposit address on the order page. The quote holds until
-                the order expires.
+                {activeIsPaid
+                  ? "This order is paid and in progress. Open it for the latest status."
+                  : "Send this amount to the deposit address on the order page. The quote holds until the order expires."}
               </p>
             </div>
             <Button asChild className="shrink-0">
@@ -166,7 +175,7 @@ export default function DashboardPage() {
                       >
                         <td className="px-4 py-3">
                           <Link
-                            href={`/pay/${order.order_id}`}
+                            href={`/pay/${order.order_id}?recover=1`}
                             className="block text-[13px] text-ink hover:underline"
                           >
                             {order.utility_slug}
