@@ -75,6 +75,7 @@ export default function PayPage() {
   const [loadingVariations, setLoadingVariations] = React.useState(false)
   const [validating, setValidating] = React.useState(false)
   const [validated, setValidated] = React.useState<UtilityValidateResponse | null>(null)
+  const [validatedReference, setValidatedReference] = React.useState<string | null>(null)
   const [displayAmount, setDisplayAmount] = React.useState<string>("1000")
   const [isGift, setIsGift] = React.useState(false)
   const [giftMessage, setGiftMessage] = React.useState("")
@@ -208,12 +209,14 @@ export default function PayPage() {
 
   const handleValidate = React.useCallback(async () => {
     if (!selectedUtility || !serviceRef || serviceRef.trim().length < 5) return
+    const queriedReference = serviceRef.trim()
     setValidating(true)
     try {
       const result = await apiGet<UtilityValidateResponse>(
         `/api/v1/utilities/${selectedUtility.slug}/validate?ref=${encodeURIComponent(serviceRef)}`
       )
       setValidated(result)
+      setValidatedReference(queriedReference)
       if (!result.valid) {
         toast.error(
           selectedUtility.type === "school"
@@ -243,6 +246,7 @@ export default function PayPage() {
 
   React.useEffect(() => {
     setValidated(null)
+    setValidatedReference(null)
   }, [serviceRef, selectedUtilityId])
 
   const onSubmit = async (data: OrderFormValues) => {
@@ -252,7 +256,7 @@ export default function PayPage() {
 
     if (
       isSchoolFees &&
-      (!validated?.valid || validated.reference !== data.serviceRef.trim())
+      (!validated?.valid || validatedReference !== data.serviceRef.trim())
     ) {
       toast.error("Look up the RRR again")
       return
@@ -619,6 +623,10 @@ export default function PayPage() {
                     </div>
                   )}
                 </div>
+              )}
+
+              {isSchoolFees && errors.amountNgn && (
+                <p className="text-[12px] text-rust">{errors.amountNgn.message}</p>
               )}
 
               {selectedUtility?.fixedAmountKobo && (

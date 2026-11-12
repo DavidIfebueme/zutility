@@ -512,6 +512,8 @@ pub async fn set_order_dispatching(
     provider: &str,
     vtpass_request_id: Option<&str>,
 ) -> Result<bool> {
+    let mut tx = begin_tx(pool).await?;
+
     let rows_affected = sqlx::query(
         "UPDATE orders
          SET status = 'utility_dispatching', provider = $2, vtpass_request_id = COALESCE($3, vtpass_request_id)
@@ -520,7 +522,7 @@ pub async fn set_order_dispatching(
     .bind(order_id)
     .bind(provider)
     .bind(vtpass_request_id)
-    .execute(pool)
+    .execute(tx.as_mut())
     .await?
     .rows_affected();
 
@@ -534,9 +536,49 @@ pub async fn set_order_dispatching(
             "provider": provider,
             "reference": vtpass_request_id,
         }))
-        .execute(pool)
+        .execute(tx.as_mut())
         .await?;
     }
+
+    tx.commit().await?;
+    Ok(rows_affected > 0)
+}
+
+pub async fn mark_provider_accepted(pool: &PgPool, order_id: Uuid) -> Result<()> {
+    sqlx::query(
+        "UPDATE orders
+         SET metadata = metadata || '{\"provider_accepted\": true}'::jsonb
+         WHERE id = $1",
+    )
+    .bind(order_id)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn complete_flagged_school_fee_order(
+    pool: &PgPool,
+    order_id: Uuid,
+    delivery_token: Option<&str>,
+    provider_request_id: Option<&str>,
+) -> Result<bool> {
+    let rows_affected = sqlx::query(
+        "UPDATE orders
+         SET status = 'completed',
+             delivery_token = COALESCE($2, delivery_token),
+             vtpass_request_id = COALESCE($3, vtpass_request_id),
+             completed_at = now()
+         WHERE id = $1
+           AND status = 'flagged_for_review'
+           AND utility_type = 'school_fees'",
+    )
+    .bind(order_id)
+    .bind(delivery_token)
+    .bind(provider_request_id)
+    .execute(pool)
+    .await?
+    .rows_affected();
 
     Ok(rows_affected > 0)
 }
@@ -585,7 +627,8 @@ pub async fn list_active_orders(pool: &PgPool) -> Result<Vec<OrderRow>> {
                 expires_at, confirmed_at, completed_at, vtpass_request_id,
                 delivery_token, ip_hash, metadata, variation_code, provider, customer_name, user_id
          FROM orders
-         WHERE status IN ('awaiting_payment', 'payment_detected', 'payment_confirmed', 'awaiting_claim', 'utility_dispatching')
+         WHERE (status IN ('awaiting_payment', 'payment_detected', 'payment_confirmed', 'awaiting_claim', 'utility_dispatching')
+                OR (status = 'flagged_for_review' AND utility_type = 'school_fees'))
          ORDER BY created_at ASC",
     )
     .fetch_all(pool)
@@ -602,7 +645,8 @@ pub async fn find_order_by_provider_reference(pool: &PgPool, reference: &str) ->
                 expires_at, confirmed_at, completed_at, vtpass_request_id,
                 delivery_token, ip_hash, metadata, variation_code, provider, customer_name, user_id
          FROM orders
-         WHERE vtpass_request_id = $1 AND status = 'utility_dispatching'",
+         WHERE (vtpass_request_id = $1 AND status = 'utility_dispatching')
+            OR (vtpass_request_id = $1 AND status = 'flagged_for_review' AND utility_type = 'school_fees')",
     )
     .bind(reference)
     .fetch_all(pool)

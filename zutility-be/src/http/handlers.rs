@@ -22,7 +22,9 @@ use crate::{
         CurrentRate, SharedRateCache, default_current_rate, new_shared_rate_cache,
     },
     integrations::remita::RemitaClient,
-    integrations::utility_provider::{ProviderErrorKind, ProviderTxnStatus, ValidateRefRequest},
+    integrations::utility_provider::{
+        ProviderError, ProviderErrorKind, ProviderTxnStatus, ValidateRefRequest,
+    },
     integrations::vtpass::VtpassClient,
     integrations::zcash::ZcashClient,
     observability::{AlertState, ObservabilityState, ProbeStatus, ReadinessReport},
@@ -165,7 +167,9 @@ impl HttpState {
     responses(
         (status = 200, description = "Order created", body = CreateOrderResponse),
         (status = 400, description = "Validation error", body = super::error::ErrorEnvelope),
+        (status = 409, description = "An open order already exists for this RRR", body = super::error::ErrorEnvelope),
         (status = 429, description = "Rate limit exceeded", body = super::error::ErrorEnvelope),
+        (status = 503, description = "Remita unavailable", body = super::error::ErrorEnvelope),
         (status = 500, description = "Internal error", body = super::error::ErrorEnvelope)
     )
 )]
@@ -234,7 +238,7 @@ pub async fn create_order(
         db::insert_order_with_claimed_address(&mut tx, &input, network)
             .await
             .map_err(|error| {
-                if is_unique_violation(&error) {
+                if is_school_fee_rrr_conflict(&error) {
                     ApiError::conflict("an open order already exists for this RRR")
                 } else {
                     internal_err(error)
@@ -287,12 +291,7 @@ async fn resolve_order_amount(
     let details = dispatcher
         .validate_reference("school_fees", &request)
         .await
-        .map_err(|error| match error.kind {
-            ProviderErrorKind::Transient | ProviderErrorKind::Outage => {
-                ApiError::service_unavailable("Remita is unavailable. Try again shortly.")
-            }
-            _ => ApiError::bad_request(error.message),
-        })?;
+        .map_err(remita_lookup_error)?;
 
     if !details.is_valid {
         return Err(ApiError::bad_request("that RRR is not payable"));
@@ -787,7 +786,7 @@ pub async fn list_utilities() -> Result<Json<Vec<UtilityItem>>, ApiError> {
             slug: String::from("school-fees"),
             utility_type: String::from("school_fees"),
             name: String::from("School Fees"),
-            field_config: serde_json::json!({"service_ref_label":"RRR or Student ID","service_ref_placeholder":"Enter RRR or Student ID","has_variations":false,"has_amount_picker":true,"amount_min_kobo":50000,"amount_max_kobo":500000000,"icon_type":"school"}),
+            field_config: serde_json::json!({"service_ref_label":"Remita RRR","service_ref_placeholder":"Enter the 12 digit RRR","has_variations":false,"has_amount_picker":false,"icon_type":"school"}),
         },
     ]))
 }
@@ -833,12 +832,7 @@ pub async fn validate_utility_reference(
                 }));
             }
             Err(error) if utility_type == "school_fees" => {
-                return Err(match error.kind {
-                    ProviderErrorKind::Transient | ProviderErrorKind::Outage => {
-                        ApiError::service_unavailable("Remita is unavailable. Try again shortly.")
-                    }
-                    _ => ApiError::bad_request(error.message),
-                });
+                return Err(remita_lookup_error(error));
             }
             Err(_) => {}
         }
@@ -1062,13 +1056,30 @@ fn internal_err(error: impl std::fmt::Display) -> ApiError {
     ApiError::internal(error.to_string())
 }
 
-fn is_unique_violation(error: &anyhow::Error) -> bool {
+fn remita_lookup_error(error: ProviderError) -> ApiError {
+    match error.kind {
+        ProviderErrorKind::Permanent => {
+            tracing::warn!(detail = %error.message, "remita rejected the rrr lookup");
+            ApiError::bad_request("we could not pay that RRR. Check the RRR and try again")
+        }
+        ProviderErrorKind::Transient | ProviderErrorKind::Outage => {
+            tracing::warn!(detail = %error.message, "remita lookup unavailable");
+            ApiError::service_unavailable("Remita is unavailable. Try again shortly.")
+        }
+        ProviderErrorKind::Unauthorized | ProviderErrorKind::InvalidResponse => {
+            tracing::error!(detail = %error.message, "remita lookup failed");
+            ApiError::service_unavailable("School fees are temporarily unavailable.")
+        }
+    }
+}
+
+fn is_school_fee_rrr_conflict(error: &anyhow::Error) -> bool {
     error
         .downcast_ref::<sqlx::Error>()
         .and_then(|error| match error {
             sqlx::Error::Database(database) => database
-                .code()
-                .map(|code| code.as_ref() == "23505"),
+                .constraint()
+                .map(|name| name == "ux_orders_active_school_fee_rrr"),
             _ => None,
         })
         .unwrap_or(false)
@@ -1220,71 +1231,128 @@ pub async fn webhook_vtpass(
 
 pub async fn webhook_remita(
     State(state): State<HttpState>,
-    headers: axum::http::HeaderMap,
     body: axum::body::Bytes,
 ) -> Result<StatusCode, ApiError> {
-    let Some(dispatcher) = &state.provider_dispatcher else {
-        return Ok(StatusCode::SERVICE_UNAVAILABLE);
-    };
+    let payload: serde_json::Value = serde_json::from_slice(&body)
+        .map_err(|error| ApiError::bad_request(format!("invalid remita webhook body: {error}")))?;
 
-    let signature = headers
-        .get("x-remita-signature")
-        .or_else(|| headers.get("X-Remita-Signature"))
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
+    for notification in remita_notifications(payload) {
+        let Some(rrr) = notification.get("rrr").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
 
-    if !dispatcher.verify_webhook_signature("school_fees", &body, signature) {
-        return Err(ApiError::forbidden("invalid webhook signature"));
-    }
+        let Some(order) = db::find_order_by_provider_reference(&state.pool, rrr)
+            .await
+            .map_err(internal_err)?
+        else {
+            continue;
+        };
 
-    let event = match dispatcher.provider_for("school_fees") {
-        Ok(provider) => provider
-            .parse_webhook_event(&body)
-            .map_err(internal_err)?,
-        Err(_) => return Ok(StatusCode::SERVICE_UNAVAILABLE),
-    };
-
-    let order_id = match Uuid::parse_str(&event.provider_request_id) {
-        Ok(id) => id,
-        Err(_) => {
-            tracing::warn!(request_id = %event.provider_request_id, "remita webhook request_id is not a valid order UUID");
-            return Ok(StatusCode::OK);
+        if let Some(claimed_amount) = notification
+            .get("amount")
+            .and_then(serde_json::Value::as_f64)
+            .map(|amount| amount.round() as i64)
+            && claimed_amount != order.amount_ngn
+        {
+            tracing::warn!(
+                order_id = %order.id,
+                claimed_amount,
+                expected_amount = order.amount_ngn,
+                "remita webhook amount does not match the order"
+            );
+            continue;
         }
-    };
 
-    match event.status {
-        ProviderTxnStatus::Delivered => {
-            let _ = db::complete_order(
+        let Some(dispatcher) = state.provider_dispatcher.as_ref() else {
+            continue;
+        };
+
+        let status = match dispatcher.requery("school_fees", rrr).await {
+            Ok(result) => result.status,
+            Err(error) => {
+                tracing::warn!(order_id = %order.id, error = %error, "remita webhook lookup failed");
+                continue;
+            }
+        };
+
+        if status != ProviderTxnStatus::Delivered {
+            continue;
+        }
+
+        let accepted = order
+            .metadata
+            .get("provider_accepted")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+
+        if !accepted {
+            let flagged = db::update_order_status_cas(
                 &state.pool,
-                order_id,
-                event.token.as_deref(),
-                Some(event.provider_request_id.as_str()),
+                order.id,
+                "utility_dispatching",
+                "flagged_for_review",
+                "provider_paid_without_acceptance",
+                serde_json::json!({ "rrr": rrr, "source": "webhook" }),
+            )
+            .await
+            .map_err(internal_err)?;
+
+            if flagged {
+                tracing::error!(order_id = %order.id, "RRR paid without an accepted process call, flagged");
+            }
+
+            continue;
+        }
+
+        let completed = if order.status == "flagged_for_review" {
+            db::complete_flagged_school_fee_order(&state.pool, order.id, Some(rrr), Some(rrr))
+                .await
+                .map_err(internal_err)?
+        } else {
+            db::complete_order(&state.pool, order.id, Some(rrr), Some(rrr))
+                .await
+                .map_err(internal_err)?;
+            true
+        };
+
+        if !completed {
+            continue;
+        }
+
+        let _ = state
+            .ws_hub
+            .broadcast_event(
+                order.id,
+                &WsOrderEvent::Completed {
+                    delivery_token: Some(rrr.to_owned()),
+                    reference: order.id.to_string(),
+                },
             )
             .await;
-            let _ = state
-                .ws_hub
-                .broadcast_event(
-                    order_id,
-                    &WsOrderEvent::Completed {
-                        delivery_token: event.token,
-                        reference: order_id.to_string(),
-                    },
-                )
-                .await;
+
+        if let Some(user_id) = order.user_id {
+            let _ = db::create_notification(
+                &state.pool,
+                user_id,
+                Some(order.id),
+                "order_completed",
+                "Order Completed",
+                "Your school fees payment was delivered.",
+                serde_json::json!({ "utility_slug": order.utility_slug }),
+            )
+            .await;
         }
-        ProviderTxnStatus::Failed => {
-            let _ = db::fail_order(&state.pool, order_id).await;
-            let _ = state
-                .ws_hub
-                .broadcast_event(order_id, &WsOrderEvent::Failed {
-                    reason: String::from("provider_failed_webhook"),
-                })
-                .await;
-        }
-        ProviderTxnStatus::Pending => {}
     }
 
     Ok(StatusCode::OK)
+}
+
+fn remita_notifications(payload: serde_json::Value) -> Vec<serde_json::Value> {
+    match payload {
+        serde_json::Value::Array(items) => items,
+        serde_json::Value::Object(_) => vec![payload],
+        _ => Vec::new(),
+    }
 }
 
 fn slug_to_utility_type(slug: &str) -> String {
@@ -1349,6 +1417,17 @@ mod tests {
     fn rejects_amounts_above_the_order_maximum() {
         let result = validate_create_order_payload(&payload(MAX_ORDER_AMOUNT_NGN + 1));
         assert!(matches!(result, Err(ApiError::BadRequest(_))));
+    }
+
+    #[test]
+    fn parses_remita_webhook_array_and_object() {
+        let array = serde_json::json!([{"rrr": "1"}, {"rrr": "2"}]);
+        assert_eq!(remita_notifications(array).len(), 2);
+
+        let object = serde_json::json!({"rrr": "1"});
+        assert_eq!(remita_notifications(object).len(), 1);
+
+        assert!(remita_notifications(serde_json::json!("text")).is_empty());
     }
 
     #[test]
