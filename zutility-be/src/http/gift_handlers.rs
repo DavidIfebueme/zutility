@@ -341,6 +341,7 @@ pub async fn create_gift(
             expires_at,
             qr_data: format!("zcash:{deposit_address}?amount={}", zec_amount.round_dp(8)),
             required_confirmations,
+            address_type: payload.zec_address_type.clone(),
             utility_slug: payload.utility_slug.trim().to_owned(),
         },
     }))

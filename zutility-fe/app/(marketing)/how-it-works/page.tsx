@@ -21,7 +21,7 @@ const STEPS = [
     id: "step-3",
     number: "03",
     title: "Wait for confirmations",
-    body: "We watch that address for a payment that matches the order. A transparent payment needs 9 confirmations. A shielded payment needs 10. Blocks arrive about every 25 seconds, so the wait is roughly four minutes.",
+    body: "We watch that address for a payment that matches the order. A transparent payment needs 2 confirmations. A shielded payment needs 3. Blocks arrive about every 25 seconds, so the wait is roughly a minute.",
   },
   {
     id: "step-4",
@@ -74,7 +74,7 @@ export default function HowItWorksPage() {
           <div className="mx-auto max-w-6xl px-5 py-16 lg:py-20">
             <p className="label-xs text-gold-deep">How it works</p>
             <h1 className="mt-4 max-w-3xl text-4xl leading-[1.08] text-ink sm:text-5xl">
-              From a bill to a receipt in about four minutes.
+              From a bill to a receipt in about a minute.
             </h1>
             <p className="mt-5 max-w-2xl text-[15px] leading-relaxed text-ink-2">
               One order holds one deposit address and one ZEC amount. We watch that address, wait
@@ -88,7 +88,7 @@ export default function HowItWorksPage() {
                   <Clock className="h-4 w-4" strokeWidth={1.6} />
                   Typical wait
                 </dt>
-                <dd className="mt-1.5 text-[13px] text-ink">About four minutes</dd>
+                <dd className="mt-1.5 text-[13px] text-ink">About a minute</dd>
               </div>
               <div>
                 <dt className="label-xs flex items-center gap-1.5 text-muted">
@@ -173,15 +173,15 @@ export default function HowItWorksPage() {
                     </tr>
                     <tr className="border-b border-line">
                       <td className="py-3 pr-4 text-[14px] text-ink">Transparent payment</td>
-                      <td className="num py-3 text-[13px] text-ink-2">9 confirmations</td>
+                      <td className="num py-3 text-[13px] text-ink-2">2 confirmations</td>
                     </tr>
                     <tr className="border-b border-line">
                       <td className="py-3 pr-4 text-[14px] text-ink">Shielded payment</td>
-                      <td className="num py-3 text-[13px] text-ink-2">10 confirmations</td>
+                      <td className="num py-3 text-[13px] text-ink-2">3 confirmations</td>
                     </tr>
                     <tr className="border-b border-line">
                       <td className="py-3 pr-4 text-[14px] text-ink">Total wait after broadcast</td>
-                      <td className="num py-3 text-[13px] text-ink-2">about four minutes</td>
+                      <td className="num py-3 text-[13px] text-ink-2">about a minute</td>
                     </tr>
                     <tr className="border-b border-line">
                       <td className="py-3 pr-4 text-[14px] text-ink">Delivery after confirmations</td>

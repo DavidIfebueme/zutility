@@ -226,6 +226,7 @@ pub async fn create_order(
         expires_at,
         qr_data: format!("zcash:{deposit_address}?amount={}", zec_amount.round_dp(8)),
         required_confirmations,
+        address_type: payload.zec_address_type.clone(),
         utility_slug: payload.utility_slug.clone(),
     }))
 }
@@ -321,6 +322,7 @@ pub async fn get_order(
             order.deposit_address,
             order.zec_amount.round_dp(8)
         ),
+        address_type: order.address_type.clone(),
         expires_at: order.expires_at,
         completed_at: order.completed_at,
         delivery_token: order.delivery_token,
