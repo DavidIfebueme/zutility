@@ -740,6 +740,8 @@ pub async fn list_utility_variations(
     Ok(Json(Vec::new()))
 }
 
+const MAX_ORDER_AMOUNT_NGN: i64 = 5_000_000;
+
 fn validate_create_order_payload(payload: &CreateOrderRequest) -> Result<(), ApiError> {
     if payload.utility_type.trim().is_empty() {
         return Err(ApiError::bad_request("utility_type is required"));
@@ -752,6 +754,11 @@ fn validate_create_order_payload(payload: &CreateOrderRequest) -> Result<(), Api
     }
     if payload.amount_ngn <= 0 {
         return Err(ApiError::bad_request("amount_ngn must be greater than 0"));
+    }
+    if payload.amount_ngn > MAX_ORDER_AMOUNT_NGN {
+        return Err(ApiError::bad_request(format!(
+            "amount_ngn cannot exceed {MAX_ORDER_AMOUNT_NGN}"
+        )));
     }
     if !matches!(
         payload.zec_address_type.as_str(),
@@ -1146,4 +1153,43 @@ async fn get_or_create_rate_snapshot(
         fetched_at: rate.updated_at,
     };
     db::persist_rate_snapshot(pool, &input).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn payload(amount_ngn: i64) -> CreateOrderRequest {
+        CreateOrderRequest {
+            utility_type: String::from("airtime"),
+            utility_slug: String::from("mtn"),
+            service_ref: String::from("08000000000"),
+            amount_ngn,
+            zec_address_type: String::from("shielded"),
+            variation_code: None,
+        }
+    }
+
+    #[test]
+    fn accepts_amounts_up_to_the_order_maximum() {
+        assert!(validate_create_order_payload(&payload(MAX_ORDER_AMOUNT_NGN)).is_ok());
+    }
+
+    #[test]
+    fn rejects_amounts_above_the_order_maximum() {
+        let result = validate_create_order_payload(&payload(MAX_ORDER_AMOUNT_NGN + 1));
+        assert!(matches!(result, Err(ApiError::BadRequest(_))));
+    }
+
+    #[test]
+    fn rejects_non_positive_amounts() {
+        assert!(matches!(
+            validate_create_order_payload(&payload(0)),
+            Err(ApiError::BadRequest(_))
+        ));
+        assert!(matches!(
+            validate_create_order_payload(&payload(-1)),
+            Err(ApiError::BadRequest(_))
+        ));
+    }
 }
