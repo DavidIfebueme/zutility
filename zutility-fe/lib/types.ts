@@ -19,6 +19,7 @@ export interface CreateOrderResponse {
   expires_at: string
   qr_data: string
   required_confirmations: number
+  address_type: 'shielded' | 'transparent'
   utility_slug: string
 }
 
@@ -35,6 +36,7 @@ export interface OrderStatusResponse {
   zec_amount: string
   deposit_address: string
   qr_data: string
+  address_type: 'shielded' | 'transparent'
   expires_at: string
   completed_at: string | null
   delivery_token: string | null

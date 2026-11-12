@@ -87,6 +87,7 @@ function fromStatus(status: OrderStatusResponse, token: string): CreateOrderResp
     expires_at: status.expires_at,
     qr_data: status.qr_data,
     required_confirmations: status.required_confirmations,
+    address_type: status.address_type,
     utility_slug: status.utility_slug,
   }
 }
@@ -211,7 +212,7 @@ function OrderPageContent() {
     }
   })()
 
-  const addressType = order.required_confirmations > 3 ? "shielded" : "transparent"
+  const addressType = order.address_type
   const isClosed = ["completed", "expired", "failed", "cancelled"].includes(status)
   const giftLocked = status === "awaiting_payment" || status === "payment_detected"
   const showGiftPanel =
@@ -351,8 +352,7 @@ function OrderPageContent() {
                   <li>Send exactly the quoted amount. A short payment is not credited.</li>
                   <li>The sender pays the network fee. Do not subtract it from the amount.</li>
                   <li>
-                    Delivery follows {order.required_confirmations} confirmations, about four
-                    minutes.
+                    Delivery follows {order.required_confirmations} confirmations, about a minute.
                   </li>
                 </ul>
               </div>

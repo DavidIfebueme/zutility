@@ -279,7 +279,7 @@ pub fn router() -> Router {
         zingo_init_timeout_seconds: 90,
         zingo_sync_retries: 3,
         zingo_sync_retry_delay_ms: 2000,
-        required_confs_transparent: 9,
+        required_confs_transparent: 2,
         required_confs_shielded: 3,
         order_expiry_minutes: 30,
         rate_lock_minutes: 15,

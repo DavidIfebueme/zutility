@@ -592,13 +592,13 @@ export default function PayPage() {
                 {
                   value: "shielded" as const,
                   title: "Shielded",
-                  hint: "z-address. 10 confirmations, about four minutes.",
+                  hint: "z-address. 3 confirmations, about a minute.",
                   icon: ShieldCheck,
                 },
                 {
                   value: "transparent" as const,
                   title: "Transparent",
-                  hint: "t-address. 9 confirmations, about four minutes.",
+                  hint: "t-address. 2 confirmations, about a minute.",
                   icon: null,
                 },
               ].map((option) => {

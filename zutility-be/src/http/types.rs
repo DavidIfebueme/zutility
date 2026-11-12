@@ -27,6 +27,7 @@ pub struct CreateOrderResponse {
     pub expires_at: DateTime<Utc>,
     pub qr_data: String,
     pub required_confirmations: u16,
+    pub address_type: String,
     pub utility_slug: String,
 }
 
@@ -44,6 +45,7 @@ pub struct OrderStatusResponse {
     pub zec_amount: String,
     pub deposit_address: String,
     pub qr_data: String,
+    pub address_type: String,
     pub expires_at: DateTime<Utc>,
     pub completed_at: Option<DateTime<Utc>>,
     pub delivery_token: Option<String>,
