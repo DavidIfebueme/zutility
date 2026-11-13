@@ -9,6 +9,9 @@ import { BrandMark } from "@/components/ui/brand-mark"
 import { apiGet, apiPost } from "@/lib/api"
 import { UTILITIES } from "@/lib/constants"
 import { formatNGN } from "@/lib/utils"
+import { useCurrency } from "@/lib/hooks/useCurrency"
+import { useFxRates } from "@/lib/hooks/useFxRates"
+import { formatLocalAmount } from "@/lib/currency"
 import type { GiftSummary } from "@/lib/types"
 
 function giftState(gift: GiftSummary): { label: string; tone: string } {
@@ -49,6 +52,8 @@ function giftState(gift: GiftSummary): { label: string; tone: string } {
 }
 
 export default function GiftsPage() {
+  const currency = useCurrency()
+  const fxRates = useFxRates()
   const [gifts, setGifts] = React.useState<GiftSummary[]>([])
   const [loading, setLoading] = React.useState(true)
   const [working, setWorking] = React.useState<string | null>(null)
@@ -166,7 +171,7 @@ export default function GiftsPage() {
                   </span>
                 </div>
                 <p className="num mt-0.5 text-[12px] text-muted">
-                  {formatNGN(gift.amount_ngn)}
+                  {fxRates ? formatLocalAmount(gift.amount_ngn, currency, fxRates) : "—"}
                   {gift.claimed_service_ref ? ` · to ${gift.claimed_service_ref}` : ""}
                 </p>
               </div>

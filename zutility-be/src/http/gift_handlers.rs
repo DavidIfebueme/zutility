@@ -111,6 +111,10 @@ fn build_gift_view(gift: &db::GiftRow, order: Option<&db::OrderRow>) -> Result<G
             .unwrap_or_else(|| String::from(FRIENDLY_SENDER_NAME))
     };
 
+    let zec_amount = order
+        .as_ref()
+        .map(|row| row.zec_amount.round_dp(8).to_string());
+
     let (order_status, confirmations, required_confirmations, delivery_token) = match order {
         Some(order) => (
             order.status().ok(),
@@ -123,6 +127,7 @@ fn build_gift_view(gift: &db::GiftRow, order: Option<&db::OrderRow>) -> Result<G
 
     Ok(GiftView {
         gift_id: gift.id,
+        zec_amount,
         utility_type: gift.utility_type.clone(),
         utility_slug: gift.utility_slug.clone(),
         amount_ngn: gift.amount_ngn,

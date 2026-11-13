@@ -120,6 +120,7 @@ function OrderPageContent() {
   const { user } = useAuthStore()
   const { activeOrder, activeOrderUserId, clearActiveOrder } = useOrderStore()
   const [recoveredOrder, setRecoveredOrder] = React.useState<CreateOrderResponse | null>(null)
+  const [recoveredToken, setRecoveredToken] = React.useState<string | null>(null)
   const requestedOrder = React.useRef(false)
 
   const isCurrentOrder = activeOrder?.order_id === orderId && activeOrderUserId === user?.id
@@ -139,7 +140,10 @@ function OrderPageContent() {
     if (token) {
       requestedOrder.current = true
       apiGet<OrderStatusResponse>(`/api/v1/orders/${orderId}?token=${encodeURIComponent(token)}`)
-        .then((status) => setRecoveredOrder(fromStatus(status, token)))
+        .then((status) => {
+          setRecoveredToken(status.delivery_token)
+          setRecoveredOrder(fromStatus(status, token))
+        })
         .catch(() => {
           requestedOrder.current = false
           toast.error("Could not load the order")
@@ -154,6 +158,7 @@ function OrderPageContent() {
           const status = await apiGet<OrderStatusResponse>(
             `/api/v1/orders/${orderId}?token=${encodeURIComponent(order_access_token)}`
           )
+          setRecoveredToken(status.delivery_token)
           setRecoveredOrder(fromStatus(status, order_access_token))
         })
         .catch(() => {
@@ -410,6 +415,10 @@ function OrderPageContent() {
 
         {status === "completed" && (() => {
           const info = getCompletionInfo(order.utility_slug || "")
+          const completionToken =
+            latestEvent?.event === "completed"
+              ? latestEvent.delivery_token ?? recoveredToken
+              : recoveredToken
           return (
             <div className="space-y-5 p-6">
               <div className="flex items-start gap-2.5">
@@ -422,13 +431,13 @@ function OrderPageContent() {
                 </div>
               </div>
 
-              {latestEvent?.event === "completed" && latestEvent.delivery_token && (
+              {completionToken && (
                 <div className="rounded-md border border-line bg-paper px-4 py-4">
                   <p className="label-xs text-muted">{info.tokenLabel}</p>
                   <p className="num mt-2 select-all break-all text-2xl tracking-wide text-ink">
-                    {latestEvent.delivery_token}
+                    {completionToken}
                   </p>
-                  <CopyField value={latestEvent.delivery_token} className="mt-3" />
+                  <CopyField value={completionToken} className="mt-3" />
                 </div>
               )}
 

@@ -104,6 +104,7 @@ export interface CreateGiftResponse {
 
 export interface GiftView {
   gift_id: string
+  zec_amount: string | null
   utility_type: string
   utility_slug: string
   amount_ngn: number

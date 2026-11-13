@@ -8,11 +8,13 @@ import { useAuthStore } from "@/store/auth"
 import { useOrderStore } from "@/store/order"
 import { useRate } from "@/lib/hooks/useRate"
 import { useCurrency } from "@/lib/hooks/useCurrency"
+import { useFxRates } from "@/lib/hooks/useFxRates"
 import { apiGet } from "@/lib/api"
 import { formatNGN, formatZEC } from "@/lib/utils"
 import {
   convertFromNGN,
   formatCurrency,
+  formatLocalAmount,
   type CurrencyCode,
   type FxRates,
 } from "@/lib/currency"
@@ -48,6 +50,7 @@ export default function DashboardPage() {
   const activeOrder = storedOrder && activeOrderUserId === user?.id ? storedOrder : null
   const { rate } = useRate()
   const currency = useCurrency()
+  const fxRates = useFxRates()
   const [orders, setOrders] = React.useState<OrderHistoryItem[]>([])
   const [ordersLoading, setOrdersLoading] = React.useState(true)
 
@@ -189,7 +192,7 @@ export default function DashboardPage() {
                         </td>
                         <td className="px-4 py-3 text-right">
                           <span className="num block text-[13px] text-ink">
-                            {formatNGN(order.amount_ngn)}
+                            {fxRates ? formatLocalAmount(order.amount_ngn, currency, fxRates) : "—"}
                           </span>
                           <span className="num block text-[11px] text-muted">
                             {formatZEC(order.zec_amount)} ZEC

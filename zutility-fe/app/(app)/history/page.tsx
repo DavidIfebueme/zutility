@@ -5,6 +5,9 @@ import Link from "next/link"
 import { ArrowRight, Download, Loader2, Receipt } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { apiGet } from "@/lib/api"
+import { useCurrency } from "@/lib/hooks/useCurrency"
+import { useFxRates } from "@/lib/hooks/useFxRates"
+import { formatLocalAmount } from "@/lib/currency"
 import { formatNGN, formatZEC } from "@/lib/utils"
 import { getStatusMeta, STATUS_TONE_CLASS } from "@/lib/order-status"
 import { cn } from "@/lib/utils"
@@ -38,6 +41,8 @@ function matchesFilter(status: string, filter: FilterId): boolean {
 }
 
 export default function HistoryPage() {
+  const currency = useCurrency()
+  const fxRates = useFxRates()
   const [orders, setOrders] = React.useState<OrderHistoryItem[]>([])
   const [loading, setLoading] = React.useState(true)
   const [filter, setFilter] = React.useState<FilterId>("all")
@@ -153,7 +158,7 @@ export default function HistoryPage() {
                     </td>
                     <td className="px-4 py-3 text-right">
                       <span className="num block text-[13px] text-ink">
-                        {formatNGN(order.amount_ngn)}
+                        {fxRates ? formatLocalAmount(order.amount_ngn, currency, fxRates) : "—"}
                       </span>
                       <span className="num block text-[11px] text-muted">
                         {formatZEC(order.zec_amount)} ZEC

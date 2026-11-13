@@ -298,6 +298,7 @@ pub struct ClaimGiftRequest {
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct GiftView {
     pub gift_id: Uuid,
+    pub zec_amount: Option<String>,
     pub utility_type: String,
     pub utility_slug: String,
     pub amount_ngn: i64,

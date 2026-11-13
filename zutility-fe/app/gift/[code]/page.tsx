@@ -1,6 +1,6 @@
 import type { Metadata } from "next"
 import { cache } from "react"
-import { formatNGN } from "@/lib/utils"
+import { formatNGN, formatZEC } from "@/lib/utils"
 import type { GiftView } from "@/lib/types"
 import { GiftClaim } from "./gift-claim"
 
@@ -30,7 +30,8 @@ export async function generateMetadata({
     return { title: "Gift not found | zutility" }
   }
 
-  const title = `${gift.sender_name} sent you ${formatNGN(gift.amount_ngn)}`
+  const amount = gift.zec_amount ? `${formatZEC(gift.zec_amount)} ZEC` : formatNGN(gift.amount_ngn)
+  const title = `${gift.sender_name} sent you ${amount}`
   const description = gift.message ?? "Claim your utility gift on zutility."
 
   return {
