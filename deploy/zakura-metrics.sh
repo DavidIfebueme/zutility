@@ -44,8 +44,11 @@ fi
 add PeerCount "$PEERS" Count
 add DiskUsedPercent "$DISK" Percent
 
-LWD=$(journalctl -u lightwalletd -n 500 --no-pager -o cat 2>/dev/null \
-  | grep -o 'Adding block to cache [0-9]*' | tail -1 | awk '{print $NF}' || true)
+TAIL=$(journalctl -u lightwalletd -n 200 --no-pager -o cat 2>/dev/null | tail -40 || true)
+ADD=$(echo "$TAIL" | grep -o 'Adding block to cache [0-9]*' | tail -1 | awk '{print $NF}' || true)
+WAIT=$(echo "$TAIL" | grep -o 'Waiting for block: [0-9]*' | tail -1 | awk '{print $NF}' || true)
+LWD=""
+if [ -n "$WAIT" ]; then LWD=$((WAIT - 1)); elif [ -n "$ADD" ]; then LWD=$ADD; fi
 add LwdCachedHeight "$LWD" Count
 if [ -n "$LWD" ] && [ -n "$HEIGHT" ]; then
   add LwdLagBlocks "$(( HEIGHT - LWD ))" Count
