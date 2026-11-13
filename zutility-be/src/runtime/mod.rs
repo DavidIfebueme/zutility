@@ -421,6 +421,13 @@ async fn deliver_expired_gift(
     Ok(())
 }
 
+fn primary_txid(notes: &[ReceivedNote]) -> Option<String> {
+    notes
+        .iter()
+        .max_by(|a, b| a.amount.cmp(&b.amount))
+        .map(|note| note.txid.clone())
+}
+
 async fn detect_payment_and_progress(
     state: &HttpState,
     pool: &PgPool,
@@ -447,10 +454,42 @@ async fn detect_payment_and_progress(
         return Ok(());
     }
 
+    for note in &notes {
+        if let Err(error) = db::record_payment(
+            pool,
+            order.id,
+            &note.txid,
+            &note.address,
+            note.amount,
+            i32::try_from(note.confirmations).unwrap_or(i32::MAX),
+            note.memo.as_deref(),
+        )
+        .await
+        {
+            tracing::warn!(
+                order_id = %order.id,
+                txid = %note.txid,
+                error = %error,
+                "failed to record payment"
+            );
+        }
+    }
+
     let confirmations_i32 = i32::from(confirmations);
     let required_confs = order.required_confs;
+    let primary_txid = primary_txid(&notes);
+    let mut txids: Vec<&str> = notes.iter().map(|note| note.txid.as_str()).collect();
+    txids.sort_unstable();
+    txids.dedup();
 
-    db::update_order_payment(pool, order.id, confirmations_i32, total_received, None).await?;
+    db::update_order_payment(
+        pool,
+        order.id,
+        confirmations_i32,
+        total_received,
+        primary_txid.as_deref(),
+    )
+    .await?;
 
     let mut events = Vec::new();
     let order_status = order.status()?;
@@ -465,6 +504,7 @@ async fn detect_payment_and_progress(
             serde_json::json!({
                 "confirmations": confirmations,
                 "total_received": total_received.to_string(),
+                "txids": txids,
             }),
         )
         .await?;
@@ -972,12 +1012,36 @@ fn start_address_pool_refill(state: HttpState, _config: AppConfig, pool: PgPool)
 
 #[cfg(test)]
 mod tests {
+    use super::primary_txid;
+    use crate::integrations::zcash::ReceivedNote;
     use rust_decimal::Decimal;
+
+    fn note(txid: &str, amount: i64) -> ReceivedNote {
+        ReceivedNote {
+            txid: txid.to_owned(),
+            address: String::from("utest1example"),
+            amount: Decimal::new(amount, 8),
+            confirmations: 2,
+            memo: None,
+        }
+    }
 
     #[test]
     fn underpay_threshold_matches_policy() {
         let expected = Decimal::new(100_000_000, 8);
         let threshold = expected * Decimal::new(995, 3);
         assert_eq!(threshold, Decimal::new(99_500_000, 8));
+    }
+
+    #[test]
+    fn primary_txid_is_the_largest_note() {
+        let notes = vec![note("aa", 37_653), note("bb", 10_000_000), note("cc", 40_000)];
+
+        assert_eq!(primary_txid(&notes).as_deref(), Some("bb"));
+    }
+
+    #[test]
+    fn primary_txid_is_none_without_notes() {
+        assert!(primary_txid(&[]).is_none());
     }
 }
