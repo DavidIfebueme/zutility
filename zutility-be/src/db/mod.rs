@@ -442,6 +442,7 @@ pub async fn record_payment(
          VALUES ($1, $2, $3, $4, $5, $6)
          ON CONFLICT (txid, address, amount_zec, note_index) DO UPDATE
          SET confirmations = EXCLUDED.confirmations,
+             order_id = EXCLUDED.order_id,
              status = 'seen',
              updated_at = now()",
     )

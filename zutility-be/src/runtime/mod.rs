@@ -165,24 +165,25 @@ fn start_order_orchestrator(state: HttpState, config: AppConfig, pool: PgPool) {
                         .map(|order| order.created_at.timestamp().saturating_sub(600))
                         .min()
                         .unwrap_or_else(|| Utc::now().timestamp());
-                    let payments = if let Some(client) = state.zcash_client.as_ref() {
+                    let (payments, scan_ok) = if let Some(client) = state.zcash_client.as_ref() {
                         match client
                             .scan_payments(u32::try_from(since_timestamp).unwrap_or(0))
                             .await
                         {
-                            Ok(notes) => group_notes_by_address(notes),
+                            Ok(notes) => (group_notes_by_address(notes), true),
                             Err(error) => {
                                 tracing::warn!(error = %error, "wallet payment scan failed");
-                                HashMap::new()
+                                (HashMap::new(), false)
                             }
                         }
                     } else {
-                        HashMap::new()
+                        (HashMap::new(), false)
                     };
 
                     for order in orders {
                         if let Err(error) =
-                            process_order(&state, &dispatcher, &pool, &order, &payments).await
+                            process_order(&state, &dispatcher, &pool, &order, &payments, scan_ok)
+                                .await
                         {
                             tracing::warn!(order_id = %order.id, error = %error, "order processing iteration failed");
                         }
@@ -212,6 +213,7 @@ async fn process_order(
     pool: &PgPool,
     order: &db::OrderRow,
     payments: &HashMap<String, Vec<ReceivedNote>>,
+    scan_ok: bool,
 ) -> Result<()> {
     let now = Utc::now();
     let order_status = order.status()?;
@@ -256,7 +258,7 @@ async fn process_order(
         OrderStatus::AwaitingPayment | OrderStatus::PaymentDetected
     ) && state.zcash_client.is_some()
     {
-        detect_payment_and_progress(state, pool, order, payments).await?;
+        detect_payment_and_progress(state, pool, order, payments, scan_ok).await?;
     }
 
     let refreshed = db::get_order_by_id(pool, order.id).await?;
@@ -424,7 +426,9 @@ async fn deliver_expired_gift(
 fn primary_txid(notes: &[ReceivedNote]) -> Option<String> {
     notes
         .iter()
-        .max_by(|a, b| a.amount.cmp(&b.amount))
+        .max_by(|a, b| {
+            (a.amount, a.confirmations, &a.txid).cmp(&(b.amount, b.confirmations, &b.txid))
+        })
         .map(|note| note.txid.clone())
 }
 
@@ -451,6 +455,7 @@ async fn detect_payment_and_progress(
     pool: &PgPool,
     order: &db::OrderRow,
     payments: &HashMap<String, Vec<ReceivedNote>>,
+    scan_ok: bool,
 ) -> Result<()> {
     let notes = payments
         .get(&order.deposit_address)
@@ -493,7 +498,9 @@ async fn detect_payment_and_progress(
     txids.sort();
     txids.dedup();
 
-    if let Err(error) = db::mark_missing_payments(pool, order.id, &txids).await {
+    if scan_ok
+        && let Err(error) = db::mark_missing_payments(pool, order.id, &txids).await
+    {
         tracing::warn!(order_id = %order.id, error = %error, "failed to reconcile payments");
     }
 
