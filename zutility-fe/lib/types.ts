@@ -9,6 +9,7 @@ export interface CreateOrderRequest {
   amount_ngn: number
   zec_address_type: 'shielded' | 'transparent'
   variation_code?: string
+  meter_type?: 'prepaid' | 'postpaid'
 }
 
 export interface CreateOrderResponse {

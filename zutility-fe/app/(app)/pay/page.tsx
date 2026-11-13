@@ -27,6 +27,7 @@ import {
 } from "@/lib/currency"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
+import { networkWarning } from "@/lib/network"
 
 const orderSchema = z.object({
   utilityId: z.string().min(1, "Select a service"),
@@ -77,6 +78,7 @@ export default function PayPage() {
   const [validated, setValidated] = React.useState<UtilityValidateResponse | null>(null)
   const [validatedReference, setValidatedReference] = React.useState<string | null>(null)
   const [displayAmount, setDisplayAmount] = React.useState<string>("1000")
+  const [meterType, setMeterType] = React.useState<"prepaid" | "postpaid">("prepaid")
   const [isGift, setIsGift] = React.useState(false)
   const [giftMessage, setGiftMessage] = React.useState("")
   const [giftFallbackRef, setGiftFallbackRef] = React.useState("")
@@ -215,8 +217,10 @@ export default function PayPage() {
     const queriedReference = serviceRef.trim()
     setValidating(true)
     try {
+      const meterQuery =
+        selectedUtility.type === "electricity" ? `&meter_type=${meterType}` : ""
       const result = await apiGet<UtilityValidateResponse>(
-        `/api/v1/utilities/${selectedUtility.slug}/validate?ref=${encodeURIComponent(serviceRef)}`
+        `/api/v1/utilities/${selectedUtility.slug}/validate?ref=${encodeURIComponent(serviceRef)}${meterQuery}`
       )
       setValidated(result)
       setValidatedReference(queriedReference)
@@ -245,12 +249,17 @@ export default function PayPage() {
     } finally {
       setValidating(false)
     }
-  }, [selectedUtility, serviceRef, setValue])
+  }, [selectedUtility, serviceRef, setValue, meterType])
 
   React.useEffect(() => {
     setValidated(null)
     setValidatedReference(null)
   }, [serviceRef, selectedUtilityId])
+
+  const refWarning = React.useMemo(
+    () => (selectedUtility ? networkWarning(serviceRef ?? "", selectedUtility.slug) : null),
+    [selectedUtility, serviceRef]
+  )
 
   const onSubmit = async (data: OrderFormValues) => {
     if (!selectedUtility) return
@@ -325,6 +334,7 @@ export default function PayPage() {
         amount_ngn: amountNgn,
         zec_address_type: data.addressType,
         variation_code: data.variationCode || undefined,
+        meter_type: selectedUtility.type === "electricity" ? meterType : undefined,
       })
 
       setActiveOrder(order, user?.id ?? null)
@@ -480,6 +490,28 @@ export default function PayPage() {
                 </p>
               ) : (
                 <div className="space-y-1.5">
+                  {selectedUtility?.type === "electricity" && (
+                    <div className="pb-1">
+                      <p className="text-[13px] font-medium text-ink">Meter type</p>
+                      <div className="mt-1.5 flex gap-2">
+                        {(["prepaid", "postpaid"] as const).map((option) => (
+                          <button
+                            key={option}
+                            type="button"
+                            onClick={() => setMeterType(option)}
+                            className={cn(
+                              "rounded-md border px-3 py-1.5 text-[12px] capitalize transition-colors",
+                              meterType === option
+                                ? "border-ink bg-cream text-ink"
+                                : "border-line text-muted hover:text-ink"
+                            )}
+                          >
+                            {option}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <div className="flex items-baseline justify-between">
                     <label htmlFor="serviceRef" className="text-[13px] font-medium text-ink">
                       {selectedUtility?.serviceRefLabel || "Account number"}
@@ -503,6 +535,12 @@ export default function PayPage() {
                     error={errors.serviceRef?.message}
                     disabled={!selectedUtilityId}
                   />
+                  {refWarning && (
+                    <p className="flex items-start gap-1.5 text-[12px] text-gold-deep">
+                      <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                      {refWarning}
+                    </p>
+                  )}
                   {isSchoolFees && !validated && (
                     <p className="text-[12px] text-muted">
                       Your RRR names the school. We show it after the lookup.

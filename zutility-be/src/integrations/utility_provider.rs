@@ -68,6 +68,7 @@ pub struct UtilityVariation {
 pub struct ValidateRefRequest {
     pub service_id: String,
     pub billers_code: String,
+    pub meter_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

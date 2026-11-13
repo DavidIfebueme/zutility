@@ -630,7 +630,11 @@ async fn dispatch_utility(
                 variation_code: order.variation_code.clone(),
                 amount_ngn: order.amount_ngn,
                 phone: Some(order.service_ref.clone()),
-                metadata: serde_json::json!({"utility_type": order.utility_type, "customer_name": order.customer_name}),
+                metadata: serde_json::json!({
+                    "utility_type": order.utility_type,
+                    "customer_name": order.customer_name,
+                    "meter_type": order.metadata.get("meter_type"),
+                }),
                 zec_amount: order.zec_amount,
             },
         )

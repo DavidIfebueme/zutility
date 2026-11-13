@@ -284,12 +284,12 @@ fn slug_to_inlomax_service_id(slug: &str) -> Option<String> {
         "startimes" => Some(String::from("101")),
         "ikeja-electric" => Some(String::from("1")),
         "eko-electric" => Some(String::from("2")),
-        "abuja-electric" => Some(String::from("3")),
-        "ibadan-electric" => Some(String::from("4")),
-        "kano-electric" => Some(String::from("5")),
-        "phed-electric" => Some(String::from("6")),
-        "jos-electric" => Some(String::from("7")),
-        "kaduna-electric" => Some(String::from("8")),
+        "abuja-electric" => Some(String::from("8")),
+        "ibadan-electric" => Some(String::from("6")),
+        "kano-electric" => Some(String::from("3")),
+        "phed-electric" => Some(String::from("4")),
+        "jos-electric" => Some(String::from("5")),
+        "kaduna-electric" => Some(String::from("7")),
         "enugu-electric" => Some(String::from("9")),
         "benin-electric" => Some(String::from("10")),
         "yola-electric" => Some(String::from("11")),
@@ -419,39 +419,42 @@ impl UtilityProvider for InlomaxClient {
         &self,
         request: &ValidateRefRequest,
     ) -> Result<ValidateRefResponse, ProviderError> {
-        let response = match request.service_id.as_str() {
-            id if ["90", "95", "96", "97", "98", "99", "100", "101", "102", "103", "104", "105"].contains(&id) => {
-                self.post_json(
-                    "validatecable",
-                    json!({
-                        "serviceID": request.service_id,
-                        "iucNum": request.billers_code,
-                    }),
-                )
-                .await?
-            }
-            id if ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"].contains(&id) => {
-                self.post_json(
-                    "validatemeter",
-                    json!({
-                        "serviceID": request.service_id,
-                        "meterNum": request.billers_code,
-                        "meterType": 1,
-                    }),
-                )
-                .await?
-            }
-            _ => {
-                return Ok(ValidateRefResponse {
-                    is_valid: true,
-                    customer_name: None,
-                    amount_ngn: None,
-                    biller_name: None,
-                    product_name: None,
-                    reference: None,
-                    raw: serde_json::json!({"status": "success", "message": "no validation required"}),
-                });
-            }
+        let service_id = slug_to_inlomax_service_id(&request.service_id)
+            .unwrap_or_else(|| request.service_id.clone());
+
+        let response = if matches!(request.service_id.as_str(), "dstv" | "gotv" | "startimes") {
+            self.post_json(
+                "validatecable",
+                json!({
+                    "serviceID": service_id,
+                    "iucNum": request.billers_code,
+                }),
+            )
+            .await?
+        } else if request.service_id.ends_with("-electric") {
+            let meter_type = match request.meter_type.as_deref() {
+                Some("postpaid") => 2,
+                _ => 1,
+            };
+            self.post_json(
+                "validatemeter",
+                json!({
+                    "serviceID": service_id,
+                    "meterNum": request.billers_code,
+                    "meterType": meter_type,
+                }),
+            )
+            .await?
+        } else {
+            return Ok(ValidateRefResponse {
+                is_valid: true,
+                customer_name: None,
+                amount_ngn: None,
+                biller_name: None,
+                product_name: None,
+                reference: None,
+                raw: serde_json::json!({"status": "success", "message": "no validation required"}),
+            });
         };
 
         let status = response.get("status").and_then(Value::as_str).unwrap_or_default();
@@ -518,10 +521,14 @@ impl UtilityProvider for InlomaxClient {
             "electricity" => {
                 let sid = slug_to_inlomax_service_id(&request.service_id)
                     .unwrap_or_else(|| request.service_id.clone());
+                let meter_type = match request.metadata.get("meter_type").and_then(Value::as_str) {
+                    Some("postpaid") => 2,
+                    _ => 1,
+                };
                 json!({
                     "serviceID": sid,
                     "meterNum": request.billers_code,
-                    "meterType": 1,
+                    "meterType": meter_type,
                     "amount": request.amount_ngn,
                     "request-id": request_id,
                 })

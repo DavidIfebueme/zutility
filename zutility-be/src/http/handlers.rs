@@ -225,6 +225,7 @@ pub async fn create_order(
         metadata: serde_json::json!({
             "utility_slug": payload.utility_slug,
             "variation_code": payload.variation_code,
+            "meter_type": payload.meter_type,
         }),
         variation_code: payload.variation_code.clone(),
     };
@@ -282,6 +283,7 @@ async fn resolve_order_amount(
     let request = ValidateRefRequest {
         service_id: payload.utility_slug.clone(),
         billers_code: reference.to_owned(),
+        meter_type: None,
     };
 
     let details = dispatcher
@@ -819,6 +821,7 @@ pub async fn validate_utility_reference(
         let request = crate::integrations::utility_provider::ValidateRefRequest {
             service_id: slug.clone(),
             billers_code: query.reference.trim().to_owned(),
+            meter_type: query.meter_type.clone(),
         };
         match dispatcher.validate_reference(&utility_type, &request).await {
             Ok(response) => {
@@ -933,6 +936,13 @@ fn validate_create_order_payload(payload: &CreateOrderRequest) -> Result<(), Api
     ) {
         return Err(ApiError::bad_request(
             "zec_address_type must be shielded or transparent",
+        ));
+    }
+    if let Some(meter_type) = payload.meter_type.as_deref()
+        && !matches!(meter_type, "prepaid" | "postpaid")
+    {
+        return Err(ApiError::bad_request(
+            "meter_type must be prepaid or postpaid",
         ));
     }
     Ok(())
@@ -1454,6 +1464,7 @@ mod tests {
             amount_ngn,
             zec_address_type: String::from("shielded"),
             variation_code: None,
+            meter_type: None,
         }
     }
 

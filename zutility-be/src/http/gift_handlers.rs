@@ -70,6 +70,7 @@ async fn validate_service_ref(
     let request = ValidateRefRequest {
         service_id: utility_slug.to_owned(),
         billers_code: service_ref.to_owned(),
+        meter_type: None,
     };
 
     match dispatcher.validate_reference(utility_type, &request).await {

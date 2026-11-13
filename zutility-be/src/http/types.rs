@@ -16,6 +16,7 @@ pub struct CreateOrderRequest {
     pub amount_ngn: i64,
     pub zec_address_type: String,
     pub variation_code: Option<String>,
+    pub meter_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -108,6 +109,7 @@ pub struct OrderTokenQuery {
 pub struct UtilityValidateQuery {
     #[serde(rename = "ref")]
     pub reference: String,
+    pub meter_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
