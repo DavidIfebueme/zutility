@@ -10,7 +10,7 @@ import { useRate } from "@/lib/hooks/useRate"
 import { useCurrency } from "@/lib/hooks/useCurrency"
 import { useFxRates } from "@/lib/hooks/useFxRates"
 import { apiGet } from "@/lib/api"
-import { formatNGN, formatZEC } from "@/lib/utils"
+import { formatZEC } from "@/lib/utils"
 import {
   convertFromNGN,
   formatCurrency,

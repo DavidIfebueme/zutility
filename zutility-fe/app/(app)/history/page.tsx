@@ -8,7 +8,7 @@ import { apiGet } from "@/lib/api"
 import { useCurrency } from "@/lib/hooks/useCurrency"
 import { useFxRates } from "@/lib/hooks/useFxRates"
 import { formatLocalAmount } from "@/lib/currency"
-import { formatNGN, formatZEC } from "@/lib/utils"
+import { formatZEC } from "@/lib/utils"
 import { getStatusMeta, STATUS_TONE_CLASS } from "@/lib/order-status"
 import { cn } from "@/lib/utils"
 

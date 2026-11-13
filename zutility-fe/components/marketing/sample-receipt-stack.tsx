@@ -4,13 +4,16 @@ import * as React from "react"
 import { Badge } from "@/components/ui/badge"
 import { BrandTile } from "@/components/marketing/brand-tile"
 import { cn } from "@/lib/utils"
+import { useCurrency } from "@/lib/hooks/useCurrency"
+import { useFxRates } from "@/lib/hooks/useFxRates"
+import { formatLocalAmount } from "@/lib/currency"
 import type { BrandIconId } from "@/lib/constants"
 
 interface SampleOrder {
   id: string
   utility: string
   detail: string
-  amount: string
+  amountNgn: number
   zec: string
   address: string
   brand: BrandIconId
@@ -21,7 +24,7 @@ const SAMPLES: SampleOrder[] = [
     id: "8F2C-41A9",
     utility: "MTN Airtime",
     detail: "0803 555 0142",
-    amount: "₦2,000.00",
+    amountNgn: 2000,
     zec: "0.00153524",
     address: "utest1q9x4v7k2m8p3n6r5t0w1y2z3a4b5c6d7e8f9g0h",
     brand: "mtn",
@@ -30,7 +33,7 @@ const SAMPLES: SampleOrder[] = [
     id: "2B7D-90C4",
     utility: "Ikeja Electric",
     detail: "Meter 0412 3456 789",
-    amount: "₦10,000.00",
+    amountNgn: 10000,
     zec: "0.00767618",
     address: "utest1h7k2m8p3n6r5t0w1y2z3a4b5c6d7e8f9g0h1j2k3l4m5n6",
     brand: "ikeja-electric",
@@ -39,7 +42,7 @@ const SAMPLES: SampleOrder[] = [
     id: "5A1E-73B8",
     utility: "School Fees",
     detail: "UNN · RRR 141523991664",
-    amount: "₦52,000.00",
+    amountNgn: 52000,
     zec: "0.03991616",
     address: "utest1m8p3n6r5t0w1y2z3a4b5c6d7e8f9g0h1j2k3l4m5n6p7q",
     brand: "unn",
@@ -48,7 +51,7 @@ const SAMPLES: SampleOrder[] = [
     id: "C3F6-2D10",
     utility: "DStv Compact",
     detail: "Smartcard 7021 345 678",
-    amount: "₦19,000.00",
+    amountNgn: 19000,
     zec: "0.01458475",
     address: "utest1n6r5t0w1y2z3a4b5c6d7e8f9g0h1j2k3l4m5n6p7q8r9s",
     brand: "dstv",
@@ -57,7 +60,7 @@ const SAMPLES: SampleOrder[] = [
     id: "9D4B-55E2",
     utility: "Airtel Data",
     detail: "10GB · 0802 555 0142",
-    amount: "₦5,000.00",
+    amountNgn: 5000,
     zec: "0.00383809",
     address: "utest1p3n6r5t0w1y2z3a4b5c6d7e8f9g0h1j2k3l4m5n6p7q8r9t",
     brand: "airtel",
@@ -68,6 +71,9 @@ const STACK_DEPTH = 3
 const FLIP_MS = 620
 
 function ReceiptCard({ sample, stacked }: { sample: SampleOrder; stacked: boolean }) {
+  const currency = useCurrency()
+  const fxRates = useFxRates()
+
   return (
     <div
       className={cn(
@@ -89,7 +95,9 @@ function ReceiptCard({ sample, stacked }: { sample: SampleOrder; stacked: boolea
             <p className="truncate text-sm font-medium text-ink">{sample.utility}</p>
             <p className="num truncate text-[13px] text-muted">{sample.detail}</p>
           </div>
-          <p className="num ml-auto shrink-0 text-lg text-ink">{sample.amount}</p>
+          <p className="num ml-auto shrink-0 text-lg text-ink">
+            {fxRates ? formatLocalAmount(sample.amountNgn, currency, fxRates) : "—"}
+          </p>
         </div>
 
         <div className="rounded-md border border-line bg-paper px-4 py-3">

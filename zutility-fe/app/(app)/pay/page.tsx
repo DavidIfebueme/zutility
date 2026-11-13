@@ -261,6 +261,10 @@ export default function PayPage() {
     [selectedUtility, serviceRef]
   )
 
+  const giftCapLabel = fxRates
+    ? formatLocalAmount(GIFT_MAX_NGN, currency, fxRates)
+    : "the configured limit"
+
   const onSubmit = async (data: OrderFormValues) => {
     if (!selectedUtility) return
 
@@ -285,7 +289,7 @@ export default function PayPage() {
     }
 
     if (isGift && amountNgn > GIFT_MAX_NGN) {
-      toast.error(`Gifts are capped at ${formatCurrency(GIFT_MAX_NGN, "NGN")}`)
+      toast.error(`Gifts are capped at ${giftCapLabel}`)
       return
     }
 
@@ -566,7 +570,7 @@ export default function PayPage() {
                         <p className="mt-1 text-[12px] text-ink-2">{validated.customer_name}</p>
                       )}
                       <p className="num mt-2 text-lg text-ink">
-                        {formatCurrency(validated.amount_ngn ?? 0, "NGN")}
+                        {fxRates ? formatLocalAmount(validated.amount_ngn ?? 0, currency, fxRates) : "—"}
                       </p>
                     </div>
                   )}
@@ -618,7 +622,7 @@ export default function PayPage() {
                               <span className="num text-[12px] text-muted">
                                 {fxRates
                                   ? formatLocalAmount(variation.amount, currency, fxRates)
-                                  : formatCurrency(variation.amount, "NGN")}
+                                  : "—"}
                               </span>
                             )}
                           </button>
@@ -663,7 +667,7 @@ export default function PayPage() {
                         >
                           {fxRates
                             ? formatLocalAmount(quickAmount, currency, fxRates)
-                            : formatCurrency(quickAmount, "NGN")}
+                            : "—"}
                         </button>
                       ))}
                     </div>
@@ -681,7 +685,7 @@ export default function PayPage() {
                   <p className="num mt-1 text-xl text-ink">
                     {fxRates
                       ? formatLocalAmount(selectedUtility.fixedAmountKobo / 100, currency, fxRates)
-                      : formatCurrency(selectedUtility.fixedAmountKobo / 100, "NGN")}
+                      : "—"}
                   </p>
                 </div>
               )}
@@ -820,7 +824,7 @@ export default function PayPage() {
                 </label>
 
                 <p className="text-[11px] leading-relaxed text-muted">
-                  Gifts are capped at {formatCurrency(GIFT_MAX_NGN, "NGN")}. A gift link can be
+                  Gifts are capped at {giftCapLabel}. A gift link can be
                   claimed once, by the first person who opens it.
                 </p>
               </div>
@@ -846,7 +850,7 @@ export default function PayPage() {
                   {selectedUtility && effectiveAmount > 0
                     ? fxRates
                       ? formatLocalAmount(effectiveAmount, currency, fxRates)
-                      : formatCurrency(effectiveAmount, "NGN")
+                      : "—"
                     : "---"}
                 </span>
               </div>

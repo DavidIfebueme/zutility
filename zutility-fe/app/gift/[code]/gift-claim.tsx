@@ -11,7 +11,10 @@ import { BrandMark } from "@/components/ui/brand-mark"
 import { WordmarkLink } from "@/components/ui/wordmark"
 import { getApiBaseUrl } from "@/lib/api"
 import { UTILITIES } from "@/lib/constants"
-import { formatNGN, formatZEC } from "@/lib/utils"
+import { formatZEC } from "@/lib/utils"
+import { useCurrency } from "@/lib/hooks/useCurrency"
+import { useFxRates } from "@/lib/hooks/useFxRates"
+import { formatLocalAmount } from "@/lib/currency"
 import type { GiftView, OrderStatus } from "@/lib/types"
 
 const apiBase = getApiBaseUrl()
@@ -74,6 +77,15 @@ export function GiftClaim({ code, initialGift }: { code: string; initialGift: Gi
   const [missing, setMissing] = React.useState(initialGift === null)
 
   const utility = gift ? UTILITIES.find((item) => item.slug === gift.utility_slug) : undefined
+  const currency = useCurrency()
+  const fxRates = useFxRates()
+  const amountLabel = gift
+    ? gift.zec_amount
+      ? `${formatZEC(gift.zec_amount)} ZEC`
+      : fxRates
+        ? formatLocalAmount(gift.amount_ngn, currency, fxRates)
+        : "a utility gift"
+    : ""
 
   const refresh = React.useCallback(async () => {
     try {
@@ -148,8 +160,7 @@ export function GiftClaim({ code, initialGift }: { code: string; initialGift: Gi
                 A utility gift
               </p>
               <h1 className="mt-2 text-2xl leading-tight text-ink">
-                {gift.sender_name} sent you{" "}
-                {gift.zec_amount ? `${formatZEC(gift.zec_amount)} ZEC` : formatNGN(gift.amount_ngn)}
+                {gift.sender_name} sent you {amountLabel}
               </h1>
               <p className="mt-1 text-[13px] text-muted">
                 {utility?.name ?? gift.utility_slug}
@@ -167,7 +178,7 @@ export function GiftClaim({ code, initialGift }: { code: string; initialGift: Gi
                 <div className="min-w-0">
                   <p className="text-[13px] font-medium text-ink">{utility?.name ?? gift.utility_slug}</p>
                   <p className="num text-[12px] text-muted">
-                    {gift.zec_amount ? `${formatZEC(gift.zec_amount)} ZEC` : formatNGN(gift.amount_ngn)}
+                    {amountLabel}
                   </p>
                 </div>
               </div>
