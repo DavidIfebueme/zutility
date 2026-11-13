@@ -434,23 +434,37 @@ pub async fn record_payment(
     txid: &str,
     address: &str,
     amount: Decimal,
+    note_index: i32,
     confirmations: i32,
-    memo: Option<&str>,
 ) -> Result<()> {
     sqlx::query(
-        "INSERT INTO payments (order_id, txid, address, amount_zec, confirmations, memo)
+        "INSERT INTO payments (order_id, txid, address, amount_zec, note_index, confirmations)
          VALUES ($1, $2, $3, $4, $5, $6)
-         ON CONFLICT (txid, address, amount_zec) DO UPDATE
-         SET confirmations = GREATEST(payments.confirmations, EXCLUDED.confirmations),
-             memo = COALESCE(payments.memo, EXCLUDED.memo),
+         ON CONFLICT (txid, address, amount_zec, note_index) DO UPDATE
+         SET confirmations = EXCLUDED.confirmations,
+             status = 'seen',
              updated_at = now()",
     )
     .bind(order_id)
     .bind(txid)
     .bind(address)
     .bind(amount)
+    .bind(note_index)
     .bind(confirmations)
-    .bind(memo)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn mark_missing_payments(pool: &PgPool, order_id: Uuid, txids: &[String]) -> Result<()> {
+    sqlx::query(
+        "UPDATE payments
+         SET status = 'dropped', updated_at = now()
+         WHERE order_id = $1 AND status = 'seen' AND txid <> ALL($2)",
+    )
+    .bind(order_id)
+    .bind(txids)
     .execute(pool)
     .await?;
 
@@ -468,7 +482,7 @@ pub async fn update_order_payment(
         "UPDATE orders SET confirmations = $1, total_received = $2",
     );
     if txid.is_some() {
-        query.push_str(", txid = COALESCE(orders.txid, $4)");
+        query.push_str(", txid = $4");
     }
     query.push_str(" WHERE id = $3");
 

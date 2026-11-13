@@ -428,6 +428,24 @@ fn primary_txid(notes: &[ReceivedNote]) -> Option<String> {
         .map(|note| note.txid.clone())
 }
 
+fn note_ordinals(notes: &[ReceivedNote]) -> Vec<i32> {
+    let mut counts: HashMap<(String, String, String), i32> = HashMap::new();
+
+    notes
+        .iter()
+        .map(|note| {
+            let key = (
+                note.txid.clone(),
+                note.address.clone(),
+                note.amount.to_string(),
+            );
+            let entry = counts.entry(key).or_insert(-1);
+            *entry += 1;
+            *entry
+        })
+        .collect()
+}
+
 async fn detect_payment_and_progress(
     state: &HttpState,
     pool: &PgPool,
@@ -450,19 +468,15 @@ async fn detect_payment_and_progress(
     )
     .unwrap_or(u16::MAX);
 
-    if total_received <= Decimal::ZERO {
-        return Ok(());
-    }
-
-    for note in &notes {
+    for (note, note_index) in notes.iter().zip(note_ordinals(&notes)) {
         if let Err(error) = db::record_payment(
             pool,
             order.id,
             &note.txid,
             &note.address,
             note.amount,
+            note_index,
             i32::try_from(note.confirmations).unwrap_or(i32::MAX),
-            note.memo.as_deref(),
         )
         .await
         {
@@ -475,12 +489,21 @@ async fn detect_payment_and_progress(
         }
     }
 
+    let mut txids: Vec<String> = notes.iter().map(|note| note.txid.clone()).collect();
+    txids.sort();
+    txids.dedup();
+
+    if let Err(error) = db::mark_missing_payments(pool, order.id, &txids).await {
+        tracing::warn!(order_id = %order.id, error = %error, "failed to reconcile payments");
+    }
+
+    if total_received <= Decimal::ZERO {
+        return Ok(());
+    }
+
     let confirmations_i32 = i32::from(confirmations);
     let required_confs = order.required_confs;
     let primary_txid = primary_txid(&notes);
-    let mut txids: Vec<&str> = notes.iter().map(|note| note.txid.as_str()).collect();
-    txids.sort_unstable();
-    txids.dedup();
 
     db::update_order_payment(
         pool,
@@ -504,7 +527,7 @@ async fn detect_payment_and_progress(
             serde_json::json!({
                 "confirmations": confirmations,
                 "total_received": total_received.to_string(),
-                "txids": txids,
+                "txids": &txids,
             }),
         )
         .await?;
@@ -539,6 +562,7 @@ async fn detect_payment_and_progress(
                 serde_json::json!({
                     "expected": order.zec_amount.to_string(),
                     "received": total_received.to_string(),
+                    "txids": &txids,
                 }),
             )
             .await?;
@@ -581,6 +605,7 @@ async fn detect_payment_and_progress(
                 serde_json::json!({
                     "confirmations": confirmations,
                     "gift_hold": hold_for_claim,
+                    "txids": &txids,
                 }),
             )
             .await?;
@@ -1012,7 +1037,7 @@ fn start_address_pool_refill(state: HttpState, _config: AppConfig, pool: PgPool)
 
 #[cfg(test)]
 mod tests {
-    use super::primary_txid;
+    use super::{note_ordinals, primary_txid};
     use crate::integrations::zcash::ReceivedNote;
     use rust_decimal::Decimal;
 
@@ -1043,5 +1068,12 @@ mod tests {
     #[test]
     fn primary_txid_is_none_without_notes() {
         assert!(primary_txid(&[]).is_none());
+    }
+
+    #[test]
+    fn identical_notes_get_distinct_ordinals() {
+        let notes = vec![note("aa", 10_000), note("aa", 10_000), note("bb", 20_000)];
+
+        assert_eq!(note_ordinals(&notes), vec![0, 1, 0]);
     }
 }
