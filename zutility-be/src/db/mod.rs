@@ -428,6 +428,50 @@ pub async fn update_order_status_cas(
     Ok(true)
 }
 
+pub async fn record_payment(
+    pool: &PgPool,
+    order_id: Uuid,
+    txid: &str,
+    address: &str,
+    amount: Decimal,
+    note_index: i32,
+    confirmations: i32,
+) -> Result<()> {
+    sqlx::query(
+        "INSERT INTO payments (order_id, txid, address, amount_zec, note_index, confirmations)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (txid, address, amount_zec, note_index) DO UPDATE
+         SET confirmations = EXCLUDED.confirmations,
+             order_id = EXCLUDED.order_id,
+             status = 'seen',
+             updated_at = now()",
+    )
+    .bind(order_id)
+    .bind(txid)
+    .bind(address)
+    .bind(amount)
+    .bind(note_index)
+    .bind(confirmations)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn mark_missing_payments(pool: &PgPool, order_id: Uuid, txids: &[String]) -> Result<()> {
+    sqlx::query(
+        "UPDATE payments
+         SET status = 'dropped', updated_at = now()
+         WHERE order_id = $1 AND status = 'seen' AND txid <> ALL($2)",
+    )
+    .bind(order_id)
+    .bind(txids)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
 pub async fn update_order_payment(
     pool: &PgPool,
     order_id: Uuid,

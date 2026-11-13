@@ -165,24 +165,25 @@ fn start_order_orchestrator(state: HttpState, config: AppConfig, pool: PgPool) {
                         .map(|order| order.created_at.timestamp().saturating_sub(600))
                         .min()
                         .unwrap_or_else(|| Utc::now().timestamp());
-                    let payments = if let Some(client) = state.zcash_client.as_ref() {
+                    let (payments, scan_ok) = if let Some(client) = state.zcash_client.as_ref() {
                         match client
                             .scan_payments(u32::try_from(since_timestamp).unwrap_or(0))
                             .await
                         {
-                            Ok(notes) => group_notes_by_address(notes),
+                            Ok(notes) => (group_notes_by_address(notes), true),
                             Err(error) => {
                                 tracing::warn!(error = %error, "wallet payment scan failed");
-                                HashMap::new()
+                                (HashMap::new(), false)
                             }
                         }
                     } else {
-                        HashMap::new()
+                        (HashMap::new(), false)
                     };
 
                     for order in orders {
                         if let Err(error) =
-                            process_order(&state, &dispatcher, &pool, &order, &payments).await
+                            process_order(&state, &dispatcher, &pool, &order, &payments, scan_ok)
+                                .await
                         {
                             tracing::warn!(order_id = %order.id, error = %error, "order processing iteration failed");
                         }
@@ -212,6 +213,7 @@ async fn process_order(
     pool: &PgPool,
     order: &db::OrderRow,
     payments: &HashMap<String, Vec<ReceivedNote>>,
+    scan_ok: bool,
 ) -> Result<()> {
     let now = Utc::now();
     let order_status = order.status()?;
@@ -256,7 +258,7 @@ async fn process_order(
         OrderStatus::AwaitingPayment | OrderStatus::PaymentDetected
     ) && state.zcash_client.is_some()
     {
-        detect_payment_and_progress(state, pool, order, payments).await?;
+        detect_payment_and_progress(state, pool, order, payments, scan_ok).await?;
     }
 
     let refreshed = db::get_order_by_id(pool, order.id).await?;
@@ -421,11 +423,39 @@ async fn deliver_expired_gift(
     Ok(())
 }
 
+fn primary_txid(notes: &[ReceivedNote]) -> Option<String> {
+    notes
+        .iter()
+        .max_by(|a, b| {
+            (a.amount, a.confirmations, &a.txid).cmp(&(b.amount, b.confirmations, &b.txid))
+        })
+        .map(|note| note.txid.clone())
+}
+
+fn note_ordinals(notes: &[ReceivedNote]) -> Vec<i32> {
+    let mut counts: HashMap<(String, String, String), i32> = HashMap::new();
+
+    notes
+        .iter()
+        .map(|note| {
+            let key = (
+                note.txid.clone(),
+                note.address.clone(),
+                note.amount.to_string(),
+            );
+            let entry = counts.entry(key).or_insert(-1);
+            *entry += 1;
+            *entry
+        })
+        .collect()
+}
+
 async fn detect_payment_and_progress(
     state: &HttpState,
     pool: &PgPool,
     order: &db::OrderRow,
     payments: &HashMap<String, Vec<ReceivedNote>>,
+    scan_ok: bool,
 ) -> Result<()> {
     let notes = payments
         .get(&order.deposit_address)
@@ -443,14 +473,53 @@ async fn detect_payment_and_progress(
     )
     .unwrap_or(u16::MAX);
 
+    for (note, note_index) in notes.iter().zip(note_ordinals(&notes)) {
+        if let Err(error) = db::record_payment(
+            pool,
+            order.id,
+            &note.txid,
+            &note.address,
+            note.amount,
+            note_index,
+            i32::try_from(note.confirmations).unwrap_or(i32::MAX),
+        )
+        .await
+        {
+            tracing::warn!(
+                order_id = %order.id,
+                txid = %note.txid,
+                error = %error,
+                "failed to record payment"
+            );
+        }
+    }
+
+    let mut txids: Vec<String> = notes.iter().map(|note| note.txid.clone()).collect();
+    txids.sort();
+    txids.dedup();
+
+    if scan_ok
+        && let Err(error) = db::mark_missing_payments(pool, order.id, &txids).await
+    {
+        tracing::warn!(order_id = %order.id, error = %error, "failed to reconcile payments");
+    }
+
     if total_received <= Decimal::ZERO {
         return Ok(());
     }
 
     let confirmations_i32 = i32::from(confirmations);
     let required_confs = order.required_confs;
+    let primary_txid = primary_txid(&notes);
 
-    db::update_order_payment(pool, order.id, confirmations_i32, total_received, None).await?;
+    db::update_order_payment(
+        pool,
+        order.id,
+        confirmations_i32,
+        total_received,
+        primary_txid.as_deref(),
+    )
+    .await?;
 
     let mut events = Vec::new();
     let order_status = order.status()?;
@@ -465,6 +534,7 @@ async fn detect_payment_and_progress(
             serde_json::json!({
                 "confirmations": confirmations,
                 "total_received": total_received.to_string(),
+                "txids": &txids,
             }),
         )
         .await?;
@@ -499,6 +569,7 @@ async fn detect_payment_and_progress(
                 serde_json::json!({
                     "expected": order.zec_amount.to_string(),
                     "received": total_received.to_string(),
+                    "txids": &txids,
                 }),
             )
             .await?;
@@ -541,6 +612,7 @@ async fn detect_payment_and_progress(
                 serde_json::json!({
                     "confirmations": confirmations,
                     "gift_hold": hold_for_claim,
+                    "txids": &txids,
                 }),
             )
             .await?;
@@ -972,12 +1044,43 @@ fn start_address_pool_refill(state: HttpState, _config: AppConfig, pool: PgPool)
 
 #[cfg(test)]
 mod tests {
+    use super::{note_ordinals, primary_txid};
+    use crate::integrations::zcash::ReceivedNote;
     use rust_decimal::Decimal;
+
+    fn note(txid: &str, amount: i64) -> ReceivedNote {
+        ReceivedNote {
+            txid: txid.to_owned(),
+            address: String::from("utest1example"),
+            amount: Decimal::new(amount, 8),
+            confirmations: 2,
+            memo: None,
+        }
+    }
 
     #[test]
     fn underpay_threshold_matches_policy() {
         let expected = Decimal::new(100_000_000, 8);
         let threshold = expected * Decimal::new(995, 3);
         assert_eq!(threshold, Decimal::new(99_500_000, 8));
+    }
+
+    #[test]
+    fn primary_txid_is_the_largest_note() {
+        let notes = vec![note("aa", 37_653), note("bb", 10_000_000), note("cc", 40_000)];
+
+        assert_eq!(primary_txid(&notes).as_deref(), Some("bb"));
+    }
+
+    #[test]
+    fn primary_txid_is_none_without_notes() {
+        assert!(primary_txid(&[]).is_none());
+    }
+
+    #[test]
+    fn identical_notes_get_distinct_ordinals() {
+        let notes = vec![note("aa", 10_000), note("aa", 10_000), note("bb", 20_000)];
+
+        assert_eq!(note_ordinals(&notes), vec![0, 1, 0]);
     }
 }
