@@ -93,14 +93,32 @@ fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool
     let app_base_url = state.app_base_url.clone();
     let frontend_url = state.frontend_url.clone();
 
-    let public_routes = Router::new()
+    let auth_routes = Router::new()
         .route("/api/v1/auth/register", post(register))
         .route("/api/v1/auth/login", post(login))
-        .route("/api/v1/auth/refresh", post(refresh))
-        .route("/api/v1/auth/verify-email", post(verify_email))
         .route("/api/v1/auth/resend-verification", post(resend_verification))
         .route("/api/v1/auth/forgot-password", post(forgot_password))
-        .route("/api/v1/auth/reset-password", post(reset_password))
+        .route("/api/v1/auth/reset-password", post(reset_password));
+
+    let auth_routes = if enable_rate_limits {
+        // Brute force protection, one request every 6 seconds with a burst of 20.
+        match GovernorConfigBuilder::default()
+            .per_second(6)
+            .burst_size(20)
+            .key_extractor(ClientIpKeyExtractor)
+            .use_headers()
+            .finish()
+        {
+            Some(config) => auth_routes.layer(GovernorLayer::new(config)),
+            None => auth_routes,
+        }
+    } else {
+        auth_routes
+    };
+
+    let public_routes = Router::new()
+        .route("/api/v1/auth/refresh", post(refresh))
+        .route("/api/v1/auth/verify-email", post(verify_email))
         .route("/api/v1/rates/current", get(get_current_rate))
         .route("/api/v1/utilities", get(list_utilities))
         .route(
@@ -128,6 +146,7 @@ fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool
         .route("/api/v1/waitlist/resend", post(waitlist_resend))
         .route("/api/v1/waitlist/stats", get(waitlist_stats))
         .route("/api/v1/support", post(support_contact))
+        .merge(auth_routes)
         .with_state(state.clone());
 
     let health_routes = Router::new()
@@ -177,8 +196,9 @@ fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool
         .merge(admin_routes);
 
     let app = if enable_rate_limits {
+        // per_second(n) is one token every n seconds, not n per second.
         let config = GovernorConfigBuilder::default()
-            .per_second(30)
+            .per_millisecond(33)
             .burst_size(200)
             .key_extractor(ClientIpKeyExtractor)
             .use_headers()

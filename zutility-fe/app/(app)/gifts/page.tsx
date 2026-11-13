@@ -55,13 +55,14 @@ export default function GiftsPage() {
   const fxRates = useFxRates()
   const [gifts, setGifts] = React.useState<GiftSummary[]>([])
   const [loading, setLoading] = React.useState(true)
+  const [loadError, setLoadError] = React.useState(false)
   const [working, setWorking] = React.useState<string | null>(null)
   const [reloadKey, setReloadKey] = React.useState(0)
 
   React.useEffect(() => {
     apiGet<GiftSummary[]>("/api/v1/gifts")
       .then(setGifts)
-      .catch(() => toast.error("Could not load your gifts"))
+      .catch(() => setLoadError(true))
       .finally(() => setLoading(false))
   }, [reloadKey])
 
@@ -117,7 +118,23 @@ export default function GiftsPage() {
         </div>
       )}
 
-      {!loading && gifts.length === 0 && (
+      {!loading && loadError && (
+        <div className="rounded-lg border border-dashed border-line-strong px-6 py-14 text-center">
+          <p className="text-[15px] text-ink">Could not load your gifts</p>
+          <p className="mx-auto mt-1 max-w-sm text-[13px] leading-relaxed text-muted">
+            The request failed. Nothing is lost.
+          </p>
+          <Button className="mt-5" variant="secondary" onClick={() => {
+              setLoadError(false)
+              setLoading(true)
+              setReloadKey((key) => key + 1)
+            }}>
+            Try again
+          </Button>
+        </div>
+      )}
+
+      {!loading && !loadError && gifts.length === 0 && (
         <div className="rounded-lg border border-dashed border-line-strong px-6 py-14 text-center">
           <Gift className="mx-auto h-6 w-6 text-muted" strokeWidth={1.6} />
           <p className="mt-3 text-[15px] text-ink">No gifts yet</p>

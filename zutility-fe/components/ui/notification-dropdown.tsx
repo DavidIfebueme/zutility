@@ -81,7 +81,7 @@ function NotificationRow({
 }
 
 export function NotificationDropdown() {
-  const { notifications, unreadCount, loading, markRead, markAllRead } = useNotifications()
+  const { notifications, unreadCount, loading, markRead, markAllRead, refresh } = useNotifications()
   const [isOpen, setIsOpen] = React.useState(false)
   const dropdownRef = React.useRef<HTMLDivElement>(null)
 
@@ -98,7 +98,11 @@ export function NotificationDropdown() {
   return (
     <div className="relative" ref={dropdownRef}>
       <button
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => {
+          const next = !isOpen
+          setIsOpen(next)
+          if (next) void refresh()
+        }}
         className="relative flex h-8 w-8 items-center justify-center rounded-md text-muted transition-colors hover:bg-cream hover:text-ink"
         aria-label="Notifications"
       >

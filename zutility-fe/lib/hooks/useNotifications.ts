@@ -48,13 +48,11 @@ export function useNotifications() {
     let active = true
 
     const poll = async () => {
-      const [count, list] = await Promise.all([
-        apiGet<{ count: number }>("/api/v1/notifications/unread-count").catch(() => null),
-        apiGet<Notification[]>("/api/v1/notifications").catch(() => null),
-      ])
+      const count = await apiGet<{ count: number }>("/api/v1/notifications/unread-count").catch(
+        () => null
+      )
       if (!active) return
       if (count) setUnreadCount(count.count)
-      if (list) setNotifications(list)
       setLoading(false)
     }
 

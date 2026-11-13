@@ -48,18 +48,20 @@ export default function DashboardPage() {
   const { user } = useAuthStore()
   const { activeOrder: storedOrder, activeOrderUserId } = useOrderStore()
   const activeOrder = storedOrder && activeOrderUserId === user?.id ? storedOrder : null
-  const { rate } = useRate()
+  const { rate, isError: rateError } = useRate()
   const currency = useCurrency()
   const fxRates = useFxRates()
   const [orders, setOrders] = React.useState<OrderHistoryItem[]>([])
   const [ordersLoading, setOrdersLoading] = React.useState(true)
+  const [ordersError, setOrdersError] = React.useState(false)
+  const [reloadKey, setReloadKey] = React.useState(0)
 
   React.useEffect(() => {
     apiGet<OrderHistoryItem[]>("/api/v1/orders/history")
       .then(setOrders)
-      .catch(() => setOrders([]))
+      .catch(() => setOrdersError(true))
       .finally(() => setOrdersLoading(false))
-  }, [])
+  }, [reloadKey])
 
   const recent = orders.slice(0, 5)
   const activeStatus = activeOrder
@@ -147,6 +149,21 @@ export default function DashboardPage() {
             <div className="mt-3 flex justify-center rounded-lg border border-line bg-cream py-12">
               <Loader2 className="h-4 w-4 animate-spin text-muted" />
             </div>
+          ) : ordersError && recent.length === 0 ? (
+            <div className="mt-3 flex flex-col items-center rounded-lg border border-dashed border-line-strong bg-cream/60 px-6 py-12 text-center">
+              <Receipt className="h-5 w-5 text-muted" strokeWidth={1.6} />
+              <p className="mt-3 text-[14px] text-ink">Could not load your orders</p>
+              <p className="mt-1 max-w-xs text-[13px] text-muted">
+                The request failed. Nothing is lost.
+              </p>
+              <Button size="sm" variant="secondary" className="mt-4" onClick={() => {
+                  setOrdersError(false)
+                  setOrdersLoading(true)
+                  setReloadKey((key) => key + 1)
+                }}>
+                Try again
+              </Button>
+            </div>
           ) : recent.length === 0 ? (
             <div className="mt-3 flex flex-col items-center rounded-lg border border-dashed border-line-strong bg-cream/60 px-6 py-12 text-center">
               <Receipt className="h-5 w-5 text-muted" strokeWidth={1.6} />
@@ -223,7 +240,9 @@ export default function DashboardPage() {
             <p className="mt-1 text-[11px] text-muted">
               {rate?.updated_at
                 ? `Updated ${new Date(rate.updated_at).toLocaleTimeString()}`
-                : "Waiting for the feed"}
+                : rateError
+                  ? "Rate unavailable"
+                  : "Waiting for the feed"}
             </p>
             <p className="mt-3 border-t border-line pt-3 text-[11px] leading-relaxed text-muted">
               Orders keep the rate they were quoted at, even if the market moves.
