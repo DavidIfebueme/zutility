@@ -423,8 +423,9 @@ export default function SettingsPage() {
                   })}
                 </div>
                 <p className="mt-3 max-w-md text-[12px] leading-relaxed text-muted">
-                  Bill totals stay in naira on the server. The chosen currency only changes the
-                  figure you see, converted at the live rate. Saved in this browser.
+                  Bill totals stay in the bill's local currency on the server. The chosen
+                  currency only changes the figure you see, converted at the live rate. Saved
+                  in this browser.
                 </p>
               </div>
             </section>
