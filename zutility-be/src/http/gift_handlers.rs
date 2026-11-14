@@ -21,8 +21,9 @@ use crate::{
     http::{
         auth,
         error::ApiError,
-        handlers::{HttpState, generate_token, get_or_create_rate_snapshot},
+        handlers::{HttpState, generate_token, get_or_create_rate_snapshot, slug_to_utility_type},
         mw::AuthenticatedUser,
+        service_ref,
         types::{
             CancelOrderResponse, ClaimGiftRequest, CreateGiftRequest, CreateGiftResponse,
             CreateOrderResponse, GiftSummary, GiftView, RotateGiftCodeResponse,
@@ -96,6 +97,13 @@ async fn validate_service_ref(
             Ok(None)
         }
     }
+}
+
+fn normalize_fallback(utility_slug: &str, raw: Option<&str>) -> Result<Option<String>, ApiError> {
+    raw.map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| service_ref::normalize(&slug_to_utility_type(utility_slug), value))
+        .transpose()
 }
 
 fn build_gift_view(gift: &db::GiftRow, order: Option<&db::OrderRow>) -> Result<GiftView, ApiError> {
@@ -208,12 +216,10 @@ pub async fn create_gift(
         )));
     }
 
-    let fallback_service_ref = payload
-        .fallback_service_ref
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned);
+    let fallback_service_ref = normalize_fallback(
+        payload.utility_slug.trim(),
+        payload.fallback_service_ref.as_deref(),
+    )?;
 
     if payload.utility_type.trim() == "electricity" && fallback_service_ref.is_none() {
         return Err(ApiError::bad_request(
@@ -466,10 +472,13 @@ pub async fn claim_gift(
         return Err(ApiError::conflict("this gift has expired"));
     }
 
-    let service_ref = payload.service_ref.trim();
-    if service_ref.is_empty() {
+    if payload.service_ref.trim().is_empty() {
         return Err(ApiError::bad_request("service_ref is required"));
     }
+    let service_ref = crate::http::service_ref::normalize(
+        &slug_to_utility_type(&gift.utility_slug),
+        &payload.service_ref,
+    )?;
 
     let order_id = gift
         .order_id
@@ -479,7 +488,7 @@ pub async fn claim_gift(
         &state,
         &gift.utility_type,
         &gift.utility_slug,
-        service_ref,
+        &service_ref,
         "recipient",
         true,
     )
@@ -487,7 +496,7 @@ pub async fn claim_gift(
 
     let mut tx = db::begin_tx(&state.pool).await.map_err(internal_err)?;
 
-    if !db::claim_gift_tx(&mut tx, gift.id, service_ref, customer_name.as_deref())
+    if !db::claim_gift_tx(&mut tx, gift.id, &service_ref, customer_name.as_deref())
         .await
         .map_err(internal_err)?
     {
@@ -508,7 +517,7 @@ pub async fn claim_gift(
         }
     }
 
-    db::update_order_service_ref_tx(&mut tx, order_id, service_ref, customer_name.as_deref())
+    db::update_order_service_ref_tx(&mut tx, order_id, &service_ref, customer_name.as_deref())
         .await
         .map_err(internal_err)?;
 
@@ -523,7 +532,7 @@ pub async fn claim_gift(
                 order_id,
                 transition,
                 event: String::from("gift_claimed"),
-                detail: serde_json::json!({ "claimed_service_ref": service_ref }),
+                detail: serde_json::json!({ "claimed_service_ref": &service_ref }),
             },
         )
         .await
@@ -680,4 +689,41 @@ pub async fn cancel_gift(
     tx.commit().await.map_err(internal_err)?;
 
     Ok(Json(CancelOrderResponse { success: true }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rewrites_a_spaced_phone_fallback_to_the_local_form() {
+        assert_eq!(
+            normalize_fallback("mtn", Some("0706 578 0853"))
+                .ok()
+                .flatten()
+                .as_deref(),
+            Some("07065780853")
+        );
+    }
+
+    #[test]
+    fn rejects_a_phone_fallback_that_cannot_be_delivered() {
+        assert!(matches!(
+            normalize_fallback("mtn", Some("0706 578 085")),
+            Err(ApiError::BadRequest(_))
+        ));
+    }
+
+    #[test]
+    fn leaves_a_meter_fallback_alone_and_treats_blank_as_missing() {
+        assert_eq!(
+            normalize_fallback("ikeja-electric", Some(" 5401 2345 678 "))
+                .ok()
+                .flatten()
+                .as_deref(),
+            Some("5401 2345 678")
+        );
+        assert_eq!(normalize_fallback("mtn", Some("  ")).ok().flatten(), None);
+        assert_eq!(normalize_fallback("mtn", None).ok().flatten(), None);
+    }
 }

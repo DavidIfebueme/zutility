@@ -28,6 +28,7 @@ import {
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { networkWarning } from "@/lib/network"
+import { INVALID_PHONE_MESSAGE, normalizePhone } from "@/lib/phone"
 
 const orderSchema = z.object({
   utilityId: z.string().min(1, "Select a service"),
@@ -214,13 +215,18 @@ export default function PayPage() {
 
   const handleValidate = React.useCallback(async () => {
     if (!selectedUtility || !serviceRef || serviceRef.trim().length < 5) return
-    const queriedReference = serviceRef.trim()
+    const queriedReference =
+      selectedUtility.serviceRefKind === "phone" ? normalizePhone(serviceRef) : serviceRef.trim()
+    if (!queriedReference) {
+      toast.error(INVALID_PHONE_MESSAGE)
+      return
+    }
     setValidating(true)
     try {
       const meterQuery =
         selectedUtility.type === "electricity" ? `&meter_type=${meterType}` : ""
       const result = await apiGet<UtilityValidateResponse>(
-        `/api/v1/utilities/${selectedUtility.slug}/validate?ref=${encodeURIComponent(serviceRef)}${meterQuery}`
+        `/api/v1/utilities/${selectedUtility.slug}/validate?ref=${encodeURIComponent(queriedReference)}${meterQuery}`
       )
       setValidated(result)
       setValidatedReference(queriedReference)
@@ -269,17 +275,23 @@ export default function PayPage() {
     if (!selectedUtility) return
 
     const amountNgn = Math.round(effectiveAmount)
+    const rawReference = data.serviceRef || ""
+    const reference =
+      !isGift && selectedUtility.serviceRefKind === "phone"
+        ? normalizePhone(rawReference)
+        : rawReference.trim()
 
-    if (
-      isSchoolFees &&
-      (!validated?.valid || validatedReference !== data.serviceRef.trim())
-    ) {
+    if (isSchoolFees && (!validated?.valid || validatedReference !== reference)) {
       toast.error("Look up the RRR again")
       return
     }
 
-    if (!isGift && !data.serviceRef.trim()) {
-      toast.error("Enter the account number")
+    if (!isGift && !reference) {
+      toast.error(
+        selectedUtility.serviceRefKind === "phone"
+          ? INVALID_PHONE_MESSAGE
+          : "Enter the account number"
+      )
       return
     }
 
@@ -296,6 +308,16 @@ export default function PayPage() {
     if (isGift && selectedUtility.type === "electricity" && !giftFallbackRef.trim()) {
       toast.error("Electricity gifts need a fallback meter number")
       return
+    }
+
+    let fallbackReference = giftFallbackRef.trim() || undefined
+    if (fallbackReference && selectedUtility.serviceRefKind === "phone") {
+      const normalized = normalizePhone(fallbackReference)
+      if (!normalized) {
+        toast.error("Enter a valid Nigerian mobile number for the backup account")
+        return
+      }
+      fallbackReference = normalized
     }
 
     setIsLoading(true)
@@ -320,7 +342,7 @@ export default function PayPage() {
           zec_address_type: data.addressType,
           variation_code: data.variationCode || undefined,
           message: giftMessage.trim() || undefined,
-          fallback_service_ref: giftFallbackRef.trim() || undefined,
+          fallback_service_ref: fallbackReference,
           claim_window_hours: giftWindowHours,
           hide_sender_name: giftHideName,
         })
@@ -334,7 +356,7 @@ export default function PayPage() {
       const order = await apiPost<CreateOrderResponse>("/api/v1/orders/create", {
         utility_type: utilityType,
         utility_slug: selectedUtility.slug,
-        service_ref: data.serviceRef,
+        service_ref: reference,
         amount_ngn: amountNgn,
         zec_address_type: data.addressType,
         variation_code: data.variationCode || undefined,
@@ -534,7 +556,13 @@ export default function PayPage() {
                   </div>
                   <Input
                     id="serviceRef"
-                    {...register("serviceRef")}
+                    {...register("serviceRef", {
+                      onBlur: (event) => {
+                        if (selectedUtility?.serviceRefKind !== "phone") return
+                        const normalized = normalizePhone(event.target.value)
+                        if (normalized) setValue("serviceRef", normalized)
+                      },
+                    })}
                     placeholder={selectedUtility?.serviceRefPlaceholder || "Enter the number"}
                     error={errors.serviceRef?.message}
                     disabled={!selectedUtilityId}

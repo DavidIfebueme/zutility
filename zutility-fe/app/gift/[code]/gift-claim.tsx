@@ -12,6 +12,7 @@ import { WordmarkLink } from "@/components/ui/wordmark"
 import { getApiBaseUrl } from "@/lib/api"
 import { UTILITIES } from "@/lib/constants"
 import { formatZEC } from "@/lib/utils"
+import { INVALID_PHONE_MESSAGE, normalizePhone } from "@/lib/phone"
 import { useCurrency } from "@/lib/hooks/useCurrency"
 import { useFxRates } from "@/lib/hooks/useFxRates"
 import { formatLocalAmount } from "@/lib/currency"
@@ -107,8 +108,15 @@ export function GiftClaim({ code, initialGift }: { code: string; initialGift: Gi
 
   const claim = async (event: React.FormEvent) => {
     event.preventDefault()
-    if (serviceRef.trim().length < 5) {
-      toast.error("Enter a valid account number")
+    const reference =
+      utility?.serviceRefKind === "phone" ? normalizePhone(serviceRef) : serviceRef.trim()
+
+    if (!reference || reference.length < 5) {
+      toast.error(
+        utility?.serviceRefKind === "phone"
+          ? INVALID_PHONE_MESSAGE
+          : "Enter a valid account number"
+      )
       return
     }
 
@@ -116,7 +124,7 @@ export function GiftClaim({ code, initialGift }: { code: string; initialGift: Gi
     try {
       const next = await giftRequest<GiftView>(`/api/v1/gifts/${encodeURIComponent(code)}/claim`, {
         method: "POST",
-        body: JSON.stringify({ service_ref: serviceRef.trim() }),
+        body: JSON.stringify({ service_ref: reference }),
       })
       setGift(next)
       toast.success("Gift claimed")
@@ -197,7 +205,12 @@ export function GiftClaim({ code, initialGift }: { code: string; initialGift: Gi
                   <Input
                     id="serviceRef"
                     value={serviceRef}
-                    onChange={(event) => setServiceRef(event.target.value)}
+                    onChange={(event) => {
+                      const raw = event.target.value
+                      const normalized =
+                        utility?.serviceRefKind === "phone" ? normalizePhone(raw) : null
+                      setServiceRef(normalized ?? raw)
+                    }}
                     placeholder={utility?.serviceRefPlaceholder ?? "Enter the account number"}
                     autoComplete="off"
                   />
