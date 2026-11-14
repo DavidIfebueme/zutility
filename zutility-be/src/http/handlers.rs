@@ -33,6 +33,7 @@ use crate::{
 
 use super::{
     error::ApiError,
+    service_ref,
     types::{
         CancelOrderResponse, CreateOrderRequest, CreateOrderResponse,
         OrderAccessTokenResponse, OrderStatusResponse, OrderTokenQuery, RateResponse,
@@ -173,9 +174,11 @@ impl HttpState {
 pub async fn create_order(
     State(state): State<HttpState>,
     Extension(auth_user): Extension<crate::http::mw::AuthenticatedUser>,
-    Json(payload): Json<CreateOrderRequest>,
+    Json(mut payload): Json<CreateOrderRequest>,
 ) -> Result<Json<CreateOrderResponse>, ApiError> {
     validate_create_order_payload(&payload)?;
+    payload.service_ref =
+        service_ref::normalize(&slug_to_utility_type(&payload.utility_slug), &payload.service_ref)?;
     enforce_service_ref_velocity(&state, &payload).await?;
 
     let amount_ngn = resolve_order_amount(&state, &payload).await?;
@@ -812,15 +815,16 @@ pub async fn validate_utility_reference(
     }
 
     let utility_type = slug_to_utility_type(&slug);
+    let reference = service_ref::normalize(&utility_type, &query.reference)?;
 
-    if utility_type == "school_fees" && !is_rrr(query.reference.trim()) {
+    if utility_type == "school_fees" && !is_rrr(&reference) {
         return Err(ApiError::bad_request("school fees need a 12 digit Remita RRR"));
     }
 
     if let Some(dispatcher) = &state.provider_dispatcher {
         let request = crate::integrations::utility_provider::ValidateRefRequest {
             service_id: slug.clone(),
-            billers_code: query.reference.trim().to_owned(),
+            billers_code: reference.clone(),
             meter_type: query.meter_type.clone(),
         };
         match dispatcher.validate_reference(&utility_type, &request).await {
@@ -1414,7 +1418,7 @@ fn remita_notifications(payload: serde_json::Value) -> Vec<serde_json::Value> {
     notifications
 }
 
-fn slug_to_utility_type(slug: &str) -> String {
+pub(crate) fn slug_to_utility_type(slug: &str) -> String {
     match slug {
         "mtn" | "airtel" | "glo" | "9mobile" => String::from("airtime"),
         "mtn-data" | "airtel-data" | "glo-data" | "9mobile-data" => String::from("data"),

@@ -21,7 +21,7 @@ use crate::{
     http::{
         auth,
         error::ApiError,
-        handlers::{HttpState, generate_token, get_or_create_rate_snapshot},
+        handlers::{HttpState, generate_token, get_or_create_rate_snapshot, slug_to_utility_type},
         mw::AuthenticatedUser,
         types::{
             CancelOrderResponse, ClaimGiftRequest, CreateGiftRequest, CreateGiftResponse,
@@ -466,10 +466,13 @@ pub async fn claim_gift(
         return Err(ApiError::conflict("this gift has expired"));
     }
 
-    let service_ref = payload.service_ref.trim();
-    if service_ref.is_empty() {
+    if payload.service_ref.trim().is_empty() {
         return Err(ApiError::bad_request("service_ref is required"));
     }
+    let service_ref = crate::http::service_ref::normalize(
+        &slug_to_utility_type(&gift.utility_slug),
+        &payload.service_ref,
+    )?;
 
     let order_id = gift
         .order_id
@@ -479,7 +482,7 @@ pub async fn claim_gift(
         &state,
         &gift.utility_type,
         &gift.utility_slug,
-        service_ref,
+        &service_ref,
         "recipient",
         true,
     )
@@ -487,7 +490,7 @@ pub async fn claim_gift(
 
     let mut tx = db::begin_tx(&state.pool).await.map_err(internal_err)?;
 
-    if !db::claim_gift_tx(&mut tx, gift.id, service_ref, customer_name.as_deref())
+    if !db::claim_gift_tx(&mut tx, gift.id, &service_ref, customer_name.as_deref())
         .await
         .map_err(internal_err)?
     {
@@ -508,7 +511,7 @@ pub async fn claim_gift(
         }
     }
 
-    db::update_order_service_ref_tx(&mut tx, order_id, service_ref, customer_name.as_deref())
+    db::update_order_service_ref_tx(&mut tx, order_id, &service_ref, customer_name.as_deref())
         .await
         .map_err(internal_err)?;
 
@@ -523,7 +526,7 @@ pub async fn claim_gift(
                 order_id,
                 transition,
                 event: String::from("gift_claimed"),
-                detail: serde_json::json!({ "claimed_service_ref": service_ref }),
+                detail: serde_json::json!({ "claimed_service_ref": &service_ref }),
             },
         )
         .await
