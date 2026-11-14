@@ -9,9 +9,37 @@ pub enum PhoneNumberError {
     Invalid,
 }
 
+const LOCAL_LENGTH: usize = 11;
+const MOBILE_PREFIXES: [&str; 6] = ["070", "071", "080", "081", "090", "091"];
+
 impl PhoneNumber {
     pub fn parse(raw: &str) -> Result<Self, PhoneNumberError> {
-        Ok(Self(raw.trim().to_owned()))
+        let digits: String = raw
+            .chars()
+            .filter(|character| {
+                !character.is_whitespace() && !matches!(character, '-' | '(' | ')' | '.')
+            })
+            .collect();
+
+        let digits = digits.strip_prefix('+').unwrap_or(&digits);
+        let national = digits.strip_prefix("234").unwrap_or(digits);
+        let local = if national.len() == 10 {
+            format!("0{national}")
+        } else {
+            national.to_owned()
+        };
+
+        let is_mobile = local.len() == LOCAL_LENGTH
+            && local.chars().all(|character| character.is_ascii_digit())
+            && MOBILE_PREFIXES
+                .iter()
+                .any(|prefix| local.starts_with(prefix));
+
+        if !is_mobile {
+            return Err(PhoneNumberError::Invalid);
+        }
+
+        Ok(Self(local))
     }
 
     pub fn as_str(&self) -> &str {
@@ -28,7 +56,9 @@ mod tests {
     use super::*;
 
     fn canonical(raw: &str) -> Option<String> {
-        PhoneNumber::parse(raw).ok().map(|number| number.as_str().to_owned())
+        PhoneNumber::parse(raw)
+            .ok()
+            .map(|number| number.as_str().to_owned())
     }
 
     #[test]
@@ -45,7 +75,10 @@ mod tests {
     #[test]
     fn accepts_international_prefixes() {
         assert_eq!(canonical("+2348031234567").as_deref(), Some("08031234567"));
-        assert_eq!(canonical("+234 803 123 4567").as_deref(), Some("08031234567"));
+        assert_eq!(
+            canonical("+234 803 123 4567").as_deref(),
+            Some("08031234567")
+        );
         assert_eq!(canonical("2348031234567").as_deref(), Some("08031234567"));
     }
 
