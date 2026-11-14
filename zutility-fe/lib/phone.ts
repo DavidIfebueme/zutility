@@ -1,5 +1,8 @@
 const MOBILE_PREFIXES = ["070", "071", "080", "081", "090", "091"]
 
+export const INVALID_PHONE_MESSAGE =
+  "Enter a valid Nigerian mobile number, like 08012345678"
+
 export function normalizePhone(raw: string): string | null {
   const digits = raw.replace(/[\s().-]/g, "")
   const national = digits.replace(/^\+/, "").replace(/^234/, "")

@@ -28,7 +28,7 @@ import {
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { networkWarning } from "@/lib/network"
-import { normalizePhone } from "@/lib/phone"
+import { INVALID_PHONE_MESSAGE, normalizePhone } from "@/lib/phone"
 
 const orderSchema = z.object({
   utilityId: z.string().min(1, "Select a service"),
@@ -218,7 +218,7 @@ export default function PayPage() {
     const queriedReference =
       selectedUtility.serviceRefKind === "phone" ? normalizePhone(serviceRef) : serviceRef.trim()
     if (!queriedReference) {
-      toast.error("Enter a valid Nigerian mobile number, like 08012345678")
+      toast.error(INVALID_PHONE_MESSAGE)
       return
     }
     setValidating(true)
@@ -289,7 +289,7 @@ export default function PayPage() {
     if (!isGift && !reference) {
       toast.error(
         selectedUtility.serviceRefKind === "phone"
-          ? "Enter a valid Nigerian mobile number, like 08012345678"
+          ? INVALID_PHONE_MESSAGE
           : "Enter the account number"
       )
       return
@@ -308,6 +308,16 @@ export default function PayPage() {
     if (isGift && selectedUtility.type === "electricity" && !giftFallbackRef.trim()) {
       toast.error("Electricity gifts need a fallback meter number")
       return
+    }
+
+    let fallbackReference = giftFallbackRef.trim() || undefined
+    if (fallbackReference && selectedUtility.serviceRefKind === "phone") {
+      const normalized = normalizePhone(fallbackReference)
+      if (!normalized) {
+        toast.error("Enter a valid Nigerian mobile number for the backup account")
+        return
+      }
+      fallbackReference = normalized
     }
 
     setIsLoading(true)
@@ -332,7 +342,7 @@ export default function PayPage() {
           zec_address_type: data.addressType,
           variation_code: data.variationCode || undefined,
           message: giftMessage.trim() || undefined,
-          fallback_service_ref: giftFallbackRef.trim() || undefined,
+          fallback_service_ref: fallbackReference,
           claim_window_hours: giftWindowHours,
           hide_sender_name: giftHideName,
         })
