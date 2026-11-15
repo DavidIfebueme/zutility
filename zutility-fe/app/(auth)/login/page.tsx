@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { AuthFooterLink, AuthShell } from "@/components/auth/auth-shell"
 import { useAuthStore } from "@/store/auth"
-import { apiPostRaw } from "@/lib/api"
+import { apiPostRaw, markSessionFresh } from "@/lib/api"
 import { useShake } from "@/lib/hooks/useShake"
 import { toast } from "sonner"
 
@@ -51,6 +51,7 @@ export default function LoginPage() {
           return
         }
         setUser(result)
+        markSessionFresh()
         toast.success("Signed in")
         const next = new URLSearchParams(window.location.search).get("next")
         const destination = next && next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard"

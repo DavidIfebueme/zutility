@@ -17,7 +17,7 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAuthStore, type AuthUser } from "@/store/auth"
-import { apiGet } from "@/lib/api"
+import { apiGet, ensureFreshSession, markSessionFresh } from "@/lib/api"
 import { useOrderStore } from "@/store/order"
 import { NotificationDropdown } from "@/components/ui/notification-dropdown"
 import { Button } from "@/components/ui/button"
@@ -151,7 +151,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
     apiGet<AuthUser>("/api/v1/auth/me")
       .then((account) => {
-        if (active) setUser(account)
+        if (active) {
+          setUser(account)
+          markSessionFresh()
+        }
       })
       .catch(() => {
         if (active) {
@@ -166,6 +169,20 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       active = false
     }
   }, [hasHydrated, isAuthenticated, pathname, router, setUser])
+
+  React.useEffect(() => {
+    if (!isAuthenticated) return
+
+    const keepFresh = () => {
+      if (document.visibilityState === "visible") {
+        void ensureFreshSession()
+      }
+    }
+
+    void ensureFreshSession()
+    document.addEventListener("visibilitychange", keepFresh)
+    return () => document.removeEventListener("visibilitychange", keepFresh)
+  }, [isAuthenticated])
 
   if (!hasHydrated || (!isAuthenticated && !sessionChecked)) {
     return (

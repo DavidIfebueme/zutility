@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { apiPost } from '@/lib/api'
+import { apiPost, clearSessionFreshness } from '@/lib/api'
 import { useOrderStore } from '@/store/order'
 import { detectCurrency, type CurrencyCode } from '@/lib/currency'
 
@@ -51,6 +51,7 @@ export const useAuthStore = create<AuthState>()(
           await apiPost('/api/v1/auth/logout', {})
         } catch {}
         useOrderStore.getState().clearActiveOrder()
+        clearSessionFreshness()
         clearAuthCookies()
         set({ user: null, isAuthenticated: false, preferredCurrency: null })
       },
