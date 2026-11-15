@@ -34,6 +34,16 @@ That means zutility can only be the merchant side, and the user must bring an EL
 
 The second constraint is that the merchant integration is unpublished. The first step is a conversation with Strahn, not a sprint.
 
+## Scope and limits
+
+The protocol is not limited to utilities. Any merchant that adopts ELSA can request a mandate. Streaming, gym memberships, rent, school fees, hosting, and SaaS all fit the same model. Three things do not.
+
+- A merchant that only accepts cards. ELSA is not a virtual card and cannot debit a card network. The merchant has to run the protocol.
+- A variable amount with no cap. Terms are fixed before funding, and a merchant can only charge within them. A postpaid electricity bill needs a range or a fresh approval each cycle.
+- A merchant that has not integrated. Netflix is the example. It works only if Netflix adopts ELSA, or if zutility resells a Netflix voucher and the mandate pays zutility for that voucher. Voucher resale is a different product with supply and redemption risk.
+
+The other limit is privacy. Without ZIP 68 and the ZIP 203 fix, the existence and schedule of a subscription are public and payments can be linked.
+
 ## What the surface looks like
 
 For the user, a Subscribe option next to the normal pay flow.
