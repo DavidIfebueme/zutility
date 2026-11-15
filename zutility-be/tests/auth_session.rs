@@ -319,3 +319,36 @@ async fn an_expired_token_does_not_rotate() {
     assert!(matches!(result, Err(ApiError::Unauthorized(_))));
     assert_eq!(count_rows(&pool, user_id).await, 1, "expiry mints nothing");
 }
+
+#[tokio::test]
+async fn logout_and_refresh_cannot_both_win() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+
+    for _ in 0..10 {
+        let (user_id, token) = seed_user(&pool).await;
+        let state = state(pool.clone());
+
+        let rotating = tokio::spawn({
+            let state = state.clone();
+            async move {
+                let _ = refresh(State(state), jar_with(token)).await;
+            }
+        });
+        let signing_out = tokio::spawn({
+            let state = state.clone();
+            async move {
+                let _ = logout(State(state), jar_with(token)).await;
+            }
+        });
+
+        let _ = tokio::join!(rotating, signing_out);
+
+        assert_eq!(
+            count_active(&pool, user_id).await,
+            0,
+            "logout must leave no live token, even when a refresh runs at the same time"
+        );
+    }
+}
