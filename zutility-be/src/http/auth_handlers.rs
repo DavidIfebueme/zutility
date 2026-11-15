@@ -150,15 +150,43 @@ fn cookie_domain_from_base_url(base_url: &str) -> Option<String> {
     }
 }
 
-fn clear_auth_cookies(jar: CookieJar, state: &HttpState) -> CookieJar {
+fn clear_legacy_refresh_cookie(cookie_domain: Option<&str>) -> axum_extra::extract::cookie::Cookie<'static> {
+    let mut builder = axum_extra::extract::cookie::Cookie::build(("refresh_token", String::new()))
+        .http_only(true)
+        .secure(cfg!(not(debug_assertions)))
+        .same_site(SameSite::Lax)
+        .path("/api/v1/auth/refresh")
+        .max_age(time::Duration::seconds(0));
+    if let Some(domain) = cookie_domain {
+        builder = builder.domain(domain.to_owned());
+    }
+    builder.build()
+}
+
+fn clear_auth_cookies(state: &HttpState) -> Vec<axum_extra::extract::cookie::Cookie<'static>> {
     let domain = auth_cookie_domain(state);
     let domain = domain.as_deref();
 
-    let mut jar = jar;
-    for cookie in AuthCookie::ALL {
-        jar = jar.add(build_auth_cookie(cookie, String::new(), 0, domain));
+    let mut cookies: Vec<_> = AuthCookie::ALL
+        .iter()
+        .map(|cookie| build_auth_cookie(*cookie, String::new(), 0, domain))
+        .collect();
+    cookies.push(clear_legacy_refresh_cookie(domain));
+    cookies
+}
+
+fn with_cookie_list(
+    mut response: Response,
+    cookies: Vec<axum_extra::extract::cookie::Cookie<'static>>,
+) -> Response {
+    for cookie in cookies {
+        if let Ok(value) = cookie.encoded().to_string().parse() {
+            response
+                .headers_mut()
+                .append(axum::http::header::SET_COOKIE, value);
+        }
     }
-    jar
+    response
 }
 
 fn with_auth_cookies(mut response: Response, jar: CookieJar) -> Response {
@@ -474,8 +502,8 @@ pub async fn logout(State(state): State<HttpState>, jar: CookieJar) -> Result<Re
             .map_err(internal_err)?;
     }
 
-    let jar = clear_auth_cookies(jar, &state);
-    Ok(with_auth_cookies(StatusCode::NO_CONTENT.into_response(), jar))
+    let cookies = clear_auth_cookies(&state);
+    Ok(with_cookie_list(StatusCode::NO_CONTENT.into_response(), cookies))
 }
 
 pub async fn get_me(
@@ -761,8 +789,8 @@ pub async fn delete_account(
         .await
         .map_err(internal_err)?;
 
-    let jar = clear_auth_cookies(jar, &state);
-    Ok(with_auth_cookies(StatusCode::OK.into_response(), jar))
+    let cookies = clear_auth_cookies(&state);
+    Ok(with_cookie_list(StatusCode::OK.into_response(), cookies))
 }
 
 #[cfg(test)]
@@ -812,6 +840,14 @@ mod tests {
         assert!(AuthCookie::Session.http_only());
         assert_eq!(AuthCookie::Csrf.same_site(), SameSite::Lax);
         assert_eq!(AuthCookie::Access.same_site(), SameSite::Strict);
+    }
+
+    #[test]
+    fn logout_also_expires_the_cookie_from_the_old_path() {
+        let cookie = clear_legacy_refresh_cookie(Some("zutility.xyz"));
+        assert_eq!(cookie.name(), "refresh_token");
+        assert_eq!(cookie.path(), Some("/api/v1/auth/refresh"));
+        assert_eq!(cookie.max_age(), Some(time::Duration::seconds(0)));
     }
 
     #[test]
