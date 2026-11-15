@@ -161,6 +161,11 @@ fn clear_auth_cookies(jar: CookieJar, state: &HttpState) -> CookieJar {
     jar
 }
 
+fn record_auth_event(state: &HttpState, event: &str) {
+    state.observability.metrics().record_auth_event(event);
+    tracing::info!(auth_event = event, "auth event");
+}
+
 fn with_auth_cookies(mut response: Response, jar: CookieJar) -> Response {
     for cookie in jar.iter() {
         if let Ok(value) = cookie.encoded().to_string().parse() {
@@ -374,6 +379,7 @@ pub async fn refresh(
 
     if let Some(claimed) = claimed {
         if claimed.expires_at < Utc::now() {
+            record_auth_event(&state, "refresh_expired");
             return Err(ApiError::unauthorized("refresh token expired"));
         }
 
@@ -399,6 +405,7 @@ pub async fn refresh(
             .await
             .map_err(internal_err)?;
         tx.commit().await.map_err(internal_err)?;
+        record_auth_event(&state, "refresh_rotated");
 
         let (access_jwt, csrf_token) = mint_access_token(&state, &user)?;
         let jar = set_auth_cookies(
@@ -419,6 +426,7 @@ pub async fn refresh(
         .ok_or_else(|| ApiError::unauthorized("invalid refresh token"))?;
 
     if stored.expires_at < Utc::now() {
+        record_auth_event(&state, "refresh_expired");
         return Err(ApiError::unauthorized("refresh token expired"));
     }
 
@@ -439,6 +447,7 @@ pub async fn refresh(
             .await
             .map_err(internal_err)?
         {
+            record_auth_event(&state, "refresh_replay");
             let (access_jwt, csrf_token) = mint_access_token(&state, &user)?;
             let jar =
                 set_auth_cookies(jar, &state, &access_jwt, &successor.to_string(), &csrf_token);
@@ -452,7 +461,9 @@ pub async fn refresh(
         db::revoke_refresh_token_family(&state.pool, stored.id)
             .await
             .map_err(internal_err)?;
+        record_auth_event(&state, "refresh_family_revoked");
     }
+    record_auth_event(&state, "refresh_rejected");
     Err(ApiError::unauthorized("refresh token already rotated"))
 }
 
@@ -463,6 +474,7 @@ pub async fn logout(State(state): State<HttpState>, jar: CookieJar) -> Result<Re
         let _ = db::revoke_refresh_token_family(&state.pool, refresh_id).await;
     }
 
+    record_auth_event(&state, "logout");
     let jar = clear_auth_cookies(jar, &state);
     Ok(with_auth_cookies(StatusCode::NO_CONTENT.into_response(), jar))
 }

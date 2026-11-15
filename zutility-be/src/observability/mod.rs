@@ -21,6 +21,7 @@ pub struct MetricsRegistry {
     failed_orders: std::sync::atomic::AtomicU64,
     flagged_orders: std::sync::atomic::AtomicU64,
     state_transitions: std::sync::RwLock<HashMap<String, u64>>,
+    auth_events: std::sync::RwLock<HashMap<String, u64>>,
     address_pool_depth: std::sync::RwLock<HashMap<String, i64>>,
 }
 
@@ -129,6 +130,7 @@ impl MetricsRegistry {
             failed_orders: std::sync::atomic::AtomicU64::new(0),
             flagged_orders: std::sync::atomic::AtomicU64::new(0),
             state_transitions: std::sync::RwLock::new(HashMap::new()),
+            auth_events: std::sync::RwLock::new(HashMap::new()),
             address_pool_depth: std::sync::RwLock::new(HashMap::new()),
         }
     }
@@ -143,6 +145,13 @@ impl MetricsRegistry {
         if let Ok(mut map) = self.state_transitions.write() {
             let current = map.get(&key).copied().unwrap_or(0);
             map.insert(key, current.saturating_add(1));
+        }
+    }
+
+    pub fn record_auth_event(&self, event: &str) {
+        if let Ok(mut map) = self.auth_events.write() {
+            let current = map.get(event).copied().unwrap_or(0);
+            map.insert(event.to_owned(), current.saturating_add(1));
         }
     }
 
@@ -210,6 +219,7 @@ impl MetricsRegistry {
     pub async fn render_prometheus(&self) -> String {
         let transitions = self.state_transitions.read().ok();
         let pools = self.address_pool_depth.read().ok();
+        let auth_events = self.auth_events.read().ok();
         let order_creations = self
             .order_creations
             .load(std::sync::atomic::Ordering::Relaxed);
@@ -233,6 +243,11 @@ impl MetricsRegistry {
 
         let mut output = String::new();
         output.push_str(&format!("order_creations_total {order_creations}\n"));
+        if let Some(events) = auth_events.as_ref() {
+            for (event, count) in events.iter() {
+                output.push_str(&format!("auth_events_total{{event=\"{event}\"}} {count}\n"));
+            }
+        }
         output.push_str(&format!("provider_errors_total {provider_errors}\n"));
         output.push_str(&format!(
             "provider_latency_total_ms {provider_latency_total}\n"
@@ -329,9 +344,13 @@ mod tests {
         state.metrics().set_failed_orders(10);
         state.metrics().set_flagged_orders(20);
 
+        state.metrics().record_auth_event("refresh_replay");
+        state.metrics().record_auth_event("refresh_replay");
+
         let metrics = state.metrics().render_prometheus().await;
         assert!(metrics.contains("order_creations_total"));
         assert!(metrics.contains("address_pool_depth"));
+        assert!(metrics.contains("auth_events_total{event=\"refresh_replay\"} 2"));
 
         let readiness = super::ReadinessReport {
             db: super::ProbeStatus {
