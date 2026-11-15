@@ -63,6 +63,7 @@ pub struct HttpState {
     pub email_client: Option<crate::integrations::email::EmailClient>,
     pub app_base_url: String,
     pub frontend_url: Option<String>,
+    pub cookie_domain: Option<String>,
     pub admin_secret: Option<secrecy::SecretString>,
 }
 
@@ -98,6 +99,7 @@ impl HttpState {
             email_client: None,
             app_base_url,
             frontend_url: None,
+            cookie_domain: None,
             admin_secret: None,
         }
     }
@@ -148,6 +150,7 @@ impl HttpState {
         }
         self.admin_secret = config.admin_secret.clone();
         self.frontend_url = config.frontend_url.clone();
+        self.cookie_domain = config.cookie_domain.clone();
 
         self
     }

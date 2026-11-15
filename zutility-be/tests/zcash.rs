@@ -299,6 +299,7 @@ fn runtime_network_policy_enforces_testnet_for_dev_and_staging() {
         brevo_sender_name: None,
         app_base_url: String::from("http://localhost:3000"),
         frontend_url: None,
+        cookie_domain: None,
         admin_secret: None,
     };
 
@@ -359,6 +360,7 @@ fn rpc_socket_policy_requires_unix_in_production() {
         brevo_sender_name: None,
         app_base_url: String::from("http://localhost:3000"),
         frontend_url: None,
+        cookie_domain: None,
         admin_secret: None,
     };
 
