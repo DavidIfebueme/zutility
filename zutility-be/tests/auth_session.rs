@@ -13,7 +13,7 @@ use zutility_be::http::handlers::HttpState;
 async fn test_pool() -> Option<PgPool> {
     let database_url = std::env::var("TEST_DATABASE_URL").ok()?;
     let pool = PgPoolOptions::new()
-        .max_connections(2)
+        .max_connections(8)
         .connect(&database_url)
         .await
         .ok()?;
@@ -50,6 +50,7 @@ async fn seed_user(pool: &PgPool) -> (Uuid, Uuid) {
         pool,
         refresh_id,
         user.id,
+        refresh_id,
         Utc::now() + Duration::hours(1),
         None,
         None,
@@ -77,6 +78,53 @@ fn set_cookies(response: &axum::response::Response) -> Vec<String> {
         .filter_map(|value| value.to_str().ok())
         .map(ToOwned::to_owned)
         .collect()
+}
+
+fn refresh_token_from(response: &axum::response::Response) -> Option<Uuid> {
+    set_cookies(response)
+        .iter()
+        .find(|cookie| cookie.starts_with("refresh_token=") && !cookie.contains("Max-Age=0"))
+        .and_then(|cookie| {
+            cookie
+                .split(';')
+                .next()
+                .and_then(|pair| pair.strip_prefix("refresh_token="))
+                .and_then(|value| value.parse().ok())
+        })
+}
+
+async fn seed_token(pool: &PgPool, user_id: Uuid) -> Uuid {
+    let id = Uuid::now_v7();
+    db::create_refresh_token(
+        pool,
+        id,
+        user_id,
+        id,
+        Utc::now() + Duration::hours(1),
+        None,
+        None,
+    )
+    .await
+    .expect("token");
+    id
+}
+
+async fn count_rows(pool: &PgPool, user_id: Uuid) -> i64 {
+    sqlx::query_scalar::<_, i64>("SELECT count(*) FROM refresh_tokens WHERE user_id = $1")
+        .bind(user_id)
+        .fetch_one(pool)
+        .await
+        .expect("count")
+}
+
+async fn count_active(pool: &PgPool, user_id: Uuid) -> i64 {
+    sqlx::query_scalar::<_, i64>(
+        "SELECT count(*) FROM refresh_tokens WHERE user_id = $1 AND revoked_at IS NULL",
+    )
+    .bind(user_id)
+    .fetch_one(pool)
+    .await
+    .expect("active")
 }
 
 #[tokio::test]
@@ -145,4 +193,129 @@ async fn refresh_issues_a_new_session_for_a_live_token() {
             .any(|cookie| cookie.starts_with("refresh_token=") && !cookie.contains("Max-Age=0")),
         "refresh must issue a new refresh token: {cookies:?}"
     );
+}
+
+#[tokio::test]
+async fn concurrent_refreshes_rotate_once_and_converge() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    let (user_id, refresh_id) = seed_user(&pool).await;
+    let state = state(pool.clone());
+
+    let mut handles = Vec::new();
+    for _ in 0..8 {
+        let state = state.clone();
+        handles.push(tokio::spawn(async move {
+            refresh(State(state), jar_with(refresh_id)).await.is_ok()
+        }));
+    }
+    for handle in handles {
+        assert!(handle.await.expect("task"), "every concurrent refresh succeeds");
+    }
+
+    assert_eq!(
+        count_rows(&pool, user_id).await,
+        2,
+        "one rotation creates exactly one successor"
+    );
+    assert_eq!(
+        count_active(&pool, user_id).await,
+        1,
+        "exactly one live token remains"
+    );
+}
+
+#[tokio::test]
+async fn a_lost_response_replays_into_the_live_successor() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    let (user_id, refresh_id) = seed_user(&pool).await;
+    let state = state(pool.clone());
+
+    let first = refresh(State(state.clone()), jar_with(refresh_id))
+        .await
+        .expect("first refresh rotates");
+    let successor = refresh_token_from(&first).expect("successor token");
+
+    let replay = refresh(State(state), jar_with(refresh_id))
+        .await
+        .expect("the same token replays inside the grace window");
+
+    assert_eq!(
+        refresh_token_from(&replay),
+        Some(successor),
+        "the retry receives the live successor, not a dead token"
+    );
+    assert_eq!(
+        count_rows(&pool, user_id).await,
+        2,
+        "a replay does not mint another token"
+    );
+}
+
+#[tokio::test]
+async fn a_stale_replay_revokes_only_its_own_family() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    let (user_id, old_token) = seed_user(&pool).await;
+    let other_device = seed_token(&pool, user_id).await;
+    let state = state(pool.clone());
+
+    refresh(State(state.clone()), jar_with(old_token))
+        .await
+        .expect("rotate the family first");
+
+    sqlx::query("UPDATE refresh_tokens SET revoked_at = now() - interval '1 hour' WHERE id = $1")
+        .bind(old_token)
+        .execute(&pool)
+        .await
+        .expect("age the token");
+
+    let result = refresh(State(state), jar_with(old_token)).await;
+    assert!(matches!(result, Err(ApiError::Unauthorized(_))));
+
+    let family_alive = sqlx::query_scalar::<_, i64>(
+        "SELECT count(*) FROM refresh_tokens
+         WHERE user_id = $1 AND revoked_at IS NULL AND family_id = $2",
+    )
+    .bind(user_id)
+    .bind(old_token)
+    .fetch_one(&pool)
+    .await
+    .expect("family count");
+    assert_eq!(family_alive, 0, "a stale replay revokes its own family");
+
+    let other_alive = sqlx::query_scalar::<_, bool>(
+        "SELECT revoked_at IS NULL FROM refresh_tokens WHERE id = $1",
+    )
+    .bind(other_device)
+    .fetch_one(&pool)
+    .await
+    .expect("other token");
+    assert!(
+        other_alive,
+        "a stale replay must not sign out the other device"
+    );
+}
+
+#[tokio::test]
+async fn an_expired_token_does_not_rotate() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    let (user_id, refresh_id) = seed_user(&pool).await;
+    let state = state(pool.clone());
+
+    sqlx::query("UPDATE refresh_tokens SET expires_at = now() - interval '1 minute' WHERE id = $1")
+        .bind(refresh_id)
+        .execute(&pool)
+        .await
+        .expect("expire");
+
+    let result = refresh(State(state), jar_with(refresh_id)).await;
+    assert!(matches!(result, Err(ApiError::Unauthorized(_))));
+    assert_eq!(count_rows(&pool, user_id).await, 1, "expiry mints nothing");
 }
