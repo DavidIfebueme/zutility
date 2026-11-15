@@ -107,7 +107,7 @@ export default function GiftsPage() {
           </p>
         </div>
         <Button asChild>
-          <Link href="/pay">Send a gift</Link>
+          <Link href="/pay?gift=1">Send a gift</Link>
         </Button>
       </header>
 
@@ -143,7 +143,7 @@ export default function GiftsPage() {
             account, so you never need their number.
           </p>
           <Button asChild className="mt-5">
-            <Link href="/pay">Create your first gift</Link>
+            <Link href="/pay?gift=1">Create your first gift</Link>
           </Button>
         </div>
       )}
