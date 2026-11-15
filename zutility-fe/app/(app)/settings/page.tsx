@@ -124,7 +124,7 @@ export default function SettingsPage() {
         new_password: data.new_password,
       })
       toast.success("Password changed. Please log in again.")
-      logout()
+      await logout()
       router.push("/login")
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : ""
@@ -147,7 +147,7 @@ export default function SettingsPage() {
       })
       toast.success("Account deleted")
       setDeleteConfirmOpen(false)
-      logout()
+      await logout()
       router.push("/")
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : ""

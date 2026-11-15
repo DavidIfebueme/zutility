@@ -17,15 +17,15 @@ interface AuthState {
   preferredCurrency: CurrencyCode | null
   hasHydrated: boolean
   setUser: (user: AuthUser) => void
-  logout: () => void
+  logout: () => Promise<void>
   setPreferredCurrency: (currency: CurrencyCode) => void
   setHasHydrated: (v: boolean) => void
 }
 
 function clearAuthCookies() {
   const domain = window.location.hostname.replace(/^www\./, '')
-  const paths = ['/', '/api', '/api/v1/auth/refresh']
-  const cookies = ['csrf_token', 'access_token', 'refresh_token']
+  const paths = ['/', '/api', '/api/v1/auth']
+  const cookies = ['csrf_token', 'access_token', 'refresh_token', 'session']
   for (const name of cookies) {
     for (const path of paths) {
       document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=${path}; domain=.${domain};`
@@ -46,8 +46,10 @@ export const useAuthStore = create<AuthState>()(
         isAuthenticated: true,
         preferredCurrency: get().preferredCurrency || detectCurrency(),
       }),
-      logout: () => {
-        apiPost('/api/v1/auth/logout', {}).catch(() => {})
+      logout: async () => {
+        try {
+          await apiPost('/api/v1/auth/logout', {})
+        } catch {}
         useOrderStore.getState().clearActiveOrder()
         clearAuthCookies()
         set({ user: null, isAuthenticated: false, preferredCurrency: null })
