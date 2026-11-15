@@ -81,6 +81,12 @@ export default function PayPage() {
   const [displayAmount, setDisplayAmount] = React.useState<string>("1000")
   const [meterType, setMeterType] = React.useState<"prepaid" | "postpaid">("prepaid")
   const [isGift, setIsGift] = React.useState(false)
+
+  React.useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("gift") !== "1") return
+    const timer = window.setTimeout(() => setIsGift(true), 0)
+    return () => window.clearTimeout(timer)
+  }, [])
   const [giftMessage, setGiftMessage] = React.useState("")
   const [giftFallbackRef, setGiftFallbackRef] = React.useState("")
   const [giftWindowHours, setGiftWindowHours] = React.useState(168)
@@ -398,7 +404,10 @@ export default function PayPage() {
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <button
             type="button"
-            onClick={() => setIsGift(false)}
+            onClick={() => {
+              setIsGift(false)
+              router.replace("/pay")
+            }}
             className={cn(
               "rounded-md border px-3 py-1.5 text-[12px] transition-colors",
               !isGift ? "border-ink bg-cream text-ink" : "border-line text-muted hover:text-ink"
@@ -410,6 +419,7 @@ export default function PayPage() {
             type="button"
             onClick={() => {
               setIsGift(true)
+              router.replace("/pay?gift=1")
               if (selectedUtility?.type === "school") {
                 setValue("utilityId", "", { shouldValidate: true })
               }
