@@ -9,17 +9,17 @@ const STEPS = [
   {
     number: "01",
     title: "Choose a plan",
-    body: "Pick a bundle and a cycle, such as monthly data, a TV package, or a monthly electricity amount. More merchants join as they adopt the protocol.",
+    body: "Pick a service and a cycle, such as monthly data, a TV package, or electricity.",
   },
   {
     number: "02",
     title: "Approve once",
-    body: "Your shielded wallet signs the terms. The mandate can only charge what those terms allow, and you can stop it at any time.",
+    body: "Your wallet signs the terms once. A charge can never exceed them, and you can stop it at any time.",
   },
   {
     number: "03",
     title: "Every cycle delivers",
-    body: "On each cycle the mandate charges within the terms, the utility is delivered, and the receipt lands in your history.",
+    body: "The cycle is paid and delivered on schedule, and the receipt lands in your history.",
   },
 ]
 
@@ -33,9 +33,8 @@ export default function SubscriptionsPage() {
           <Badge variant="coming-soon">Coming soon</Badge>
         </div>
         <p className="mt-2 max-w-xl text-[14px] leading-relaxed text-ink-2">
-          Start with data, TV, and electricity. The same one-time approval can pay any merchant
-          that supports ZEC subscriptions, from streaming to school fees. Your wallet signs the
-          terms once, each cycle is delivered, and you can stop it whenever you want.
+          Subscribe to services that support native ZEC subscriptions. Approve the terms once in
+          your wallet, each cycle is paid automatically, and you can stop it whenever you want.
         </p>
       </header>
 
@@ -64,10 +63,9 @@ export default function SubscriptionsPage() {
 
           <div className="border-t border-line px-5 py-3">
             <p className="text-[12px] leading-relaxed text-muted">
-              Not live yet. Nothing is charged and no mandate can be created. We start with the
-              bills already on zutility. More merchants come as wallets and payment providers adopt
-              ELSA, the shielded subscription protocol, which needs two Zcash network upgrades before
-              it can run on mainnet.
+              Not live yet. Nothing is charged and no mandate can be created. Native ZEC
+              subscriptions use ELSA, which needs two Zcash network upgrades before it can run on
+              mainnet.
             </p>
           </div>
         </section>
