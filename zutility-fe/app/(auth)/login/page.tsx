@@ -10,8 +10,8 @@ import { Eye, EyeOff } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { AuthFooterLink, AuthShell } from "@/components/auth/auth-shell"
-import { useAuthStore } from "@/store/auth"
-import { apiPostRaw } from "@/lib/api"
+import { useAuthStore, type AuthUser } from "@/store/auth"
+import { apiPostRaw, getApiBaseUrl } from "@/lib/api"
 import { useShake } from "@/lib/hooks/useShake"
 import { toast } from "sonner"
 
@@ -36,6 +36,41 @@ export default function LoginPage() {
   } = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
   })
+
+  React.useEffect(() => {
+    const next = new URLSearchParams(window.location.search).get("next")
+    if (!next || !next.startsWith("/") || next.startsWith("//") || next.startsWith("/\\")) {
+      return
+    }
+
+    let active = true
+    const restore = async () => {
+      try {
+        const refreshed = await fetch(`${getApiBaseUrl()}/api/v1/auth/refresh`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "content-type": "application/json" },
+        })
+        if (!refreshed.ok) return
+
+        const me = await fetch(`${getApiBaseUrl()}/api/v1/auth/me`, {
+          credentials: "include",
+          cache: "no-store",
+        })
+        if (!me.ok) return
+
+        const account = (await me.json()) as AuthUser
+        if (!active) return
+        setUser(account)
+        router.replace(next)
+      } catch {}
+    }
+
+    void restore()
+    return () => {
+      active = false
+    }
+  }, [router, setUser])
 
   const onSubmit = async (data: LoginFormValues) => {
     setIsLoading(true)
