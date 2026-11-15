@@ -211,7 +211,16 @@ async function handleResponse<T>(response: Response, originalRequest: () => Prom
     }
     throw new Error(message)
   }
-  return response.json() as Promise<T>
+
+  if (response.status === 204 || response.status === 205) {
+    return undefined as T
+  }
+
+  const text = await response.text()
+  if (!text) {
+    return undefined as T
+  }
+  return JSON.parse(text) as T
 }
 
 export async function ensureFreshSession(): Promise<void> {
