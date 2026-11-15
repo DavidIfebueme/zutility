@@ -248,11 +248,24 @@ async fn create_session(
     let refresh_id = Uuid::now_v7();
     let expires_at = Utc::now() + Duration::hours(refresh_token_ttl_hours);
 
-    db::create_refresh_token(pool, refresh_id, user.id, expires_at, None, None)
+    db::create_refresh_token(pool, refresh_id, user.id, refresh_id, expires_at, None, None)
         .await
         .map_err(internal_err)?;
 
     Ok((access_jwt, refresh_id, csrf_token))
+}
+
+fn mint_access_token(state: &HttpState, user: &UserRow) -> Result<(String, String), ApiError> {
+    let csrf_token = auth::generate_csrf_token();
+    let access_jwt = auth::create_access_jwt(
+        user.id,
+        &user.email,
+        &csrf_token,
+        &state.jwt_secret,
+        state.access_token_ttl_minutes,
+    )
+    .map_err(internal_err)?;
+    Ok((access_jwt, csrf_token))
 }
 
 pub async fn register(
@@ -367,6 +380,8 @@ pub async fn login(
     Ok(auth_ok(jar, &user))
 }
 
+const REFRESH_REUSE_GRACE_SECONDS: i64 = 900;
+
 pub async fn refresh(
     State(state): State<HttpState>,
     jar: CookieJar,
@@ -380,58 +395,111 @@ pub async fn refresh(
         .parse()
         .map_err(|_| ApiError::unauthorized("invalid refresh token"))?;
 
+    let mut tx = db::begin_tx(&state.pool).await.map_err(internal_err)?;
+    let owner = db::refresh_token_owner_tx(&mut tx, refresh_id)
+        .await
+        .map_err(internal_err)?
+        .ok_or_else(|| ApiError::unauthorized("invalid refresh token"))?;
+    db::lock_user_sessions_tx(&mut tx, owner)
+        .await
+        .map_err(internal_err)?;
+    let claimed = db::claim_refresh_token_tx(&mut tx, refresh_id)
+        .await
+        .map_err(internal_err)?;
+
+    if let Some(claimed) = claimed {
+        if claimed.expires_at < Utc::now() {
+            return Err(ApiError::unauthorized("refresh token expired"));
+        }
+
+        let user = db::find_user_by_id_tx(&mut tx, claimed.user_id)
+            .await
+            .map_err(internal_err)?
+            .ok_or_else(|| ApiError::unauthorized("session ended"))?;
+
+        let new_refresh_id = Uuid::now_v7();
+        let expires_at = Utc::now() + Duration::hours(state.refresh_token_ttl_hours);
+        db::insert_refresh_token_tx(
+            &mut tx,
+            new_refresh_id,
+            user.id,
+            claimed.family_id,
+            expires_at,
+            None,
+            None,
+        )
+        .await
+        .map_err(internal_err)?;
+        db::link_refresh_token_replacement_tx(&mut tx, refresh_id, new_refresh_id)
+            .await
+            .map_err(internal_err)?;
+        tx.commit().await.map_err(internal_err)?;
+
+        let (access_jwt, csrf_token) = mint_access_token(&state, &user)?;
+        let jar = set_auth_cookies(
+            jar,
+            &state,
+            &access_jwt,
+            &new_refresh_id.to_string(),
+            &csrf_token,
+        );
+        return Ok(auth_ok(jar, &user));
+    }
+
+    tx.rollback().await.map_err(internal_err)?;
+
     let stored = db::find_refresh_token(&state.pool, refresh_id)
         .await
         .map_err(internal_err)?
         .ok_or_else(|| ApiError::unauthorized("invalid refresh token"))?;
 
-    if let Some(revoked_at) = stored.revoked_at {
-        if Utc::now() - revoked_at > Duration::seconds(60) {
-            db::revoke_all_user_refresh_tokens(&state.pool, stored.user_id)
-                .await
-                .map_err(internal_err)?;
-        }
-        return Err(ApiError::unauthorized("refresh token already rotated"));
-    }
-
     if stored.expires_at < Utc::now() {
         return Err(ApiError::unauthorized("refresh token expired"));
     }
 
-    db::revoke_refresh_token(&state.pool, refresh_id)
-        .await
-        .map_err(internal_err)?;
+    let Some(revoked_at) = stored.revoked_at else {
+        return Err(ApiError::service_unavailable(
+            "refresh token is being rotated, try again",
+        ));
+    };
 
-    let user = db::find_user_by_id(&state.pool, stored.user_id)
-        .await
-        .map_err(internal_err)?
-        .ok_or_else(|| ApiError::unauthorized("session ended"))?;
+    let rotated_recently = stored.replaced_by.is_some()
+        && Utc::now() - revoked_at <= Duration::seconds(REFRESH_REUSE_GRACE_SECONDS);
 
-    let (access_jwt, new_refresh_id, csrf_token) = create_session(
-        &state.pool,
-        &user,
-        &state.jwt_secret,
-        state.access_token_ttl_minutes,
-        state.refresh_token_ttl_hours,
-    )
-    .await?;
+    if rotated_recently {
+        let user = db::find_user_by_id(&state.pool, stored.user_id)
+            .await
+            .map_err(internal_err)?
+            .ok_or_else(|| ApiError::unauthorized("session ended"))?;
 
-    let jar = set_auth_cookies(
-        jar,
-        &state,
-        &access_jwt,
-        &new_refresh_id.to_string(),
-        &csrf_token,
-    );
+        if let Some(successor) = db::find_live_successor(&state.pool, stored.id)
+            .await
+            .map_err(internal_err)?
+        {
+            let (access_jwt, csrf_token) = mint_access_token(&state, &user)?;
+            let jar =
+                set_auth_cookies(jar, &state, &access_jwt, &successor.to_string(), &csrf_token);
+            return Ok(auth_ok(jar, &user));
+        }
 
-    Ok(auth_ok(jar, &user))
+        return Err(ApiError::unauthorized("refresh token already rotated"));
+    }
+
+    if stored.replaced_by.is_some() {
+        db::revoke_refresh_token_family(&state.pool, stored.id)
+            .await
+            .map_err(internal_err)?;
+    }
+    Err(ApiError::unauthorized("refresh token already rotated"))
 }
 
 pub async fn logout(State(state): State<HttpState>, jar: CookieJar) -> Result<Response, ApiError> {
     if let Some(refresh_cookie) = jar.get("refresh_token")
         && let Ok(refresh_id) = refresh_cookie.value().parse::<Uuid>()
     {
-        let _ = db::revoke_refresh_token(&state.pool, refresh_id).await;
+        db::revoke_refresh_token_family(&state.pool, refresh_id)
+            .await
+            .map_err(internal_err)?;
     }
 
     let cookies = clear_auth_cookies(&state);

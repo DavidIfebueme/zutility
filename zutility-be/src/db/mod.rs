@@ -1091,9 +1091,17 @@ pub struct UserRow {
 pub struct RefreshTokenRow {
     pub id: Uuid,
     pub user_id: Uuid,
+    pub family_id: Uuid,
+    pub replaced_by: Option<Uuid>,
     pub expires_at: chrono::DateTime<chrono::Utc>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+pub struct ClaimedRefreshToken {
+    pub user_id: Uuid,
+    pub family_id: Uuid,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
 }
 
 #[derive(Debug, Clone)]
@@ -1150,6 +1158,21 @@ pub async fn find_user_by_id(pool: &PgPool, id: Uuid) -> Result<Option<UserRow>>
     row.map(map_user_row).transpose()
 }
 
+pub async fn find_user_by_id_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    id: Uuid,
+) -> Result<Option<UserRow>> {
+    let row = sqlx::query(
+        "SELECT id, email, display_name, password_hash, email_verified, created_at, updated_at, deleted_at
+         FROM users WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind(id)
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    row.map(map_user_row).transpose()
+}
+
 pub async fn update_user_password(pool: &PgPool, user_id: Uuid, password_hash: &str) -> Result<()> {
     sqlx::query(
         "UPDATE users SET password_hash = $2, updated_at = now() WHERE id = $1 AND deleted_at IS NULL",
@@ -1200,16 +1223,18 @@ pub async fn create_refresh_token(
     pool: &PgPool,
     id: Uuid,
     user_id: Uuid,
+    family_id: Uuid,
     expires_at: chrono::DateTime<chrono::Utc>,
     user_agent: Option<&str>,
     ip_hash: Option<&str>,
 ) -> Result<()> {
     sqlx::query(
-        "INSERT INTO refresh_tokens (id, user_id, expires_at, user_agent, ip_hash)
-         VALUES ($1, $2, $3, $4, $5)",
+        "INSERT INTO refresh_tokens (id, user_id, family_id, expires_at, user_agent, ip_hash)
+         VALUES ($1, $2, $3, $4, $5, $6)",
     )
     .bind(id)
     .bind(user_id)
+    .bind(family_id)
     .bind(expires_at)
     .bind(user_agent)
     .bind(ip_hash)
@@ -1219,9 +1244,116 @@ pub async fn create_refresh_token(
     Ok(())
 }
 
+pub async fn insert_refresh_token_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    id: Uuid,
+    user_id: Uuid,
+    family_id: Uuid,
+    expires_at: chrono::DateTime<chrono::Utc>,
+    user_agent: Option<&str>,
+    ip_hash: Option<&str>,
+) -> Result<()> {
+    sqlx::query(
+        "INSERT INTO refresh_tokens (id, user_id, family_id, expires_at, user_agent, ip_hash)
+         VALUES ($1, $2, $3, $4, $5, $6)",
+    )
+    .bind(id)
+    .bind(user_id)
+    .bind(family_id)
+    .bind(expires_at)
+    .bind(user_agent)
+    .bind(ip_hash)
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn refresh_token_owner_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    id: Uuid,
+) -> Result<Option<Uuid>> {
+    let owner = sqlx::query_scalar::<_, Uuid>("SELECT user_id FROM refresh_tokens WHERE id = $1")
+        .bind(id)
+        .fetch_optional(&mut **tx)
+        .await?;
+    Ok(owner)
+}
+
+pub async fn lock_user_sessions_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: Uuid,
+) -> Result<()> {
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))")
+        .bind(user_id)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
+pub async fn claim_refresh_token_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    id: Uuid,
+) -> Result<Option<ClaimedRefreshToken>> {
+    let row = sqlx::query(
+        "UPDATE refresh_tokens SET revoked_at = now()
+         WHERE id = $1 AND revoked_at IS NULL
+         RETURNING user_id, family_id, expires_at",
+    )
+    .bind(id)
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    row.map(|row| {
+        Ok(ClaimedRefreshToken {
+            user_id: row.try_get("user_id")?,
+            family_id: row.try_get("family_id")?,
+            expires_at: row.try_get("expires_at")?,
+        })
+    })
+    .transpose()
+}
+
+pub async fn link_refresh_token_replacement_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    id: Uuid,
+    replacement: Uuid,
+) -> Result<()> {
+    sqlx::query("UPDATE refresh_tokens SET replaced_by = $2 WHERE id = $1")
+        .bind(id)
+        .bind(replacement)
+        .execute(&mut **tx)
+        .await?;
+
+    Ok(())
+}
+
+pub async fn find_live_successor(pool: &PgPool, id: Uuid) -> Result<Option<Uuid>> {
+    let row = sqlx::query(
+        "WITH RECURSIVE chain AS (
+             SELECT id, replaced_by, revoked_at, expires_at, 1 AS depth
+             FROM refresh_tokens WHERE id = $1
+             UNION ALL
+             SELECT t.id, t.replaced_by, t.revoked_at, t.expires_at, c.depth + 1
+             FROM refresh_tokens t JOIN chain c ON t.id = c.replaced_by
+             WHERE c.depth < 8
+         )
+         SELECT id FROM chain
+         WHERE revoked_at IS NULL AND expires_at > now()
+         ORDER BY depth DESC
+         LIMIT 1",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await?;
+
+    row.map(|row| row.try_get::<Uuid, _>("id").map_err(Into::into))
+        .transpose()
+}
+
 pub async fn find_refresh_token(pool: &PgPool, id: Uuid) -> Result<Option<RefreshTokenRow>> {
     let row = sqlx::query(
-        "SELECT id, user_id, expires_at, created_at, revoked_at
+        "SELECT id, user_id, family_id, replaced_by, expires_at, created_at, revoked_at
          FROM refresh_tokens WHERE id = $1",
     )
     .bind(id)
@@ -1231,6 +1363,8 @@ pub async fn find_refresh_token(pool: &PgPool, id: Uuid) -> Result<Option<Refres
     row.map(|r| Ok(RefreshTokenRow {
         id: r.try_get("id")?,
         user_id: r.try_get("user_id")?,
+        family_id: r.try_get("family_id")?,
+        replaced_by: r.try_get("replaced_by")?,
         expires_at: r.try_get("expires_at")?,
         created_at: r.try_get("created_at")?,
         revoked_at: r.try_get("revoked_at")?,
@@ -1249,13 +1383,39 @@ pub async fn revoke_refresh_token(pool: &PgPool, id: Uuid) -> Result<()> {
     Ok(())
 }
 
+pub async fn revoke_refresh_token_family(pool: &PgPool, token_id: Uuid) -> Result<()> {
+    let mut tx = begin_tx(pool).await?;
+    let owner = sqlx::query_scalar::<_, Uuid>("SELECT user_id FROM refresh_tokens WHERE id = $1")
+        .bind(token_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+    if let Some(user_id) = owner {
+        lock_user_sessions_tx(&mut tx, user_id).await?;
+        sqlx::query(
+            "UPDATE refresh_tokens SET revoked_at = now()
+             WHERE revoked_at IS NULL
+               AND family_id = (SELECT family_id FROM refresh_tokens WHERE id = $1)",
+        )
+        .bind(token_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    tx.commit().await?;
+    Ok(())
+}
+
 pub async fn revoke_all_user_refresh_tokens(pool: &PgPool, user_id: Uuid) -> Result<()> {
+    let mut tx = begin_tx(pool).await?;
+    lock_user_sessions_tx(&mut tx, user_id).await?;
     sqlx::query(
         "UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL",
     )
     .bind(user_id)
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
+    tx.commit().await?;
 
     Ok(())
 }
