@@ -152,9 +152,14 @@ async fn logout_revokes_the_presented_token_without_an_access_token() {
     assert!(
         cookies.iter().any(|cookie| cookie.starts_with("refresh_token=;")
             && cookie.contains("Max-Age=0")
-            && cookie.contains("Path=/api/v1/auth")
+            && cookie.contains("Path=/api/v1/auth;")
             && cookie.contains("Domain=zutility.xyz")),
-        "logout must expire the refresh cookie on its own path: {cookies:?}"
+        "logout must expire the refresh cookie on the current path: {cookies:?}"
+    );
+    assert!(
+        cookies.iter().any(|cookie| cookie.starts_with("refresh_token=;")
+            && cookie.contains("Path=/api/v1/auth/refresh")),
+        "logout must also expire the cookie left by the previous release: {cookies:?}"
     );
     assert!(
         cookies.iter().any(|cookie| cookie.starts_with("session=;")),
