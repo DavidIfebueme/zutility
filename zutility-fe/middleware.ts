@@ -19,6 +19,7 @@ export const config = {
     "/dashboard/:path*",
     "/pay/:path*",
     "/gifts/:path*",
+    "/subscriptions/:path*",
     "/history/:path*",
     "/settings/:path*",
     "/otc/:path*",

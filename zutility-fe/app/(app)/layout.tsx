@@ -8,6 +8,7 @@ import {
   CreditCard,
   Gift,
   History,
+  Repeat,
   Home,
   LogOut,
   Menu,
@@ -34,6 +35,7 @@ const NAV_ITEMS = [
 ]
 
 const SOON_ITEMS = [
+  { href: "/subscriptions", label: "Subscriptions", icon: Repeat },
   { href: "/otc", label: "OTC off-ramp", icon: ArrowLeftRight },
   { href: "/p2p", label: "P2P market", icon: Store },
 ]
