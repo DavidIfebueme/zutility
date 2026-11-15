@@ -2,7 +2,10 @@ import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 
 export function middleware(request: NextRequest) {
-  if (request.cookies.get("session")?.value) {
+  const signedIn =
+    request.cookies.get("session")?.value || request.cookies.get("csrf_token")?.value
+
+  if (signedIn) {
     return NextResponse.next()
   }
 
