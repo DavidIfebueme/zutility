@@ -4,7 +4,7 @@ const wsBase = process.env.NEXT_PUBLIC_WS_URL?.replace(/\/$/, '') || apiBase.rep
 
 const REFRESH_STAMP_KEY = 'zutility-refresh-at'
 const REFRESH_LEASE_KEY = 'zutility-refresh-lease'
-const LEASE_MS = 15_000
+const LEASE_MS = 8_000
 const BACKOFF_MS = [300, 900, 2700]
 const PROACTIVE_AFTER_MS = 10 * 60 * 1000
 
@@ -87,7 +87,7 @@ async function refreshOnce(): Promise<RefreshOutcome> {
     markRefreshed()
     return 'ok'
   }
-  if (response.status === 401 || response.status === 403) {
+  if (response.status === 401) {
     return 'unauthenticated'
   }
   return 'transient'
@@ -157,13 +157,22 @@ function getCsrfToken(): string | null {
     ?.split('=')[1] ?? null
 }
 
-function endSession() {
+async function endSession() {
   if (typeof window === 'undefined') return
+  try {
+    await fetch(`${apiBase}/api/v1/auth/logout`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: getAuthHeaders(),
+    })
+  } catch {}
+
   const { useAuthStore } = require('@/store/auth')
   const { useOrderStore } = require('@/store/order')
   useAuthStore.setState({ user: null, isAuthenticated: false, preferredCurrency: null })
   useOrderStore.getState().clearActiveOrder()
   writeStore(REFRESH_STAMP_KEY, null)
+  writeStore(REFRESH_LEASE_KEY, null)
   const next = encodeURIComponent(window.location.pathname + window.location.search)
   window.location.assign(`/login?next=${next}`)
 }
@@ -175,7 +184,7 @@ async function handleResponse<T>(response: Response, originalRequest: () => Prom
     if (outcome === 'ok') {
       const retryRes = await originalRequest()
       if (retryRes.status === 401) {
-        endSession()
+        await endSession()
         throw new Error('Session expired')
       }
       if (!retryRes.ok) {
@@ -185,7 +194,7 @@ async function handleResponse<T>(response: Response, originalRequest: () => Prom
     }
 
     if (outcome === 'unauthenticated') {
-      endSession()
+      await endSession()
       throw new Error('Session expired')
     }
 
@@ -212,7 +221,7 @@ export async function ensureFreshSession(): Promise<void> {
 
   const outcome = await refreshSession()
   if (outcome === 'unauthenticated') {
-    endSession()
+    await endSession()
   }
 }
 

@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware'
 import { apiPost, clearSessionFreshness } from '@/lib/api'
 import { useOrderStore } from '@/store/order'
 import { detectCurrency, type CurrencyCode } from '@/lib/currency'
+import { toast } from 'sonner'
 
 export interface AuthUser {
   id: string
@@ -47,13 +48,19 @@ export const useAuthStore = create<AuthState>()(
         preferredCurrency: get().preferredCurrency || detectCurrency(),
       }),
       logout: async () => {
+        let revoked = true
         try {
           await apiPost('/api/v1/auth/logout', {})
-        } catch {}
+        } catch {
+          revoked = false
+        }
         useOrderStore.getState().clearActiveOrder()
         clearSessionFreshness()
         clearAuthCookies()
         set({ user: null, isAuthenticated: false, preferredCurrency: null })
+        if (!revoked) {
+          toast.error('Signed out on this device. The server could not be reached.')
+        }
       },
       setPreferredCurrency: (currency: CurrencyCode) => set({ preferredCurrency: currency }),
       setHasHydrated: (v: boolean) => set({ hasHydrated: v }),
