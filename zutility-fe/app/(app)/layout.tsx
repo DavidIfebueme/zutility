@@ -17,7 +17,7 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAuthStore, type AuthUser } from "@/store/auth"
-import { apiGet } from "@/lib/api"
+import { apiGet, ensureFreshSession, markSessionFresh } from "@/lib/api"
 import { useOrderStore } from "@/store/order"
 import { NotificationDropdown } from "@/components/ui/notification-dropdown"
 import { Button } from "@/components/ui/button"
@@ -138,6 +138,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, hasHydrated, setUser, setHasHydrated } = useAuthStore()
   const [menuOpen, setMenuOpen] = React.useState(false)
   const [sessionChecked, setSessionChecked] = React.useState(false)
+  const [sessionError, setSessionError] = React.useState(false)
+  const [sessionAttempt, setSessionAttempt] = React.useState(0)
 
   React.useEffect(() => {
     if (hasHydrated) return
@@ -151,12 +153,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
     apiGet<AuthUser>("/api/v1/auth/me")
       .then((account) => {
-        if (active) setUser(account)
+        if (active) {
+          setUser(account)
+          markSessionFresh()
+        }
       })
       .catch(() => {
-        if (active) {
-          router.replace(`/login?next=${encodeURIComponent(pathname)}`)
-        }
+        if (active) setSessionError(true)
       })
       .finally(() => {
         if (active) setSessionChecked(true)
@@ -165,12 +168,52 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     return () => {
       active = false
     }
-  }, [hasHydrated, isAuthenticated, pathname, router, setUser])
+  }, [hasHydrated, isAuthenticated, sessionAttempt, setUser])
+
+  React.useEffect(() => {
+    if (!isAuthenticated) return
+
+    const keepFresh = () => {
+      if (document.visibilityState === "visible") {
+        void ensureFreshSession()
+      }
+    }
+
+    void ensureFreshSession()
+    document.addEventListener("visibilitychange", keepFresh)
+    return () => document.removeEventListener("visibilitychange", keepFresh)
+  }, [isAuthenticated])
 
   if (!hasHydrated || (!isAuthenticated && !sessionChecked)) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-paper">
         <div className="h-6 w-6 animate-spin rounded-full border-2 border-line-strong border-t-ink" />
+      </div>
+    )
+  }
+
+  if (!isAuthenticated && sessionError) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-paper px-6 text-center">
+        <p className="label-xs text-muted">Session</p>
+        <p className="max-w-xs text-lg text-ink">We could not confirm your session.</p>
+        <p className="max-w-xs text-[13px] text-muted">
+          Check your connection and try again. Nothing was lost.
+        </p>
+        <div className="flex items-center gap-2">
+          <Button
+            onClick={() => {
+              setSessionError(false)
+              setSessionChecked(false)
+              setSessionAttempt((attempt) => attempt + 1)
+            }}
+          >
+            Try again
+          </Button>
+          <Button asChild variant="secondary">
+            <Link href={`/login?next=${encodeURIComponent(pathname)}`}>Sign in</Link>
+          </Button>
+        </div>
       </div>
     )
   }
@@ -181,7 +224,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <p className="label-xs text-muted">Session</p>
         <p className="max-w-xs text-lg text-ink">Sign in to see your orders.</p>
         <Button asChild>
-          <Link href="/login">Sign in</Link>
+          <Link href={`/login?next=${encodeURIComponent(pathname)}`}>Sign in</Link>
         </Button>
       </div>
     )
