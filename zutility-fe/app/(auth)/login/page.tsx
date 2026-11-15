@@ -81,14 +81,17 @@ export default function LoginPage() {
       })
       if (res.ok) {
         const result = await res.json()
-        if (!document.cookie.includes("csrf_token")) {
+        if (!/(^|;\s)csrf_token=/.test(document.cookie)) {
           toast.error("Your browser blocked the session cookie. Enable cookies for this site and try again.")
           return
         }
         setUser(result)
         toast.success("Signed in")
         const next = new URLSearchParams(window.location.search).get("next")
-        const destination = next && next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard"
+        const destination =
+          next && next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\")
+            ? next
+            : "/dashboard"
         router.replace(destination)
       } else if (res.status === 403) {
         const result = await res.json()
