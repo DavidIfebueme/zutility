@@ -119,6 +119,8 @@ pub struct AppConfig {
     pub brevo_sender_name: Option<String>,
     pub app_base_url: String,
     pub frontend_url: Option<String>,
+    #[serde(default)]
+    pub cookie_domain: Option<String>,
     pub admin_secret: Option<SecretString>,
 }
 
@@ -147,6 +149,9 @@ impl AppConfig {
         ensure_non_empty_secret("VTPASS_SECRET_KEY", &self.vtpass_secret_key)?;
         if let Some(ref v) = self.remita_merchant_id {
             if v.trim().is_empty() { self.remita_merchant_id = None; }
+        }
+        if let Some(ref v) = self.cookie_domain {
+            if v.trim().is_empty() { self.cookie_domain = None; }
         }
         if let Some(ref v) = self.remita_api_key {
             if v.expose_secret().trim().is_empty() { self.remita_api_key = None; }

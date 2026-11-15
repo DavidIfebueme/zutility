@@ -119,6 +119,7 @@ fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool
 
     let public_routes = Router::new()
         .route("/api/v1/auth/refresh", post(refresh))
+        .route("/api/v1/auth/logout", post(logout))
         .route("/api/v1/auth/verify-email", post(verify_email))
         .route("/api/v1/rates/current", get(get_current_rate))
         .route("/api/v1/utilities", get(list_utilities))
@@ -165,7 +166,6 @@ fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool
             "/api/v1/orders/{order_id}/access-token",
             post(rotate_order_access_token),
         )
-        .route("/api/v1/auth/logout", post(logout))
         .route("/api/v1/auth/me", get(get_me))
         .route("/api/v1/auth/profile", post(update_profile))
         .route("/api/v1/auth/change-password", post(change_password))
@@ -315,6 +315,7 @@ pub fn router() -> Router {
         brevo_sender_name: None,
         app_base_url: String::from("http://localhost:3000"),
         frontend_url: None,
+        cookie_domain: None,
         admin_secret: Some(secrecy::SecretString::from(String::from("dev_admin_secret"))),
     };
 

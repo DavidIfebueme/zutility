@@ -27,51 +27,107 @@ fn internal_err(error: impl std::fmt::Display) -> ApiError {
     ApiError::internal(error.to_string())
 }
 
+#[derive(Clone, Copy)]
+enum AuthCookie {
+    Access,
+    Refresh,
+    Csrf,
+    Session,
+}
+
+impl AuthCookie {
+    const ALL: [Self; 4] = [Self::Access, Self::Refresh, Self::Csrf, Self::Session];
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Access => "access_token",
+            Self::Refresh => "refresh_token",
+            Self::Csrf => "csrf_token",
+            Self::Session => "session",
+        }
+    }
+
+    fn path(self) -> &'static str {
+        match self {
+            Self::Access => "/api",
+            Self::Refresh => "/api/v1/auth",
+            Self::Csrf | Self::Session => "/",
+        }
+    }
+
+    fn http_only(self) -> bool {
+        !matches!(self, Self::Csrf)
+    }
+
+    fn same_site(self) -> SameSite {
+        match self {
+            Self::Access | Self::Refresh => SameSite::Strict,
+            Self::Csrf | Self::Session => SameSite::Lax,
+        }
+    }
+
+    fn max_age(self, state: &HttpState) -> i64 {
+        match self {
+            Self::Access | Self::Csrf => access_ttl_seconds(state),
+            Self::Refresh | Self::Session => refresh_ttl_seconds(state),
+        }
+    }
+}
+
+fn access_ttl_seconds(state: &HttpState) -> i64 {
+    state.access_token_ttl_minutes.saturating_mul(60)
+}
+
+fn refresh_ttl_seconds(state: &HttpState) -> i64 {
+    state.refresh_token_ttl_hours.saturating_mul(3600)
+}
+
+fn auth_cookie_domain(state: &HttpState) -> Option<String> {
+    state
+        .cookie_domain
+        .clone()
+        .or_else(|| cookie_domain_from_base_url(&state.app_base_url))
+}
+
+fn build_auth_cookie(
+    cookie: AuthCookie,
+    value: String,
+    max_age: i64,
+    cookie_domain: Option<&str>,
+) -> axum_extra::extract::cookie::Cookie<'static> {
+    let mut builder = axum_extra::extract::cookie::Cookie::build((cookie.name(), value))
+        .http_only(cookie.http_only())
+        .secure(cfg!(not(debug_assertions)))
+        .same_site(cookie.same_site())
+        .path(cookie.path())
+        .max_age(time::Duration::seconds(max_age));
+    if let Some(domain) = cookie_domain {
+        builder = builder.domain(domain.to_owned());
+    }
+    builder.build()
+}
+
 fn set_auth_cookies(
     jar: CookieJar,
+    state: &HttpState,
     access_token: &str,
     refresh_token: &str,
     csrf_token: &str,
-    cookie_domain: Option<&str>,
 ) -> CookieJar {
-    let secure = cfg!(not(debug_assertions));
-    let same_site = if secure {
-        SameSite::Strict
-    } else {
-        SameSite::Lax
-    };
+    let domain = auth_cookie_domain(state);
+    let domain = domain.as_deref();
+    let values = [
+        (AuthCookie::Access, access_token.to_owned()),
+        (AuthCookie::Refresh, refresh_token.to_owned()),
+        (AuthCookie::Csrf, csrf_token.to_owned()),
+        (AuthCookie::Session, String::from("1")),
+    ];
 
-    let mut builder = axum_extra::extract::cookie::Cookie::build(("access_token", access_token.to_owned()))
-        .http_only(true)
-        .secure(secure)
-        .same_site(same_site)
-        .path("/api")
-        .max_age(time::Duration::seconds(900));
-    if let Some(domain) = cookie_domain {
-        builder = builder.domain(domain.to_owned());
+    let mut jar = jar;
+    for (cookie, value) in values {
+        jar = jar.add(build_auth_cookie(cookie, value, cookie.max_age(state), domain));
     }
-    let jar = jar.add(builder.finish());
-
-    let mut builder = axum_extra::extract::cookie::Cookie::build(("refresh_token", refresh_token.to_owned()))
-        .http_only(true)
-        .secure(secure)
-        .same_site(same_site)
-        .path("/api/v1/auth/refresh")
-        .max_age(time::Duration::seconds(86400));
-    if let Some(domain) = cookie_domain {
-        builder = builder.domain(domain.to_owned());
-    }
-    let jar = jar.add(builder.finish());
-
-    let mut builder = axum_extra::extract::cookie::Cookie::build(("csrf_token", csrf_token.to_owned()))
-        .secure(secure)
-        .same_site(same_site)
-        .path("/")
-        .max_age(time::Duration::seconds(900));
-    if let Some(domain) = cookie_domain {
-        builder = builder.domain(domain.to_owned());
-    }
-    jar.add(builder.finish())
+    jar
 }
 
 fn cookie_domain_from_base_url(base_url: &str) -> Option<String> {
@@ -94,21 +150,54 @@ fn cookie_domain_from_base_url(base_url: &str) -> Option<String> {
     }
 }
 
-fn clear_auth_cookies(jar: CookieJar, cookie_domain: Option<&str>) -> CookieJar {
-    let mut c1 = axum_extra::extract::cookie::Cookie::build(("access_token", ""))
-        .path("/api");
-    let mut c2 = axum_extra::extract::cookie::Cookie::build(("refresh_token", ""))
-        .path("/api/v1/auth/refresh");
-    let mut c3 = axum_extra::extract::cookie::Cookie::build(("csrf_token", ""))
-        .path("/");
+fn clear_legacy_refresh_cookie(cookie_domain: Option<&str>) -> axum_extra::extract::cookie::Cookie<'static> {
+    let mut builder = axum_extra::extract::cookie::Cookie::build(("refresh_token", String::new()))
+        .http_only(true)
+        .secure(cfg!(not(debug_assertions)))
+        .same_site(SameSite::Lax)
+        .path("/api/v1/auth/refresh")
+        .max_age(time::Duration::seconds(0));
     if let Some(domain) = cookie_domain {
-        c1 = c1.domain(domain.to_owned());
-        c2 = c2.domain(domain.to_owned());
-        c3 = c3.domain(domain.to_owned());
+        builder = builder.domain(domain.to_owned());
     }
-    let jar = jar.remove(c1.build());
-    let jar = jar.remove(c2.build());
-    jar.remove(c3.build())
+    builder.build()
+}
+
+fn clear_auth_cookies(state: &HttpState) -> Vec<axum_extra::extract::cookie::Cookie<'static>> {
+    let domain = auth_cookie_domain(state);
+    let domain = domain.as_deref();
+
+    let mut cookies: Vec<_> = AuthCookie::ALL
+        .iter()
+        .map(|cookie| build_auth_cookie(*cookie, String::new(), 0, domain))
+        .collect();
+    cookies.push(clear_legacy_refresh_cookie(domain));
+    cookies
+}
+
+fn with_cookie_list(
+    mut response: Response,
+    cookies: Vec<axum_extra::extract::cookie::Cookie<'static>>,
+) -> Response {
+    for cookie in cookies {
+        if let Ok(value) = cookie.encoded().to_string().parse() {
+            response
+                .headers_mut()
+                .append(axum::http::header::SET_COOKIE, value);
+        }
+    }
+    response
+}
+
+fn with_auth_cookies(mut response: Response, jar: CookieJar) -> Response {
+    for cookie in jar.iter() {
+        if let Ok(value) = cookie.encoded().to_string().parse() {
+            response
+                .headers_mut()
+                .append(axum::http::header::SET_COOKIE, value);
+        }
+    }
+    response
 }
 
 fn user_to_response(user: &UserRow) -> AuthUserResponse {
@@ -130,13 +219,13 @@ fn auth_created(jar: CookieJar, user: &UserRow) -> Response {
 
 fn auth_response(jar: CookieJar, status: StatusCode, body: &AuthUserResponse) -> Response {
     let json = serde_json::to_string(body).unwrap_or_default();
-    let mut response = (status, [(axum::http::header::CONTENT_TYPE, "application/json")], json).into_response();
-    for cookie in jar.iter() {
-        if let Ok(val) = cookie.encoded().to_string().parse() {
-            response.headers_mut().append(axum::http::header::SET_COOKIE, val);
-        }
-    }
-    response
+    let response = (
+        status,
+        [(axum::http::header::CONTENT_TYPE, "application/json")],
+        json,
+    )
+        .into_response();
+    with_auth_cookies(response, jar)
 }
 
 async fn create_session(
@@ -236,8 +325,7 @@ pub async fn register(
     )
     .await?;
 
-    let cookie_domain = cookie_domain_from_base_url(&state.app_base_url);
-    let jar = set_auth_cookies(jar, &access_jwt, &refresh_id.to_string(), &csrf_token, cookie_domain.as_deref());
+    let jar = set_auth_cookies(jar, &state, &access_jwt, &refresh_id.to_string(), &csrf_token);
 
     Ok(auth_created(jar, &user))
 }
@@ -274,8 +362,7 @@ pub async fn login(
     )
     .await?;
 
-    let cookie_domain = cookie_domain_from_base_url(&state.app_base_url);
-    let jar = set_auth_cookies(jar, &access_jwt, &refresh_id.to_string(), &csrf_token, cookie_domain.as_deref());
+    let jar = set_auth_cookies(jar, &state, &access_jwt, &refresh_id.to_string(), &csrf_token);
 
     Ok(auth_ok(jar, &user))
 }
@@ -318,7 +405,7 @@ pub async fn refresh(
     let user = db::find_user_by_id(&state.pool, stored.user_id)
         .await
         .map_err(internal_err)?
-        .ok_or_else(|| internal_err("user not found"))?;
+        .ok_or_else(|| ApiError::unauthorized("session ended"))?;
 
     let (access_jwt, new_refresh_id, csrf_token) = create_session(
         &state.pool,
@@ -329,32 +416,26 @@ pub async fn refresh(
     )
     .await?;
 
-    let cookie_domain = cookie_domain_from_base_url(&state.app_base_url);
-    let jar = set_auth_cookies(jar, &access_jwt, &new_refresh_id.to_string(), &csrf_token, cookie_domain.as_deref());
+    let jar = set_auth_cookies(
+        jar,
+        &state,
+        &access_jwt,
+        &new_refresh_id.to_string(),
+        &csrf_token,
+    );
 
     Ok(auth_ok(jar, &user))
 }
 
-pub async fn logout(
-    State(state): State<HttpState>,
-    Extension(_user): Extension<AuthenticatedUser>,
-    jar: CookieJar,
-) -> Result<Response, ApiError> {
-    if let Some(refresh_cookie) = jar.get("refresh_token") {
-        if let Ok(refresh_id) = refresh_cookie.value().parse::<Uuid>() {
-            let _ = db::revoke_refresh_token(&state.pool, refresh_id).await;
-        }
+pub async fn logout(State(state): State<HttpState>, jar: CookieJar) -> Result<Response, ApiError> {
+    if let Some(refresh_cookie) = jar.get("refresh_token")
+        && let Ok(refresh_id) = refresh_cookie.value().parse::<Uuid>()
+    {
+        let _ = db::revoke_refresh_token(&state.pool, refresh_id).await;
     }
 
-    let cookie_domain = cookie_domain_from_base_url(&state.app_base_url);
-    let jar = clear_auth_cookies(jar, cookie_domain.as_deref());
-    let mut response = StatusCode::NO_CONTENT.into_response();
-    for cookie in jar.iter() {
-        if let Ok(val) = cookie.encoded().to_string().parse() {
-            response.headers_mut().append(axum::http::header::SET_COOKIE, val);
-        }
-    }
-    Ok(response)
+    let cookies = clear_auth_cookies(&state);
+    Ok(with_cookie_list(StatusCode::NO_CONTENT.into_response(), cookies))
 }
 
 pub async fn get_me(
@@ -405,8 +486,7 @@ pub async fn verify_email(
     )
     .await?;
 
-    let cookie_domain = cookie_domain_from_base_url(&state.app_base_url);
-    let jar = set_auth_cookies(jar, &access_jwt, &refresh_id.to_string(), &csrf_token, cookie_domain.as_deref());
+    let jar = set_auth_cookies(jar, &state, &access_jwt, &refresh_id.to_string(), &csrf_token);
 
     Ok(auth_ok(jar, &user))
 }
@@ -641,13 +721,76 @@ pub async fn delete_account(
         .await
         .map_err(internal_err)?;
 
-    let cookie_domain = cookie_domain_from_base_url(&state.app_base_url);
-    let jar = clear_auth_cookies(jar, cookie_domain.as_deref());
-    let mut response = StatusCode::OK.into_response();
-    for cookie in jar.iter() {
-        if let Ok(val) = cookie.encoded().to_string().parse() {
-            response.headers_mut().append(axum::http::header::SET_COOKIE, val);
-        }
+    let cookies = clear_auth_cookies(&state);
+    Ok(with_cookie_list(StatusCode::OK.into_response(), cookies))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn derives_the_cookie_domain_from_the_public_host() {
+        assert_eq!(
+            cookie_domain_from_base_url("https://www.zutility.xyz").as_deref(),
+            Some("zutility.xyz")
+        );
+        assert_eq!(
+            cookie_domain_from_base_url("https://api.zutility.xyz").as_deref(),
+            Some("zutility.xyz")
+        );
+        assert_eq!(cookie_domain_from_base_url("http://localhost:3000"), None);
+        assert_eq!(cookie_domain_from_base_url("http://127.0.0.1:3001"), None);
     }
-    Ok(response)
+
+    #[test]
+    fn refresh_cookie_covers_every_auth_path() {
+        let cookie = build_auth_cookie(
+            AuthCookie::Refresh,
+            String::from("token"),
+            604_800,
+            Some("zutility.xyz"),
+        );
+        assert_eq!(cookie.path(), Some("/api/v1/auth"));
+        assert_eq!(cookie.max_age(), Some(time::Duration::seconds(604_800)));
+        assert_eq!(cookie.http_only(), Some(true));
+        assert_eq!(cookie.same_site(), Some(SameSite::Strict));
+        assert_eq!(cookie.domain(), Some("zutility.xyz"));
+    }
+
+    #[test]
+    fn every_cookie_has_a_path_the_browser_can_reach_it_on() {
+        assert_eq!(AuthCookie::Access.name(), "access_token");
+        assert_eq!(AuthCookie::Refresh.name(), "refresh_token");
+        assert_eq!(AuthCookie::Csrf.name(), "csrf_token");
+        assert_eq!(AuthCookie::Session.name(), "session");
+        assert_eq!(AuthCookie::Access.path(), "/api");
+        assert_eq!(AuthCookie::Refresh.path(), "/api/v1/auth");
+        assert_eq!(AuthCookie::Csrf.path(), "/");
+        assert_eq!(AuthCookie::Session.path(), "/");
+        assert!(!AuthCookie::Csrf.http_only());
+        assert!(AuthCookie::Session.http_only());
+        assert_eq!(AuthCookie::Csrf.same_site(), SameSite::Lax);
+        assert_eq!(AuthCookie::Access.same_site(), SameSite::Strict);
+    }
+
+    #[test]
+    fn logout_also_expires_the_cookie_from_the_old_path() {
+        let cookie = clear_legacy_refresh_cookie(Some("zutility.xyz"));
+        assert_eq!(cookie.name(), "refresh_token");
+        assert_eq!(cookie.path(), Some("/api/v1/auth/refresh"));
+        assert_eq!(cookie.max_age(), Some(time::Duration::seconds(0)));
+    }
+
+    #[test]
+    fn clearing_a_cookie_expires_it_instead_of_letting_the_jar_drop_it() {
+        let cookie = build_auth_cookie(
+            AuthCookie::Refresh,
+            String::new(),
+            0,
+            Some("zutility.xyz"),
+        );
+        assert_eq!(cookie.max_age(), Some(time::Duration::seconds(0)));
+        assert_eq!(cookie.domain(), Some("zutility.xyz"));
+    }
 }
