@@ -373,6 +373,13 @@ pub async fn refresh(
         .map_err(|_| ApiError::unauthorized("invalid refresh token"))?;
 
     let mut tx = db::begin_tx(&state.pool).await.map_err(internal_err)?;
+    let owner = db::refresh_token_owner_tx(&mut tx, refresh_id)
+        .await
+        .map_err(internal_err)?
+        .ok_or_else(|| ApiError::unauthorized("invalid refresh token"))?;
+    db::lock_user_sessions_tx(&mut tx, owner)
+        .await
+        .map_err(internal_err)?;
     let claimed = db::claim_refresh_token_tx(&mut tx, refresh_id)
         .await
         .map_err(internal_err)?;
@@ -431,7 +438,9 @@ pub async fn refresh(
     }
 
     let Some(revoked_at) = stored.revoked_at else {
-        return Err(ApiError::unauthorized("refresh token is being rotated, try again"));
+        return Err(ApiError::service_unavailable(
+            "refresh token is being rotated, try again",
+        ));
     };
 
     let rotated_recently = stored.replaced_by.is_some()
@@ -471,7 +480,9 @@ pub async fn logout(State(state): State<HttpState>, jar: CookieJar) -> Result<Re
     if let Some(refresh_cookie) = jar.get("refresh_token")
         && let Ok(refresh_id) = refresh_cookie.value().parse::<Uuid>()
     {
-        let _ = db::revoke_refresh_token_family(&state.pool, refresh_id).await;
+        db::revoke_refresh_token_family(&state.pool, refresh_id)
+            .await
+            .map_err(internal_err)?;
     }
 
     record_auth_event(&state, "logout");
