@@ -9,7 +9,7 @@ const STEPS = [
   {
     number: "01",
     title: "Choose a plan",
-    body: "Pick a bundle and a cycle, such as monthly data, a TV package, or a monthly electricity amount.",
+    body: "Pick a bundle and a cycle, such as monthly data, a TV package, or a monthly electricity amount. More merchants join as they adopt the protocol.",
   },
   {
     number: "02",
@@ -33,7 +33,8 @@ export default function SubscriptionsPage() {
           <Badge variant="coming-soon">Coming soon</Badge>
         </div>
         <p className="mt-2 max-w-xl text-[14px] leading-relaxed text-ink-2">
-          Pay for data, TV, or electricity every month from one approval. Your wallet signs the
+          Start with data, TV, and electricity. The same one-time approval can pay any merchant
+          that supports ZEC subscriptions, from streaming to school fees. Your wallet signs the
           terms once, each cycle is delivered, and you can stop it whenever you want.
         </p>
       </header>
@@ -63,9 +64,10 @@ export default function SubscriptionsPage() {
 
           <div className="border-t border-line px-5 py-3">
             <p className="text-[12px] leading-relaxed text-muted">
-              Not live yet. Nothing is charged and no mandate can be created. Subscriptions run on
-              ELSA, a shielded subscription protocol that needs two Zcash network upgrades before it
-              can run on mainnet.
+              Not live yet. Nothing is charged and no mandate can be created. We start with the
+              bills already on zutility. More merchants come as wallets and payment providers adopt
+              ELSA, the shielded subscription protocol, which needs two Zcash network upgrades before
+              it can run on mainnet.
             </p>
           </div>
         </section>
