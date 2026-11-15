@@ -163,15 +163,30 @@ fn clear_legacy_refresh_cookie(cookie_domain: Option<&str>) -> axum_extra::extra
     builder.build()
 }
 
-fn clear_auth_cookies(jar: CookieJar, state: &HttpState) -> CookieJar {
+fn clear_auth_cookies(state: &HttpState) -> Vec<axum_extra::extract::cookie::Cookie<'static>> {
     let domain = auth_cookie_domain(state);
     let domain = domain.as_deref();
 
-    let mut jar = jar;
-    for cookie in AuthCookie::ALL {
-        jar = jar.add(build_auth_cookie(cookie, String::new(), 0, domain));
+    let mut cookies: Vec<_> = AuthCookie::ALL
+        .iter()
+        .map(|cookie| build_auth_cookie(*cookie, String::new(), 0, domain))
+        .collect();
+    cookies.push(clear_legacy_refresh_cookie(domain));
+    cookies
+}
+
+fn with_cookie_list(
+    mut response: Response,
+    cookies: Vec<axum_extra::extract::cookie::Cookie<'static>>,
+) -> Response {
+    for cookie in cookies {
+        if let Ok(value) = cookie.encoded().to_string().parse() {
+            response
+                .headers_mut()
+                .append(axum::http::header::SET_COOKIE, value);
+        }
     }
-    jar.add(clear_legacy_refresh_cookie(domain))
+    response
 }
 
 fn with_auth_cookies(mut response: Response, jar: CookieJar) -> Response {
@@ -419,8 +434,8 @@ pub async fn logout(State(state): State<HttpState>, jar: CookieJar) -> Result<Re
         let _ = db::revoke_refresh_token(&state.pool, refresh_id).await;
     }
 
-    let jar = clear_auth_cookies(jar, &state);
-    Ok(with_auth_cookies(StatusCode::NO_CONTENT.into_response(), jar))
+    let cookies = clear_auth_cookies(&state);
+    Ok(with_cookie_list(StatusCode::NO_CONTENT.into_response(), cookies))
 }
 
 pub async fn get_me(
@@ -706,8 +721,8 @@ pub async fn delete_account(
         .await
         .map_err(internal_err)?;
 
-    let jar = clear_auth_cookies(jar, &state);
-    Ok(with_auth_cookies(StatusCode::OK.into_response(), jar))
+    let cookies = clear_auth_cookies(&state);
+    Ok(with_cookie_list(StatusCode::OK.into_response(), cookies))
 }
 
 #[cfg(test)]
