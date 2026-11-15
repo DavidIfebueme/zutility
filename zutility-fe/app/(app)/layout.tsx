@@ -16,7 +16,8 @@ import {
   X,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { useAuthStore } from "@/store/auth"
+import { useAuthStore, type AuthUser } from "@/store/auth"
+import { apiGet } from "@/lib/api"
 import { useOrderStore } from "@/store/order"
 import { NotificationDropdown } from "@/components/ui/notification-dropdown"
 import { Button } from "@/components/ui/button"
@@ -133,16 +134,40 @@ function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
-  const { isAuthenticated, hasHydrated } = useAuthStore()
+  const pathname = usePathname()
+  const { isAuthenticated, hasHydrated, setUser, setHasHydrated } = useAuthStore()
   const [menuOpen, setMenuOpen] = React.useState(false)
+  const [sessionChecked, setSessionChecked] = React.useState(false)
 
   React.useEffect(() => {
-    if (hasHydrated && !isAuthenticated) {
-      router.push("/login")
-    }
-  }, [hasHydrated, isAuthenticated, router])
+    if (hasHydrated) return
+    const timer = window.setTimeout(() => setHasHydrated(true), 2000)
+    return () => window.clearTimeout(timer)
+  }, [hasHydrated, setHasHydrated])
 
-  if (!hasHydrated) {
+  React.useEffect(() => {
+    if (!hasHydrated || isAuthenticated) return
+    let active = true
+
+    apiGet<AuthUser>("/api/v1/auth/me")
+      .then((account) => {
+        if (active) setUser(account)
+      })
+      .catch(() => {
+        if (active) {
+          router.replace(`/login?next=${encodeURIComponent(pathname)}`)
+        }
+      })
+      .finally(() => {
+        if (active) setSessionChecked(true)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [hasHydrated, isAuthenticated, pathname, router, setUser])
+
+  if (!hasHydrated || (!isAuthenticated && !sessionChecked)) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-paper">
         <div className="h-6 w-6 animate-spin rounded-full border-2 border-line-strong border-t-ink" />
