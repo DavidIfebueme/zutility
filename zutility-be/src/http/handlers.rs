@@ -180,6 +180,14 @@ pub async fn create_order(
     Json(mut payload): Json<CreateOrderRequest>,
 ) -> Result<Json<CreateOrderResponse>, ApiError> {
     validate_create_order_payload(&payload)?;
+
+    if db::find_user_by_id(&state.pool, auth_user.user_id)
+        .await
+        .map_err(internal_err)?
+        .is_none()
+    {
+        return Err(ApiError::unauthorized("account is no longer active"));
+    }
     payload.service_ref =
         service_ref::normalize(&slug_to_utility_type(&payload.utility_slug), &payload.service_ref)?;
     enforce_service_ref_velocity(&state, &payload).await?;

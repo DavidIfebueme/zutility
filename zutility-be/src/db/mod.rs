@@ -1467,11 +1467,71 @@ pub async fn find_email_token_by_hash(
     .transpose()
 }
 
-pub async fn mark_email_token_used(pool: &PgPool, id: Uuid) -> Result<()> {
-    sqlx::query(
-        "UPDATE email_verification_tokens SET used_at = now() WHERE id = $1",
+pub async fn mark_email_token_used(pool: &PgPool, id: Uuid) -> Result<bool> {
+    let result = sqlx::query(
+        "UPDATE email_verification_tokens SET used_at = now() WHERE id = $1 AND used_at IS NULL",
     )
     .bind(id)
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected() > 0)
+}
+
+pub async fn invalidate_email_tokens(
+    pool: &PgPool,
+    user_id: Uuid,
+    token_type: &str,
+) -> Result<()> {
+    sqlx::query(
+        "UPDATE email_verification_tokens SET used_at = now()
+         WHERE user_id = $1 AND token_type = $2 AND used_at IS NULL",
+    )
+    .bind(user_id)
+    .bind(token_type)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn login_lockout_until(
+    pool: &PgPool,
+    user_id: Uuid,
+) -> Result<Option<chrono::DateTime<chrono::Utc>>> {
+    let locked_until = sqlx::query_scalar::<_, Option<chrono::DateTime<chrono::Utc>>>(
+        "SELECT locked_until FROM users WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind(user_id)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(locked_until)
+}
+
+pub async fn record_failed_login(pool: &PgPool, user_id: Uuid) -> Result<()> {
+    sqlx::query(
+        "UPDATE users
+         SET failed_login_attempts = failed_login_attempts + 1,
+             locked_until = CASE
+                 WHEN failed_login_attempts + 1 >= 5 THEN now() + interval '15 minutes'
+                 ELSE locked_until
+             END
+         WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn clear_failed_logins(pool: &PgPool, user_id: Uuid) -> Result<()> {
+    sqlx::query(
+        "UPDATE users SET failed_login_attempts = 0, locked_until = NULL
+         WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind(user_id)
     .execute(pool)
     .await?;
 
@@ -1763,11 +1823,22 @@ pub async fn find_waitlist_verify_token(pool: &PgPool, token_hash: &str) -> Resu
     })).transpose()
 }
 
-pub async fn mark_waitlist_verify_token_used(pool: &PgPool, token_id: Uuid) -> Result<()> {
-    sqlx::query(
-        "UPDATE waitlist_verify_tokens SET used_at = now() WHERE id = $1",
+pub async fn mark_waitlist_verify_token_used(pool: &PgPool, token_id: Uuid) -> Result<bool> {
+    let result = sqlx::query(
+        "UPDATE waitlist_verify_tokens SET used_at = now() WHERE id = $1 AND used_at IS NULL",
     )
     .bind(token_id)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected() > 0)
+}
+
+pub async fn invalidate_waitlist_verify_tokens(pool: &PgPool, entry_id: Uuid) -> Result<()> {
+    sqlx::query(
+        "UPDATE waitlist_verify_tokens SET used_at = now()
+         WHERE entry_id = $1 AND used_at IS NULL",
+    )
+    .bind(entry_id)
     .execute(pool)
     .await?;
     Ok(())

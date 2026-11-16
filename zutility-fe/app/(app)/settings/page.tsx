@@ -124,7 +124,7 @@ export default function SettingsPage() {
         new_password: data.new_password,
       })
       toast.success("Password changed. Please log in again.")
-      await logout()
+      if (!(await logout())) return
       router.push("/login")
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : ""
