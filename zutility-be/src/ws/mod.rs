@@ -78,10 +78,11 @@ impl WsHub {
         let mut guard = self.inner.write().await;
         let entries = guard.entry(order_id).or_insert_with(VecDeque::new);
 
-        if entries.len() >= 3 {
-            if let Some(evicted) = entries.pop_front() {
-                evicted_senders.push(evicted.sender);
-            }
+        if entries.len() >= 3
+            && let Some((index, _)) = entries.iter().enumerate().min_by_key(|(_, entry)| entry.last_seen)
+            && let Some(evicted) = entries.remove(index)
+        {
+            evicted_senders.push(evicted.sender);
         }
 
         entries.push_back(ConnectionEntry {

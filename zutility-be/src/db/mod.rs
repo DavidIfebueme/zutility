@@ -444,7 +444,10 @@ pub async fn record_payment(
          SET confirmations = EXCLUDED.confirmations,
              order_id = EXCLUDED.order_id,
              status = 'seen',
-             updated_at = now()",
+             updated_at = now()
+         WHERE payments.confirmations IS DISTINCT FROM EXCLUDED.confirmations
+            OR payments.order_id IS DISTINCT FROM EXCLUDED.order_id
+            OR payments.status IS DISTINCT FROM 'seen'",
     )
     .bind(order_id)
     .bind(txid)

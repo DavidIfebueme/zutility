@@ -736,19 +736,13 @@ export default function PayPage() {
               <span className="num text-[11px] text-muted">Step 3 of 3</span>
             </div>
 
-            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+            <div className="mt-4 grid gap-2 sm:grid-cols-1">
               {[
                 {
                   value: "shielded" as const,
                   title: "Shielded",
                   hint: "z-address. 2 confirmations, about a minute.",
                   icon: ShieldCheck,
-                },
-                {
-                  value: "transparent" as const,
-                  title: "Transparent",
-                  hint: "t-address. 2 confirmations, about a minute.",
-                  icon: null,
                 },
               ].map((option) => {
                 const isSelected = addressType === option.value
