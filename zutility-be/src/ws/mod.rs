@@ -38,6 +38,10 @@ pub enum WsOrderEvent {
     Failed {
         reason: String,
     },
+    Flagged {
+        reason: String,
+    },
+    Cancelled,
 }
 
 #[derive(Clone)]

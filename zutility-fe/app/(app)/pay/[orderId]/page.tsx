@@ -18,7 +18,7 @@ import { apiGet, apiPost } from "@/lib/api"
 import { cn, formatZEC } from "@/lib/utils"
 import { UTILITIES } from "@/lib/constants"
 import { getStatusMeta, STATUS_TONE_CLASS } from "@/lib/order-status"
-import type { CreateOrderResponse, OrderStatusResponse } from "@/lib/types"
+import type { CreateOrderResponse, OrderStatus, OrderStatusResponse } from "@/lib/types"
 
 function getCompletionInfo(slug: string): { title: string; description: string; tokenLabel: string } {
   const utility = UTILITIES.find((item) => item.slug === slug)
@@ -121,10 +121,12 @@ function OrderPageContent() {
   const { activeOrder, activeOrderUserId, clearActiveOrder } = useOrderStore()
   const [recoveredOrder, setRecoveredOrder] = React.useState<CreateOrderResponse | null>(null)
   const [recoveredToken, setRecoveredToken] = React.useState<string | null>(null)
+  const [orderSnapshot, setOrderSnapshot] = React.useState<OrderStatusResponse | null>(null)
   const requestedOrder = React.useRef(false)
 
   const isCurrentOrder = activeOrder?.order_id === orderId && activeOrderUserId === user?.id
   const order = isCurrentOrder ? activeOrder : recoveredOrder
+  const currentSnapshot = orderSnapshot?.order_id === orderId ? orderSnapshot : null
 
   const giftCode = searchParams.get("gift")
   const giftPath = giftCode ? `/gift/${giftCode}` : null
@@ -142,6 +144,7 @@ function OrderPageContent() {
       apiGet<OrderStatusResponse>(`/api/v1/orders/${orderId}?token=${encodeURIComponent(token)}`)
         .then((status) => {
           setRecoveredToken(status.delivery_token)
+          setOrderSnapshot(status)
           setRecoveredOrder(fromStatus(status, token))
         })
         .catch(() => {
@@ -159,6 +162,7 @@ function OrderPageContent() {
             `/api/v1/orders/${orderId}?token=${encodeURIComponent(order_access_token)}`
           )
           setRecoveredToken(status.delivery_token)
+          setOrderSnapshot(status)
           setRecoveredOrder(fromStatus(status, order_access_token))
         })
         .catch(() => {
@@ -168,10 +172,37 @@ function OrderPageContent() {
     }
   }, [isCurrentOrder, recoveredOrder, orderId, tokenParam, recoverParam, user])
 
-  const { status, confirmations, latestEvent, isConnected } = useOrderStream(
-    order ? orderId : null,
-    order ? order.order_access_token : null
-  )
+  React.useEffect(() => {
+    if (!isCurrentOrder || !activeOrder || !orderId) return
+
+    let cancelled = false
+    apiGet<OrderStatusResponse>(
+      `/api/v1/orders/${orderId}?token=${encodeURIComponent(activeOrder.order_access_token)}`
+    )
+      .then((status) => {
+        if (!cancelled) setOrderSnapshot(status)
+      })
+      .catch(() => {})
+
+    return () => {
+      cancelled = true
+    }
+  }, [isCurrentOrder, activeOrder, orderId])
+
+  const {
+    status: streamStatus,
+    confirmations: streamConfirmations,
+    latestEvent,
+    isConnected,
+  } = useOrderStream(order ? orderId : null, order ? order.order_access_token : null)
+
+  const status: OrderStatus = latestEvent
+    ? streamStatus
+    : currentSnapshot?.status ?? streamStatus
+  const confirmations = latestEvent
+    ? streamConfirmations
+    : currentSnapshot?.confirmations ?? streamConfirmations
+  const totalReceived = currentSnapshot?.total_received ?? null
 
   if (!order) {
     return (
@@ -191,15 +222,25 @@ function OrderPageContent() {
 
   const utility = UTILITIES.find((item) => item.slug === order.utility_slug)
   const meta = getStatusMeta(status)
-  const steps = [
-    { label: "Awaiting payment" },
-    { label: "Confirming" },
-    { label: "Dispatching" },
-    { label: "Delivered" },
-  ]
+  const steps =
+    status === "flagged_for_review"
+      ? [
+          { label: "Awaiting payment" },
+          { label: "Confirming" },
+          { label: "Dispatching" },
+          { label: "In review" },
+        ]
+      : [
+          { label: "Awaiting payment" },
+          { label: "Confirming" },
+          { label: "Dispatching" },
+          { label: "Delivered" },
+        ]
 
   const stepIndex = (() => {
     switch (status) {
+      case "awaiting_payment":
+        return 0
       case "payment_detected":
         return 1
       case "payment_confirmed":
@@ -212,8 +253,16 @@ function OrderPageContent() {
         return 4
       case "failed":
         return 2
-      default:
-        return 0
+      case "flagged_for_review":
+        return 3
+      case "expired":
+        return -1
+      case "cancelled":
+        return -1
+      default: {
+        const unhandled: never = status
+        return unhandled
+      }
     }
   })()
 
@@ -372,6 +421,11 @@ function OrderPageContent() {
               required={order.required_confirmations}
               addressType={addressType}
             />
+            {totalReceived && (
+              <p className="text-[12px] text-muted">
+                Received {formatZEC(totalReceived)} ZEC
+              </p>
+            )}
             <div>
               <p className="text-lg text-ink">
                 {status === "payment_confirmed" ? "Payment confirmed" : "Confirming payment"}

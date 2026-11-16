@@ -13,7 +13,7 @@ use crate::{
     db,
     domain::{
         gift::{GiftStatus, HeldGiftOutcome, held_gift_outcome},
-        order::OrderStatus,
+        order::{OrderStatus, OrderStatusTransition, ThresholdPolicy},
     },
     http::handlers::HttpState,
     integrations::{
@@ -194,7 +194,7 @@ fn start_order_orchestrator(state: HttpState, config: AppConfig, pool: PgPool) {
                 }
             }
 
-            if let Err(error) = expire_claim_windows(&pool).await {
+            if let Err(error) = expire_claim_windows(&state).await {
                 tracing::warn!(error = %error, "gift claim window expiry failed");
             }
 
@@ -205,6 +205,30 @@ fn start_order_orchestrator(state: HttpState, config: AppConfig, pool: PgPool) {
             }
         }
     });
+}
+
+fn expiry_transition(
+    status: OrderStatus,
+    expires_at: chrono::DateTime<Utc>,
+    now: chrono::DateTime<Utc>,
+) -> Result<Option<OrderStatusTransition>> {
+    let grace = chrono::Duration::minutes(i64::from(
+        ThresholdPolicy::default().late_payment_grace_minutes,
+    ));
+    let deadline = match status {
+        OrderStatus::AwaitingPayment => expires_at,
+        OrderStatus::PaymentDetected => expires_at + grace,
+        _ => return Ok(None),
+    };
+
+    if deadline > now {
+        return Ok(None);
+    }
+
+    Ok(Some(OrderStatusTransition::new(
+        status,
+        OrderStatus::Expired,
+    )?))
 }
 
 async fn process_order(
@@ -228,28 +252,30 @@ async fn process_order(
         return Ok(());
     }
 
-    if order_status == OrderStatus::AwaitingPayment && order.expires_at <= now {
-        db::update_order_status_cas(
+    if let Some(transition) = expiry_transition(order_status, order.expires_at, now)? {
+        let expired = db::update_order_status_cas(
             pool,
             order.id,
-            "awaiting_payment",
-            "expired",
+            transition.from.as_db(),
+            transition.to.as_db(),
             "order_expired",
             serde_json::json!({ "expired_at": now }),
         )
         .await?;
-        let _ = state
-            .ws_hub
-            .broadcast_event(order.id, &WsOrderEvent::Expired)
-            .await;
-        notify_order(
-            pool,
-            order,
-            "order_expired",
-            "Order Expired",
-            &format!("Your {} order has expired.", order.utility_slug),
-            serde_json::json!({ "utility_slug": order.utility_slug }),
-        );
+        if expired {
+            let _ = state
+                .ws_hub
+                .broadcast_event(order.id, &WsOrderEvent::Expired)
+                .await;
+            notify_order(
+                pool,
+                order,
+                "order_expired",
+                "Order Expired",
+                &format!("Your {} order has expired.", order.utility_slug),
+                serde_json::json!({ "utility_slug": order.utility_slug }),
+            );
+        }
         return Ok(());
     }
 
@@ -268,7 +294,7 @@ async fn process_order(
     let updated_status = updated.status()?;
 
     if updated_status == OrderStatus::AwaitingClaim {
-        resolve_held_gift(pool, &updated).await?;
+        resolve_held_gift(&state, &updated).await?;
         return Ok(());
     }
 
@@ -281,10 +307,10 @@ async fn process_order(
     Ok(())
 }
 
-async fn expire_claim_windows(pool: &PgPool) -> Result<()> {
+async fn expire_claim_windows(state: &HttpState) -> Result<()> {
     let now = Utc::now();
-    for gift in db::list_expired_open_gifts(pool, now).await? {
-        if let Err(error) = expire_one_gift(pool, gift).await {
+    for gift in db::list_expired_open_gifts(&state.pool, now).await? {
+        if let Err(error) = expire_one_gift(state, gift).await {
             tracing::warn!(error = %error, "gift expiry iteration failed");
         }
     }
@@ -292,7 +318,8 @@ async fn expire_claim_windows(pool: &PgPool) -> Result<()> {
     Ok(())
 }
 
-async fn expire_one_gift(pool: &PgPool, gift: db::GiftRow) -> Result<()> {
+async fn expire_one_gift(state: &HttpState, gift: db::GiftRow) -> Result<()> {
+    let pool = &state.pool;
     let Some(order_id) = gift.order_id else {
         let _ = db::expire_gift_cas(pool, gift.id).await?;
         return Ok(());
@@ -318,13 +345,14 @@ async fn expire_one_gift(pool: &PgPool, gift: db::GiftRow) -> Result<()> {
     }
 
     if status == Some(OrderStatus::AwaitingClaim) {
-        deliver_expired_gift(pool, &gift, &order).await?;
+        deliver_expired_gift(state, &gift, &order).await?;
     }
 
     Ok(())
 }
 
-async fn resolve_held_gift(pool: &PgPool, order: &db::OrderRow) -> Result<()> {
+async fn resolve_held_gift(state: &HttpState, order: &db::OrderRow) -> Result<()> {
+    let pool = &state.pool;
     let Some(gift) = db::find_gift_by_order_id(pool, order.id).await? else {
         return Ok(());
     };
@@ -349,10 +377,10 @@ async fn resolve_held_gift(pool: &PgPool, order: &db::OrderRow) -> Result<()> {
             if status == GiftStatus::Open && !db::expire_gift_cas(pool, gift.id).await? {
                 return Ok(());
             }
-            deliver_expired_gift(pool, &gift, order).await?;
+            deliver_expired_gift(state, &gift, order).await?;
         }
         HeldGiftOutcome::FlagForReview => {
-            db::update_order_status_cas(
+            let flagged = db::update_order_status_cas(
                 pool,
                 order.id,
                 "awaiting_claim",
@@ -361,6 +389,9 @@ async fn resolve_held_gift(pool: &PgPool, order: &db::OrderRow) -> Result<()> {
                 serde_json::json!({ "gift_id": gift.id }),
             )
             .await?;
+            if flagged {
+                broadcast_flagged(state, order.id, "gift_cancelled_while_held").await;
+            }
         }
     }
 
@@ -368,10 +399,11 @@ async fn resolve_held_gift(pool: &PgPool, order: &db::OrderRow) -> Result<()> {
 }
 
 async fn deliver_expired_gift(
-    pool: &PgPool,
+    state: &HttpState,
     gift: &db::GiftRow,
     order: &db::OrderRow,
 ) -> Result<()> {
+    let pool = &state.pool;
     let fallback = gift
         .fallback_service_ref
         .as_deref()
@@ -400,7 +432,7 @@ async fn deliver_expired_gift(
             );
         }
         None => {
-            db::update_order_status_cas(
+            let flagged = db::update_order_status_cas(
                 pool,
                 order.id,
                 "awaiting_claim",
@@ -409,14 +441,17 @@ async fn deliver_expired_gift(
                 serde_json::json!({ "gift_id": gift.id }),
             )
             .await?;
-            notify_order(
-                pool,
-                order,
-                "gift_expired_unclaimed",
-                "Gift Needs Attention",
-                "Nobody claimed the gift and no backup account was set. Support will follow up.",
-                serde_json::json!({ "gift_id": gift.id, "utility_slug": gift.utility_slug }),
-            );
+            if flagged {
+                broadcast_flagged(state, order.id, "gift_expired_unclaimed").await;
+                notify_order(
+                    pool,
+                    order,
+                    "gift_expired_unclaimed",
+                    "Gift Needs Attention",
+                    "Nobody claimed the gift and no backup account was set. Support will follow up.",
+                    serde_json::json!({ "gift_id": gift.id, "utility_slug": order.utility_slug }),
+                );
+            }
         }
     }
 
@@ -573,7 +608,7 @@ async fn detect_payment_and_progress(
                 }),
             )
             .await?;
-            events.push(WsOrderEvent::Failed {
+            events.push(WsOrderEvent::Flagged {
                 reason: String::from("underpaid_flagged"),
             });
             notify_order(
@@ -755,6 +790,7 @@ async fn dispatch_utility(
 
             if transitioned {
                 tracing::error!(order_id = %order.id, "provider rejected the RRR, flagged for review");
+                broadcast_flagged(state, order.id, "provider_rejected").await;
                 notify_order(
                     pool,
                     order,
@@ -793,7 +829,7 @@ async fn requery_utility_dispatch(
 
     let mut current_status = order.status().unwrap_or(OrderStatus::UtilityDispatching);
 
-    if current_status == OrderStatus::UtilityDispatching && order.utility_type == "school_fees" {
+    if current_status == OrderStatus::UtilityDispatching {
         let started_at = db::dispatch_started_at(pool, order.id)
             .await?
             .unwrap_or_else(|| order.confirmed_at.unwrap_or(order.created_at));
@@ -812,6 +848,7 @@ async fn requery_utility_dispatch(
             if transitioned {
                 current_status = OrderStatus::FlaggedForReview;
                 tracing::error!(order_id = %order.id, "dispatch stuck for 2 hours, flagged");
+                broadcast_flagged(state, order.id, "dispatch_stuck").await;
                 notify_order(
                     pool,
                     order,
@@ -844,6 +881,7 @@ async fn requery_utility_dispatch(
                         order_id = %order.id,
                         "RRR paid without an accepted process call, flagged"
                     );
+                    broadcast_flagged(state, order.id, "provider_paid_without_acceptance").await;
                     notify_order(
                         pool,
                         order,
@@ -909,6 +947,18 @@ async fn requery_utility_dispatch(
     }
 
     Ok(())
+}
+
+async fn broadcast_flagged(state: &HttpState, order_id: Uuid, reason: &str) {
+    let _ = state
+        .ws_hub
+        .broadcast_event(
+            order_id,
+            &WsOrderEvent::Flagged {
+                reason: reason.to_owned(),
+            },
+        )
+        .await;
 }
 
 fn notify_order(
@@ -1058,8 +1108,10 @@ fn start_address_pool_refill(state: HttpState, _config: AppConfig, pool: PgPool)
 
 #[cfg(test)]
 mod tests {
-    use super::{note_ordinals, primary_txid};
+    use super::{expiry_transition, note_ordinals, primary_txid};
+    use crate::domain::order::{OrderStatus, OrderStatusTransition};
     use crate::integrations::zcash::ReceivedNote;
+    use chrono::Utc;
     use rust_decimal::Decimal;
 
     fn note(txid: &str, amount: i64) -> ReceivedNote {
@@ -1096,5 +1148,43 @@ mod tests {
         let notes = vec![note("aa", 10_000), note("aa", 10_000), note("bb", 20_000)];
 
         assert_eq!(note_ordinals(&notes), vec![0, 1, 0]);
+    }
+
+    #[test]
+    fn expiry_covers_awaiting_payment_and_payment_detected() {
+        let now = Utc::now();
+        let past = now - chrono::Duration::minutes(1);
+        let future = now + chrono::Duration::minutes(1);
+
+        assert!(matches!(
+            expiry_transition(OrderStatus::AwaitingPayment, past, now),
+            Ok(Some(OrderStatusTransition {
+                from: OrderStatus::AwaitingPayment,
+                to: OrderStatus::Expired
+            }))
+        ));
+        assert!(matches!(
+            expiry_transition(OrderStatus::PaymentDetected, past, now),
+            Ok(None)
+        ));
+        assert!(matches!(
+            expiry_transition(
+                OrderStatus::PaymentDetected,
+                now - chrono::Duration::minutes(121),
+                now
+            ),
+            Ok(Some(OrderStatusTransition {
+                from: OrderStatus::PaymentDetected,
+                to: OrderStatus::Expired
+            }))
+        ));
+        assert!(matches!(
+            expiry_transition(OrderStatus::PaymentConfirmed, past, now),
+            Ok(None)
+        ));
+        assert!(matches!(
+            expiry_transition(OrderStatus::AwaitingPayment, future, now),
+            Ok(None)
+        ));
     }
 }

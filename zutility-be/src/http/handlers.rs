@@ -16,6 +16,7 @@ use uuid::Uuid;
 use crate::{
     config::{AppConfig, ZcashNetwork},
     db::{self, CreateOrderInput, OrderRow},
+    domain::order::OrderStatus,
     http::auth,
     integrations::provider_dispatcher::ProviderDispatcher,
     integrations::rates::{
@@ -470,17 +471,18 @@ pub async fn cancel_order(
         return Err(ApiError::forbidden("access denied"));
     }
 
-    if order.status != "awaiting_payment" {
+    let status = order.status().map_err(internal_err)?;
+    if !status.can_transition_to(OrderStatus::Cancelled) {
         return Err(ApiError::conflict(
             "order can only be cancelled in awaiting_payment",
         ));
     }
 
-    db::update_order_status_cas(
+    let cancelled = db::update_order_status_cas(
         &state.pool,
         order_id,
-        "awaiting_payment",
-        "cancelled",
+        status.as_db(),
+        OrderStatus::Cancelled.as_db(),
         "order_cancelled",
         serde_json::json!({}),
     )
@@ -490,6 +492,13 @@ pub async fn cancel_order(
     db::cancel_gift_by_order_id(&state.pool, order_id)
         .await
         .map_err(internal_err)?;
+
+    if cancelled {
+        let _ = state
+            .ws_hub
+            .broadcast_event(order_id, &WsOrderEvent::Cancelled)
+            .await;
+    }
 
     Ok(Json(CancelOrderResponse { success: true }))
 }
@@ -1071,25 +1080,29 @@ async fn authorize_order_access(
 }
 
 fn map_status_to_event(order: &OrderRow) -> Option<WsOrderEvent> {
-    match order.status.as_str() {
-        "payment_detected" => Some(WsOrderEvent::PaymentDetected {
+    match order.status().ok()? {
+        OrderStatus::AwaitingPayment => None,
+        OrderStatus::PaymentDetected => Some(WsOrderEvent::PaymentDetected {
             confirmations: u16::try_from(order.confirmations).unwrap_or(u16::MAX),
             required: u16::try_from(order.required_confs).unwrap_or(u16::MAX),
         }),
-        "payment_confirmed" => Some(WsOrderEvent::PaymentConfirmed {
+        OrderStatus::PaymentConfirmed => Some(WsOrderEvent::PaymentConfirmed {
             confirmations: u16::try_from(order.confirmations).unwrap_or(u16::MAX),
         }),
-        "awaiting_claim" => Some(WsOrderEvent::AwaitingClaim),
-        "utility_dispatching" => Some(WsOrderEvent::Dispatching),
-        "completed" => Some(WsOrderEvent::Completed {
+        OrderStatus::AwaitingClaim => Some(WsOrderEvent::AwaitingClaim),
+        OrderStatus::UtilityDispatching => Some(WsOrderEvent::Dispatching),
+        OrderStatus::Completed => Some(WsOrderEvent::Completed {
             delivery_token: order.delivery_token.clone(),
             reference: order.id.to_string(),
         }),
-        "expired" => Some(WsOrderEvent::Expired),
-        "failed" => Some(WsOrderEvent::Failed {
+        OrderStatus::Expired => Some(WsOrderEvent::Expired),
+        OrderStatus::Failed => Some(WsOrderEvent::Failed {
             reason: String::from("order_failed"),
         }),
-        _ => None,
+        OrderStatus::FlaggedForReview => Some(WsOrderEvent::Flagged {
+            reason: String::from("flagged_for_review"),
+        }),
+        OrderStatus::Cancelled => Some(WsOrderEvent::Cancelled),
     }
 }
 
@@ -1390,6 +1403,15 @@ pub async fn webhook_remita(
 
             if flagged {
                 tracing::error!(order_id = %order.id, "RRR paid without an accepted process call, flagged");
+                let _ = state
+                    .ws_hub
+                    .broadcast_event(
+                        order.id,
+                        &WsOrderEvent::Flagged {
+                            reason: String::from("provider_paid_without_acceptance"),
+                        },
+                    )
+                    .await;
             }
 
             continue;
@@ -1582,5 +1604,55 @@ mod tests {
             validate_create_order_payload(&payload(-1)),
             Err(ApiError::BadRequest(_))
         ));
+    }
+
+    fn order_with_status(status: OrderStatus) -> OrderRow {
+        OrderRow {
+            id: Uuid::new_v4(),
+            status: status.as_db().to_owned(),
+            access_token_hash: String::new(),
+            utility_type: String::from("airtime"),
+            utility_slug: String::from("mtn"),
+            service_ref: String::new(),
+            amount_ngn: 0,
+            deposit_address: String::new(),
+            address_type: String::from("shielded"),
+            zec_amount: Decimal::ZERO,
+            zec_rate_id: Uuid::new_v4(),
+            txid: None,
+            confirmations: 0,
+            required_confs: 2,
+            total_received: None,
+            created_at: Utc::now(),
+            expires_at: Utc::now(),
+            confirmed_at: None,
+            completed_at: None,
+            vtpass_request_id: None,
+            delivery_token: None,
+            ip_hash: None,
+            metadata: serde_json::json!({}),
+            variation_code: None,
+            provider: None,
+            customer_name: None,
+            user_id: None,
+        }
+    }
+
+    #[test]
+    fn maps_flagged_and_cancelled_statuses_to_initial_events() {
+        assert_eq!(
+            map_status_to_event(&order_with_status(OrderStatus::FlaggedForReview)),
+            Some(WsOrderEvent::Flagged {
+                reason: String::from("flagged_for_review"),
+            })
+        );
+        assert_eq!(
+            map_status_to_event(&order_with_status(OrderStatus::Cancelled)),
+            Some(WsOrderEvent::Cancelled)
+        );
+        assert_eq!(
+            map_status_to_event(&order_with_status(OrderStatus::AwaitingPayment)),
+            None
+        );
     }
 }
