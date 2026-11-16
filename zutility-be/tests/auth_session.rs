@@ -357,3 +357,52 @@ async fn logout_and_refresh_cannot_both_win() {
         );
     }
 }
+
+#[tokio::test]
+async fn email_token_mark_is_a_compare_and_set() -> Result<(), Box<dyn std::error::Error>> {
+    let Some(pool) = test_pool().await else {
+        return Ok(());
+    };
+    let (user_id, _) = seed_user(&pool).await;
+
+    db::create_email_token(
+        &pool,
+        user_id,
+        "verify-hash",
+        "verify_email",
+        Utc::now() + Duration::hours(1),
+    )
+    .await?;
+
+    let token_id = sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM email_verification_tokens WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1",
+    )
+    .bind(user_id)
+    .fetch_one(&pool)
+    .await?;
+
+    assert!(db::mark_email_token_used(&pool, token_id).await?);
+    assert!(!db::mark_email_token_used(&pool, token_id).await?);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn five_failed_logins_lock_the_account() -> Result<(), Box<dyn std::error::Error>> {
+    let Some(pool) = test_pool().await else {
+        return Ok(());
+    };
+    let (user_id, _) = seed_user(&pool).await;
+
+    for _ in 0..5 {
+        db::record_failed_login(&pool, user_id).await?;
+    }
+
+    let locked = db::login_lockout_until(&pool, user_id).await?;
+    assert!(locked.is_some(), "the fifth failure should lock the account");
+
+    db::clear_failed_logins(&pool, user_id).await?;
+    assert!(db::login_lockout_until(&pool, user_id).await?.is_none());
+
+    Ok(())
+}

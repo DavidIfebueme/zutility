@@ -123,6 +123,9 @@ pub async fn waitlist_join(
     let token_hash = auth::hash_verification_token(&verification_token).map_err(internal_err)?;
     let expires_at = Utc::now() + Duration::hours(24);
 
+    db::invalidate_waitlist_verify_tokens(&state.pool, entry.id)
+        .await
+        .map_err(internal_err)?;
     db::create_waitlist_verify_token(&state.pool, entry.id, &token_hash, expires_at)
         .await
         .map_err(internal_err)?;
@@ -169,11 +172,14 @@ pub async fn waitlist_verify(
         .map_err(internal_err)?
         .ok_or_else(|| ApiError::bad_request("invalid or expired verification link"))?;
 
-    db::verify_waitlist_email(&state.pool, token_record.entry_id)
+    if !db::mark_waitlist_verify_token_used(&state.pool, token_record.id)
         .await
-        .map_err(internal_err)?;
+        .map_err(internal_err)?
+    {
+        return Err(ApiError::bad_request("invalid or expired verification link"));
+    }
 
-    db::mark_waitlist_verify_token_used(&state.pool, token_record.id)
+    db::verify_waitlist_email(&state.pool, token_record.entry_id)
         .await
         .map_err(internal_err)?;
 
@@ -216,6 +222,9 @@ pub async fn waitlist_resend(
     let token_hash = auth::hash_verification_token(&verification_token).map_err(internal_err)?;
     let expires_at = Utc::now() + Duration::hours(24);
 
+    db::invalidate_waitlist_verify_tokens(&state.pool, entry.id)
+        .await
+        .map_err(internal_err)?;
     db::create_waitlist_verify_token(&state.pool, entry.id, &token_hash, expires_at)
         .await
         .map_err(internal_err)?;

@@ -18,7 +18,7 @@ interface AuthState {
   preferredCurrency: CurrencyCode | null
   hasHydrated: boolean
   setUser: (user: AuthUser) => void
-  logout: () => Promise<void>
+  logout: () => Promise<boolean>
   setPreferredCurrency: (currency: CurrencyCode) => void
   setHasHydrated: (v: boolean) => void
 }
@@ -48,19 +48,17 @@ export const useAuthStore = create<AuthState>()(
         preferredCurrency: get().preferredCurrency || detectCurrency(),
       }),
       logout: async () => {
-        let revoked = true
         try {
           await apiPost('/api/v1/auth/logout', {})
         } catch {
-          revoked = false
+          toast.error('Could not sign out. Check your connection and try again.')
+          return false
         }
         useOrderStore.getState().clearActiveOrder()
         clearSessionFreshness()
         clearAuthCookies()
         set({ user: null, isAuthenticated: false, preferredCurrency: null })
-        if (!revoked) {
-          toast.error('Signed out on this device. The server could not be reached.')
-        }
+        return true
       },
       setPreferredCurrency: (currency: CurrencyCode) => set({ preferredCurrency: currency }),
       setHasHydrated: (v: boolean) => set({ hasHydrated: v }),

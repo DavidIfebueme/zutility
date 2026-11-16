@@ -310,6 +310,9 @@ pub async fn register(
         .map_err(internal_err)?;
     let expires_at = Utc::now() + Duration::hours(24);
 
+    db::invalidate_email_tokens(&state.pool, user.id, "verify_email")
+        .await
+        .map_err(internal_err)?;
     db::create_email_token(&state.pool, user.id, &token_hash, "verify_email", expires_at)
         .await
         .map_err(internal_err)?;
@@ -360,12 +363,25 @@ pub async fn login(
         .map_err(internal_err)?
         .ok_or_else(|| ApiError::unauthorized("invalid email or password"))?;
 
+    if let Some(locked_until) = db::login_lockout_until(&state.pool, user.id)
+        .await
+        .map_err(internal_err)?
+        && locked_until > Utc::now()
+    {
+        return Err(ApiError::too_many_requests(
+            "too many failed attempts, try again in a few minutes",
+        ));
+    }
+
     let valid = auth::verify_password(&payload.password, &user.password_hash)
         .map_err(internal_err)?;
 
     if !valid {
+        let _ = db::record_failed_login(&state.pool, user.id).await;
         return Err(ApiError::unauthorized("invalid email or password"));
     }
+
+    let _ = db::clear_failed_logins(&state.pool, user.id).await;
 
     if !user.email_verified {
         return Err(ApiError::forbidden("email_not_verified"));
@@ -543,19 +559,26 @@ pub async fn verify_email(
         .map_err(internal_err)?
         .ok_or_else(|| ApiError::bad_request("invalid or expired verification token"))?;
 
+    if !db::mark_email_token_used(&state.pool, email_token.id)
+        .await
+        .map_err(internal_err)?
+    {
+        return Err(ApiError::bad_request("invalid or expired verification token"));
+    }
+
     let mut user = db::find_user_by_id(&state.pool, email_token.user_id)
         .await
         .map_err(internal_err)?
         .ok_or_else(|| internal_err("user not found"))?;
 
+    if user.email_verified {
+        return Err(ApiError::bad_request("email is already verified"));
+    }
+
     db::verify_user_email(&state.pool, user.id)
         .await
         .map_err(internal_err)?;
     user.email_verified = true;
-
-    db::mark_email_token_used(&state.pool, email_token.id)
-        .await
-        .map_err(internal_err)?;
 
     let (access_jwt, refresh_id, csrf_token) = create_session(
         &state.pool,
@@ -594,6 +617,9 @@ pub async fn resend_verification(
         .map_err(internal_err)?;
     let expires_at = Utc::now() + Duration::hours(24);
 
+    db::invalidate_email_tokens(&state.pool, user.id, "verify_email")
+        .await
+        .map_err(internal_err)?;
     db::create_email_token(&state.pool, user.id, &token_hash, "verify_email", expires_at)
         .await
         .map_err(internal_err)?;
@@ -671,13 +697,16 @@ pub async fn reset_password(
         .map_err(internal_err)?
         .ok_or_else(|| ApiError::bad_request("invalid or expired reset token"))?;
 
+    if !db::mark_email_token_used(&state.pool, email_token.id)
+        .await
+        .map_err(internal_err)?
+    {
+        return Err(ApiError::bad_request("invalid or expired reset token"));
+    }
+
     let password_hash = auth::hash_password(&payload.password).map_err(internal_err)?;
 
     db::update_user_password(&state.pool, email_token.user_id, &password_hash)
-        .await
-        .map_err(internal_err)?;
-
-    db::mark_email_token_used(&state.pool, email_token.id)
         .await
         .map_err(internal_err)?;
 
