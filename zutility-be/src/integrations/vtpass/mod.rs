@@ -557,7 +557,7 @@ fn map_status(response_description: Option<&str>, code: Option<&str>) -> Provide
     match (response_description, code) {
         (Some("TRANSACTION SUCCESSFUL"), _) | (_, Some("000")) => ProviderTxnStatus::Delivered,
         (Some("PENDING"), _) | (_, Some("099")) => ProviderTxnStatus::Pending,
-        _ => ProviderTxnStatus::Failed,
+        _ => ProviderTxnStatus::Pending,
     }
 }
 

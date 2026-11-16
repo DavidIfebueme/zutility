@@ -512,8 +512,8 @@ pub async fn complete_order(
     order_id: Uuid,
     delivery_token: Option<&str>,
     vtpass_request_id: Option<&str>,
-) -> Result<()> {
-    sqlx::query(
+) -> Result<bool> {
+    let result = sqlx::query(
         "UPDATE orders
          SET status = 'completed', completed_at = now(), delivery_token = $2, vtpass_request_id = COALESCE($3, vtpass_request_id)
          WHERE id = $1 AND status = 'utility_dispatching'",
@@ -524,10 +524,10 @@ pub async fn complete_order(
     .execute(pool)
     .await?;
 
-    Ok(())
+    Ok(result.rows_affected() > 0)
 }
 
-pub async fn fail_order(pool: &PgPool, order_id: Uuid) -> Result<()> {
+pub async fn fail_order(pool: &PgPool, order_id: Uuid) -> Result<bool> {
     let mut tx = begin_tx(pool).await?;
 
     let reference: Option<String> = sqlx::query_scalar(
@@ -561,12 +561,12 @@ pub async fn fail_order(pool: &PgPool, order_id: Uuid) -> Result<()> {
     }
 
     tx.commit().await?;
-    Ok(())
+    Ok(rows_affected > 0)
 }
 
 pub async fn store_provider_reference(pool: &PgPool, order_id: Uuid, reference: &str) -> Result<()> {
     sqlx::query(
-        "UPDATE orders SET vtpass_request_id = $2 WHERE id = $1 AND vtpass_request_id IS NULL",
+        "UPDATE orders SET vtpass_request_id = $2 WHERE id = $1",
     )
     .bind(order_id)
     .bind(reference)

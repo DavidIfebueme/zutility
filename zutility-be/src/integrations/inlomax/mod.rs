@@ -124,7 +124,7 @@ impl InlomaxClient {
         let webhook_secret = config
             .inlomax_webhook_secret
             .clone()
-            .unwrap_or_else(|| SecretString::from(String::from("inlomax-webhook-default")));
+            .context("INLOMAX_WEBHOOK_SECRET is required when INLOMAX_API_KEY is set")?;
 
         Self::new(
             base_url,
@@ -264,7 +264,7 @@ impl InlomaxClient {
             Some("success") => ProviderTxnStatus::Delivered,
             Some("processing") => ProviderTxnStatus::Pending,
             Some("failed") => ProviderTxnStatus::Failed,
-            _ => ProviderTxnStatus::Failed,
+            _ => ProviderTxnStatus::Pending,
         }
     }
 }
@@ -678,6 +678,6 @@ mod tests {
         assert_eq!(InlomaxClient::map_status(Some("success")), ProviderTxnStatus::Delivered);
         assert_eq!(InlomaxClient::map_status(Some("processing")), ProviderTxnStatus::Pending);
         assert_eq!(InlomaxClient::map_status(Some("failed")), ProviderTxnStatus::Failed);
-        assert_eq!(InlomaxClient::map_status(None), ProviderTxnStatus::Failed);
+        assert_eq!(InlomaxClient::map_status(None), ProviderTxnStatus::Pending);
     }
 }

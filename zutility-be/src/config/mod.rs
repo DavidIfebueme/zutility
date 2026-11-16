@@ -259,6 +259,16 @@ impl AppConfig {
 
         ensure_non_empty_secret("JWT_SECRET", &self.jwt_secret)?;
 
+        if self.inlomax_api_key.is_some()
+            && self
+                .inlomax_webhook_secret
+                .as_ref()
+                .map(|value| value.expose_secret().trim().is_empty())
+                .unwrap_or(true)
+        {
+            anyhow::bail!("INLOMAX_WEBHOOK_SECRET is required when INLOMAX_API_KEY is set");
+        }
+
         if self.access_token_ttl_minutes == 0 {
             anyhow::bail!("ACCESS_TOKEN_TTL_MINUTES must be greater than 0");
         }

@@ -1139,7 +1139,7 @@ pub async fn webhook_inlomax(
         .unwrap_or("");
 
     if !dispatcher.verify_webhook_signature("airtime", &body, signature) {
-        tracing::warn!("inlomax webhook signature verification failed");
+        return Err(ApiError::forbidden("invalid webhook signature"));
     }
 
     let event = match dispatcher.provider_for("airtime") {
@@ -1166,32 +1166,51 @@ pub async fn webhook_inlomax(
 
     match event.status {
         ProviderTxnStatus::Delivered => {
-            let _ = db::complete_order(
+            match db::complete_order(
                 &state.pool,
                 order_id,
                 event.token.as_deref(),
                 Some(event.provider_request_id.as_str()),
             )
-            .await;
-            let _ = state
-                .ws_hub
-                .broadcast_event(
-                    order_id,
-                    &WsOrderEvent::Completed {
-                        delivery_token: event.token,
-                        reference: order_id.to_string(),
-                    },
-                )
-                .await;
+            .await
+            {
+                Ok(true) => {
+                    let _ = state
+                        .ws_hub
+                        .broadcast_event(
+                            order_id,
+                            &WsOrderEvent::Completed {
+                                delivery_token: event.token,
+                                reference: order_id.to_string(),
+                            },
+                        )
+                        .await;
+                }
+                Ok(false) => {
+                    tracing::warn!(order_id = %order_id, "completion matched no dispatching order");
+                }
+                Err(error) => {
+                    tracing::warn!(order_id = %order_id, error = %error, "completion failed");
+                }
+            }
         }
         ProviderTxnStatus::Failed => {
-            let _ = db::fail_order(&state.pool, order_id).await;
-            let _ = state
-                .ws_hub
-                .broadcast_event(order_id, &WsOrderEvent::Failed {
-                    reason: String::from("provider_failed_webhook"),
-                })
-                .await;
+            match db::fail_order(&state.pool, order_id).await {
+                Ok(true) => {
+                    let _ = state
+                        .ws_hub
+                        .broadcast_event(order_id, &WsOrderEvent::Failed {
+                            reason: String::from("provider_failed_webhook"),
+                        })
+                        .await;
+                }
+                Ok(false) => {
+                    tracing::warn!(order_id = %order_id, "failure matched no dispatching order");
+                }
+                Err(error) => {
+                    tracing::warn!(order_id = %order_id, error = %error, "failure failed");
+                }
+            }
         }
         ProviderTxnStatus::Pending => {}
     }
@@ -1234,32 +1253,51 @@ pub async fn webhook_vtpass(
 
     match event.status {
         ProviderTxnStatus::Delivered => {
-            let _ = db::complete_order(
+            match db::complete_order(
                 &state.pool,
                 order_id,
                 event.token.as_deref(),
                 Some(event.provider_request_id.as_str()),
             )
-            .await;
-            let _ = state
-                .ws_hub
-                .broadcast_event(
-                    order_id,
-                    &WsOrderEvent::Completed {
-                        delivery_token: event.token,
-                        reference: order_id.to_string(),
-                    },
-                )
-                .await;
+            .await
+            {
+                Ok(true) => {
+                    let _ = state
+                        .ws_hub
+                        .broadcast_event(
+                            order_id,
+                            &WsOrderEvent::Completed {
+                                delivery_token: event.token,
+                                reference: order_id.to_string(),
+                            },
+                        )
+                        .await;
+                }
+                Ok(false) => {
+                    tracing::warn!(order_id = %order_id, "completion matched no dispatching order");
+                }
+                Err(error) => {
+                    tracing::warn!(order_id = %order_id, error = %error, "completion failed");
+                }
+            }
         }
         ProviderTxnStatus::Failed => {
-            let _ = db::fail_order(&state.pool, order_id).await;
-            let _ = state
-                .ws_hub
-                .broadcast_event(order_id, &WsOrderEvent::Failed {
-                    reason: String::from("provider_failed_webhook"),
-                })
-                .await;
+            match db::fail_order(&state.pool, order_id).await {
+                Ok(true) => {
+                    let _ = state
+                        .ws_hub
+                        .broadcast_event(order_id, &WsOrderEvent::Failed {
+                            reason: String::from("provider_failed_webhook"),
+                        })
+                        .await;
+                }
+                Ok(false) => {
+                    tracing::warn!(order_id = %order_id, "failure matched no dispatching order");
+                }
+                Err(error) => {
+                    tracing::warn!(order_id = %order_id, error = %error, "failure failed");
+                }
+            }
         }
         ProviderTxnStatus::Pending => {}
     }
@@ -1356,8 +1394,7 @@ pub async fn webhook_remita(
         } else {
             db::complete_order(&state.pool, order.id, token, Some(rrr))
                 .await
-                .map_err(internal_err)?;
-            true
+                .map_err(internal_err)?
         };
 
         if !completed {

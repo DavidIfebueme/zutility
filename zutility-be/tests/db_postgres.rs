@@ -5,7 +5,7 @@ use uuid::Uuid;
 use zutility_be::{
     db::{
         CreateOrderInput, OrderStatusTransitionRecord, apply_order_status_transition, begin_tx,
-        insert_order_with_claimed_address,
+        complete_order, insert_order_with_claimed_address, store_provider_reference,
     },
     domain::order::{OrderStatus, OrderStatusTransition},
 };
@@ -200,5 +200,70 @@ async fn readiness_probe_decodes_select_one() -> Result<(), sqlx::Error> {
         .await?;
 
     assert_eq!(value, 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn provider_reference_overwrites_the_dispatch_id() -> Result<(), anyhow::Error> {
+    let Some(pool) = test_pool().await else {
+        return Ok(());
+    };
+    prepare_schema(&pool).await;
+
+    let rate_id = sqlx::query_scalar::<_, Uuid>("SELECT id FROM rate_snapshots LIMIT 1")
+        .fetch_one(&pool)
+        .await?;
+
+    let address = format!("ztestsapling1{}", Uuid::new_v4().simple());
+    sqlx::query(
+        "INSERT INTO deposit_addresses (address, address_type, network, used) VALUES ($1, 'shielded', 'testnet', false)",
+    )
+    .bind(&address)
+    .execute(&pool)
+    .await?;
+
+    let mut tx = begin_tx(&pool).await?;
+    let (order_id, _) = insert_order_with_claimed_address(
+        &mut tx,
+        &CreateOrderInput {
+            access_token_hash: String::from("token-hash"),
+            utility_type: String::from("airtime"),
+            utility_slug: String::from("mtn"),
+            service_ref: String::from("08000000000"),
+            amount_ngn: 1000,
+            address_type: String::from("shielded"),
+            zec_amount: Decimal::new(1, 0),
+            zec_rate_id: rate_id,
+            required_confs: 10,
+            expires_at: Utc::now() + Duration::minutes(20),
+            ip_hash: Some(String::from("hash")),
+            metadata: serde_json::json!({"source":"test"}),
+            variation_code: None,
+        },
+        "testnet",
+    )
+    .await?;
+    tx.commit().await?;
+
+    sqlx::query(
+        "UPDATE orders SET status = 'utility_dispatching', vtpass_request_id = 'inl-local' WHERE id = $1",
+    )
+    .bind(order_id)
+    .execute(&pool)
+    .await?;
+
+    store_provider_reference(&pool, order_id, "INL|PROVIDER").await?;
+
+    let stored = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT vtpass_request_id FROM orders WHERE id = $1",
+    )
+    .bind(order_id)
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(stored.as_deref(), Some("INL|PROVIDER"));
+
+    assert!(complete_order(&pool, order_id, Some("token"), Some("INL|PROVIDER")).await?);
+    assert!(!complete_order(&pool, order_id, Some("token"), Some("INL|PROVIDER")).await?);
+
     Ok(())
 }

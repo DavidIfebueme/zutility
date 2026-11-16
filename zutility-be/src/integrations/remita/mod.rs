@@ -370,7 +370,7 @@ impl UtilityProvider for RemitaClient {
         let status = match status_code {
             "022" | "023" => ProviderTxnStatus::Pending,
             "021" | "00" | "01" => ProviderTxnStatus::Delivered,
-            _ => ProviderTxnStatus::Failed,
+            _ => ProviderTxnStatus::Pending,
         };
 
         Ok(UtilityPurchaseResponse {
@@ -411,7 +411,7 @@ impl UtilityProvider for RemitaClient {
         let status = match status_code {
             "022" | "023" => ProviderTxnStatus::Pending,
             "021" | "00" | "01" => ProviderTxnStatus::Delivered,
-            _ => ProviderTxnStatus::Failed,
+            _ => ProviderTxnStatus::Pending,
         };
 
         Ok(RequeryResponse {
@@ -461,7 +461,7 @@ impl UtilityProvider for RemitaClient {
         let status = match status_code {
             "021" | "00" | "01" => ProviderTxnStatus::Delivered,
             "022" | "023" => ProviderTxnStatus::Pending,
-            _ => ProviderTxnStatus::Failed,
+            _ => ProviderTxnStatus::Pending,
         };
 
         Ok(ProviderWebhookEvent {

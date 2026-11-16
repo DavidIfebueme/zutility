@@ -942,9 +942,16 @@ async fn complete_order(
     delivery_token: Option<&str>,
     vtpass_request_id: Option<&str>,
 ) {
-    if let Err(error) = db::complete_order(pool, order_id, delivery_token, vtpass_request_id).await {
-        tracing::warn!(order_id = %order_id, error = %error, "failed to complete order in db");
-        return;
+    match db::complete_order(pool, order_id, delivery_token, vtpass_request_id).await {
+        Ok(true) => {}
+        Ok(false) => {
+            tracing::warn!(order_id = %order_id, "complete_order matched no dispatching order");
+            return;
+        }
+        Err(error) => {
+            tracing::warn!(order_id = %order_id, error = %error, "failed to complete order in db");
+            return;
+        }
     }
 
     let _ = state
@@ -971,9 +978,16 @@ async fn complete_order(
 }
 
 async fn fail_order(state: &HttpState, pool: &PgPool, order_id: Uuid, reason: &str) {
-    if let Err(error) = db::fail_order(pool, order_id).await {
-        tracing::warn!(order_id = %order_id, error = %error, "failed to mark order as failed in db");
-        return;
+    match db::fail_order(pool, order_id).await {
+        Ok(true) => {}
+        Ok(false) => {
+            tracing::warn!(order_id = %order_id, "fail_order matched no dispatching order");
+            return;
+        }
+        Err(error) => {
+            tracing::warn!(order_id = %order_id, error = %error, "failed to mark order as failed in db");
+            return;
+        }
     }
 
     let _ = state
