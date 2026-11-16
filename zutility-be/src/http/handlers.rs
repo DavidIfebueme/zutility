@@ -220,6 +220,12 @@ pub async fn create_order(
     if rate.zec_ngn <= Decimal::ZERO {
         return Err(ApiError::internal("rate data unavailable — please try again in a moment"));
     }
+
+    if Utc::now() - rate.updated_at > Duration::minutes(state.rate_lock_minutes) {
+        return Err(ApiError::service_unavailable(
+            "the exchange rate is stale, please try again in a moment",
+        ));
+    }
     let zec_amount = Decimal::new(amount_ngn, 0) / rate.zec_ngn;
     let expires_at = Utc::now() + Duration::minutes(state.order_expiry_minutes);
 

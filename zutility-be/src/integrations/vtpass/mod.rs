@@ -23,6 +23,10 @@ use crate::{
     },
 };
 
+fn cooldown(duration: &std::time::Duration) -> chrono::Duration {
+    chrono::Duration::from_std(*duration).unwrap_or_else(|_| chrono::Duration::seconds(30))
+}
+
 #[derive(Debug, Clone)]
 pub struct VtpassClient {
     base_url: String,
@@ -57,6 +61,7 @@ pub struct CircuitBreaker {
 struct CircuitBreakerState {
     consecutive_failures: u32,
     open_until: Option<chrono::DateTime<chrono::Utc>>,
+    half_open_in_flight: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -94,14 +99,23 @@ impl CircuitBreaker {
             state: Arc::new(Mutex::new(CircuitBreakerState {
                 consecutive_failures: 0,
                 open_until: None,
+                half_open_in_flight: false,
             })),
         }
     }
 
     pub async fn can_execute(&self) -> bool {
-        let state = self.state.lock().await;
+        let mut state = self.state.lock().await;
         match state.open_until {
-            Some(until) => Utc::now() >= until,
+            Some(until) if Utc::now() >= until => {
+                if state.half_open_in_flight {
+                    false
+                } else {
+                    state.half_open_in_flight = true;
+                    true
+                }
+            }
+            Some(_) => false,
             None => true,
         }
     }
@@ -110,15 +124,24 @@ impl CircuitBreaker {
         let mut state = self.state.lock().await;
         state.consecutive_failures = 0;
         state.open_until = None;
+        state.half_open_in_flight = false;
     }
 
     pub async fn on_failure(&self) {
         let mut state = self.state.lock().await;
+        let was_probe = state.half_open_in_flight;
+        state.half_open_in_flight = false;
+
+        if was_probe {
+            state.consecutive_failures = 0;
+            state.open_until = Some(Utc::now() + cooldown(&self.policy.cooldown));
+            return;
+        }
+
         state.consecutive_failures = state.consecutive_failures.saturating_add(1);
         if state.consecutive_failures >= self.policy.failure_threshold {
-            let cooldown = chrono::Duration::from_std(self.policy.cooldown)
-                .unwrap_or_else(|_| chrono::Duration::seconds(30));
-            state.open_until = Some(Utc::now() + cooldown);
+            state.consecutive_failures = 0;
+            state.open_until = Some(Utc::now() + cooldown(&self.policy.cooldown));
         }
     }
 }
@@ -226,7 +249,6 @@ impl VtpassClient {
             })?;
 
             if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
-                self.breaker.on_failure().await;
                 return Err(ProviderError::new(
                     ProviderErrorKind::Unauthorized,
                     "vtpass authentication failed",
@@ -285,7 +307,6 @@ impl VtpassClient {
             })?;
 
             if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
-                self.breaker.on_failure().await;
                 return Err(ProviderError::new(
                     ProviderErrorKind::Unauthorized,
                     "vtpass authentication failed",
@@ -649,5 +670,25 @@ mod tests {
         assert!(breaker.can_execute().await);
         breaker.on_failure().await;
         assert!(!breaker.can_execute().await);
+    }
+
+    #[tokio::test]
+    async fn circuit_breaker_allows_one_probe_and_reopens_on_failure() {
+        let breaker = CircuitBreaker::new(CircuitBreakerPolicy {
+            failure_threshold: 2,
+            cooldown: Duration::from_millis(0),
+        });
+
+        breaker.on_failure().await;
+        breaker.on_failure().await;
+        assert!(breaker.can_execute().await);
+        assert!(!breaker.can_execute().await);
+
+        breaker.on_failure().await;
+        assert!(breaker.can_execute().await);
+
+        breaker.on_success().await;
+        assert!(breaker.can_execute().await);
+        assert!(breaker.can_execute().await);
     }
 }

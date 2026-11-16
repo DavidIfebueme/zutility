@@ -35,6 +35,7 @@ pub struct InlomaxCircuitBreaker {
 struct InlomaxCircuitBreakerState {
     consecutive_failures: u32,
     open_until: Option<chrono::DateTime<chrono::Utc>>,
+    half_open_in_flight: bool,
 }
 
 impl Default for InlomaxCircuitBreakerPolicy {
@@ -53,14 +54,23 @@ impl InlomaxCircuitBreaker {
             state: Arc::new(Mutex::new(InlomaxCircuitBreakerState {
                 consecutive_failures: 0,
                 open_until: None,
+                half_open_in_flight: false,
             })),
         }
     }
 
     pub async fn can_execute(&self) -> bool {
-        let state = self.state.lock().await;
+        let mut state = self.state.lock().await;
         match state.open_until {
-            Some(until) => Utc::now() >= until,
+            Some(until) if Utc::now() >= until => {
+                if state.half_open_in_flight {
+                    false
+                } else {
+                    state.half_open_in_flight = true;
+                    true
+                }
+            }
+            Some(_) => false,
             None => true,
         }
     }
@@ -69,15 +79,28 @@ impl InlomaxCircuitBreaker {
         let mut state = self.state.lock().await;
         state.consecutive_failures = 0;
         state.open_until = None;
+        state.half_open_in_flight = false;
     }
 
     pub async fn on_failure(&self) {
         let mut state = self.state.lock().await;
+        let reopen_after = |duration: &std::time::Duration| {
+            chrono::Duration::from_std(*duration)
+                .unwrap_or_else(|_| chrono::Duration::seconds(30))
+        };
+        let was_probe = state.half_open_in_flight;
+        state.half_open_in_flight = false;
+
+        if was_probe {
+            state.consecutive_failures = 0;
+            state.open_until = Some(Utc::now() + reopen_after(&self.policy.cooldown));
+            return;
+        }
+
         state.consecutive_failures = state.consecutive_failures.saturating_add(1);
         if state.consecutive_failures >= self.policy.failure_threshold {
-            let cooldown = chrono::Duration::from_std(self.policy.cooldown)
-                .unwrap_or_else(|_| chrono::Duration::seconds(30));
-            state.open_until = Some(Utc::now() + cooldown);
+            state.consecutive_failures = 0;
+            state.open_until = Some(Utc::now() + reopen_after(&self.policy.cooldown));
         }
     }
 }
