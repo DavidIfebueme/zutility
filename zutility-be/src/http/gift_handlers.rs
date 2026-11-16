@@ -507,23 +507,27 @@ pub async fn claim_gift(
         .await
         .map_err(internal_err)?;
 
-    match locked_status.as_deref() {
-        Some("awaiting_payment")
-        | Some("payment_detected")
-        | Some("payment_confirmed")
-        | Some("awaiting_claim") => {}
-        _ => {
-            return Err(ApiError::conflict("this gift can no longer be claimed"));
-        }
+    let Some(locked_status) = locked_status.as_deref().and_then(OrderStatus::from_db) else {
+        return Err(ApiError::conflict("this gift can no longer be claimed"));
+    };
+
+    if !matches!(
+        locked_status,
+        OrderStatus::AwaitingPayment
+            | OrderStatus::PaymentDetected
+            | OrderStatus::PaymentConfirmed
+            | OrderStatus::AwaitingClaim
+    ) {
+        return Err(ApiError::conflict("this gift can no longer be claimed"));
     }
 
     db::update_order_service_ref_tx(&mut tx, order_id, &service_ref, customer_name.as_deref())
         .await
         .map_err(internal_err)?;
 
-    if locked_status.as_deref() == Some("awaiting_claim") {
+    if locked_status == OrderStatus::AwaitingClaim {
         let transition =
-            OrderStatusTransition::new(OrderStatus::AwaitingClaim, OrderStatus::PaymentConfirmed)
+            OrderStatusTransition::new(locked_status, OrderStatus::PaymentConfirmed)
                 .map_err(internal_err)?;
 
         db::apply_order_status_transition(

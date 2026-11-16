@@ -65,17 +65,28 @@ export function useOrderStream(orderId: string | null, accessToken: string | nul
             setStatus('completed')
             setIsConnected(false)
             terminal = true
+            socket.close()
           } else if (event.event === 'expired') {
             setStatus('expired')
             setIsConnected(false)
             terminal = true
+            socket.close()
           } else if (event.event === 'failed') {
             setStatus('failed')
             setIsConnected(false)
             terminal = true
+            socket.close()
+          } else if (event.event === 'flagged') {
+            setStatus('flagged_for_review')
+          } else if (event.event === 'cancelled') {
+            setStatus('cancelled')
+            setIsConnected(false)
+            terminal = true
+            socket.close()
           }
         } catch {
           setIsConnected(false)
+          socket.close()
         }
       }
 

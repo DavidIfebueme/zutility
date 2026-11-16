@@ -79,6 +79,7 @@ export type OrderStreamEvent =
   | { event: 'completed'; delivery_token: string | null; reference: string }
   | { event: 'expired' }
   | { event: 'failed'; reason: string }
+  | { event: 'flagged'; reason: string }
   | { event: 'cancelled' }
 
 export type GiftStatus = 'open' | 'claimed' | 'cancelled' | 'expired'
