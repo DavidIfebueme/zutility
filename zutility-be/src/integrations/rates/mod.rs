@@ -174,7 +174,9 @@ impl RateOracle {
                 usd_egp: previous
                     .map(|value| value.usd_egp)
                     .unwrap_or(current.usd_egp),
-                updated_at: fetched_at,
+                updated_at: previous
+                    .map(|value| value.updated_at)
+                    .unwrap_or(fetched_at),
             }
         } else {
             current
