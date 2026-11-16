@@ -11,6 +11,11 @@ interface CountdownTimerProps extends React.HTMLAttributes<HTMLDivElement> {
 export function CountdownTimer({ expiresAt, onExpire, className, ...props }: CountdownTimerProps) {
   const [timeLeft, setTimeLeft] = React.useState<number>(0)
   const [isExpired, setIsExpired] = React.useState(false)
+  const onExpireRef = React.useRef(onExpire)
+
+  React.useEffect(() => {
+    onExpireRef.current = onExpire
+  }, [onExpire])
 
   React.useEffect(() => {
     const target = new Date(expiresAt).getTime()
@@ -19,10 +24,7 @@ export function CountdownTimer({ expiresAt, onExpire, className, ...props }: Cou
       const difference = target - Date.now()
       if (difference <= 0) {
         setTimeLeft(0)
-        setIsExpired((value) => {
-          if (!value) onExpire?.()
-          return true
-        })
+        setIsExpired(true)
       } else {
         setTimeLeft(difference)
       }
@@ -31,7 +33,11 @@ export function CountdownTimer({ expiresAt, onExpire, className, ...props }: Cou
     update()
     const interval = setInterval(update, 1000)
     return () => clearInterval(interval)
-  }, [expiresAt, onExpire])
+  }, [expiresAt])
+
+  React.useEffect(() => {
+    if (isExpired) onExpireRef.current?.()
+  }, [isExpired])
 
   const minutes = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60))
   const seconds = Math.floor((timeLeft % (1000 * 60)) / 1000)
