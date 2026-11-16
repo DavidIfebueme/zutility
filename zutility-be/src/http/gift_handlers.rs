@@ -188,12 +188,9 @@ pub async fn create_gift(
             "gifting is not available for this utility",
         ));
     }
-    if !matches!(
-        payload.zec_address_type.as_str(),
-        "shielded" | "transparent"
-    ) {
+    if payload.zec_address_type != "shielded" {
         return Err(ApiError::bad_request(
-            "zec_address_type must be shielded or transparent",
+            "transparent addresses are not available yet, choose shielded",
         ));
     }
     validate_gift_amount_ngn(payload.amount_ngn)

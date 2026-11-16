@@ -342,6 +342,23 @@ async fn resolve_order_amount(
     Ok(looked_up)
 }
 
+fn velocity_key(utility_type: &str, utility_slug: &str, service_ref: &str) -> String {
+    let part = |value: &str, max: usize| {
+        value
+            .trim()
+            .chars()
+            .take(max)
+            .collect::<String>()
+            .to_ascii_lowercase()
+    };
+    format!(
+        "{}:{}:{}",
+        part(utility_type, 32),
+        part(utility_slug, 32),
+        part(service_ref, 64)
+    )
+}
+
 async fn enforce_service_ref_velocity(
     state: &HttpState,
     payload: &CreateOrderRequest,
@@ -354,14 +371,17 @@ async fn enforce_service_ref_velocity(
         _ => (10_i64, 5_usize),
     };
 
-    let key = format!(
-        "{}:{}:{}",
-        payload.utility_type.trim().to_ascii_lowercase(),
-        payload.utility_slug.trim().to_ascii_lowercase(),
-        payload.service_ref.trim().to_ascii_lowercase()
+    let key = velocity_key(
+        &payload.utility_type,
+        &payload.utility_slug,
+        &payload.service_ref,
     );
 
     let mut tracker = state.service_ref_velocity.write().await;
+    if tracker.len() > 10_000 {
+        let cutoff = now - Duration::minutes(60);
+        tracker.retain(|_, timestamps| timestamps.iter().any(|timestamp| *timestamp >= cutoff));
+    }
     let entries = tracker.entry(key).or_default();
     let cutoff = now - Duration::minutes(window_minutes);
     entries.retain(|timestamp| *timestamp >= cutoff);
@@ -960,12 +980,9 @@ fn validate_create_order_payload(payload: &CreateOrderRequest) -> Result<(), Api
             "amount_ngn cannot exceed {MAX_ORDER_AMOUNT_NGN}"
         )));
     }
-    if !matches!(
-        payload.zec_address_type.as_str(),
-        "shielded" | "transparent"
-    ) {
+    if payload.zec_address_type != "shielded" {
         return Err(ApiError::bad_request(
-            "zec_address_type must be shielded or transparent",
+            "transparent addresses are not available yet, choose shielded",
         ));
     }
     if let Some(meter_type) = payload.meter_type.as_deref()
@@ -1642,6 +1659,20 @@ mod tests {
             customer_name: None,
             user_id: None,
         }
+    }
+
+    #[test]
+    fn velocity_key_is_bounded() {
+        let long_type = "a".repeat(100);
+        let long_slug = "b".repeat(100);
+        let long_ref = "c".repeat(1000);
+        let key = velocity_key(&long_type, &long_slug, &long_ref);
+        let parts: Vec<&str> = key.split(':').collect();
+
+        assert_eq!(parts.len(), 3);
+        assert_eq!(parts[0].len(), 32);
+        assert_eq!(parts[1].len(), 32);
+        assert_eq!(parts[2].len(), 64);
     }
 
     #[test]
