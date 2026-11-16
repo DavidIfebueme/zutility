@@ -131,8 +131,14 @@ fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool
             "/api/v1/utilities/{slug}/variations",
             get(list_utility_variations),
         )
-        .route("/api/v1/webhooks/vtpass", post(webhook_vtpass))
-        .route("/api/v1/webhooks/inlomax", post(webhook_inlomax))
+        .route(
+            "/api/v1/webhooks/vtpass",
+            post(webhook_vtpass).layer(DefaultBodyLimit::max(8 * 1024)),
+        )
+        .route(
+            "/api/v1/webhooks/inlomax",
+            post(webhook_inlomax).layer(DefaultBodyLimit::max(8 * 1024)),
+        )
         .route(
             "/api/v1/webhooks/remita",
             post(webhook_remita).layer(DefaultBodyLimit::max(8 * 1024)),
