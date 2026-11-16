@@ -75,6 +75,8 @@ export default function PayPage() {
   const [query, setQuery] = React.useState("")
   const [variations, setVariations] = React.useState<UtilityVariationResponse[]>([])
   const [loadingVariations, setLoadingVariations] = React.useState(false)
+  const [variationsError, setVariationsError] = React.useState(false)
+  const [variationsReloadKey, setVariationsReloadKey] = React.useState(0)
   const [validating, setValidating] = React.useState(false)
   const [validated, setValidated] = React.useState<UtilityValidateResponse | null>(null)
   const [validatedReference, setValidatedReference] = React.useState<string | null>(null)
@@ -214,10 +216,16 @@ export default function PayPage() {
     }
     setLoadingVariations(true)
     apiGet<UtilityVariationResponse[]>(`/api/v1/utilities/${selectedUtility.slug}/variations`)
-      .then(setVariations)
-      .catch(() => setVariations([]))
+      .then((data) => {
+        setVariations(data)
+        setVariationsError(false)
+      })
+      .catch(() => {
+        setVariations([])
+        setVariationsError(true)
+      })
       .finally(() => setLoadingVariations(false))
-  }, [selectedUtility])
+  }, [selectedUtility, variationsReloadKey])
 
   const handleValidate = React.useCallback(async () => {
     if (!selectedUtility || !serviceRef || serviceRef.trim().length < 5) return
@@ -266,7 +274,7 @@ export default function PayPage() {
   React.useEffect(() => {
     setValidated(null)
     setValidatedReference(null)
-  }, [serviceRef, selectedUtilityId])
+  }, [serviceRef, selectedUtilityId, meterType])
 
   const refWarning = React.useMemo(
     () => (selectedUtility ? networkWarning(serviceRef ?? "", selectedUtility.slug) : null),
@@ -668,7 +676,23 @@ export default function PayPage() {
                       })}
                     </div>
                   ) : (
-                    <p className="text-[13px] text-muted">No plans returned for this service.</p>
+                    <div className="space-y-2">
+                      <p className="text-[13px] text-muted">
+                        {variationsError
+                          ? "Could not load plans."
+                          : "No plans returned for this service."}
+                      </p>
+                      {variationsError && (
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => setVariationsReloadKey((key) => key + 1)}
+                        >
+                          Try again
+                        </Button>
+                      )}
+                    </div>
                   )}
                 </div>
               )}
