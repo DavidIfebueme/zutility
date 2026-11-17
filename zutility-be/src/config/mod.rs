@@ -63,6 +63,14 @@ fn default_zingo_init_timeout_seconds() -> u64 {
     90
 }
 
+fn default_catalogue_max_age_minutes() -> u32 {
+    1440
+}
+
+fn default_catalogue_refresh_seconds() -> u64 {
+    3600
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct AppConfig {
     pub app_env: AppEnv,
@@ -85,6 +93,24 @@ pub struct AppConfig {
     pub inlomax_api_key: Option<SecretString>,
     pub inlomax_base_url: Option<String>,
     pub inlomax_webhook_secret: Option<SecretString>,
+    #[serde(default)]
+    pub dtone_api_key: Option<SecretString>,
+    #[serde(default)]
+    pub dtone_api_secret: Option<SecretString>,
+    #[serde(default)]
+    pub dtone_base_url: Option<String>,
+    #[serde(default)]
+    pub dtone_callback_url: Option<String>,
+    #[serde(default)]
+    pub dtone_callback_user: Option<SecretString>,
+    #[serde(default)]
+    pub dtone_callback_pass: Option<SecretString>,
+    #[serde(default)]
+    pub dtone_callback_ips: Option<String>,
+    #[serde(default = "default_catalogue_max_age_minutes")]
+    pub catalogue_max_age_minutes: u32,
+    #[serde(default = "default_catalogue_refresh_seconds")]
+    pub catalogue_refresh_seconds: u64,
     pub zcash_rpc_mode: ZcashRpcMode,
     pub zcash_rpc_socket_path: String,
     pub zcash_rpc_url: String,
@@ -202,6 +228,65 @@ impl AppConfig {
             && v.expose_secret().trim().is_empty()
         {
             self.inlomax_webhook_secret = None;
+        }
+
+        if let Some(ref v) = self.dtone_api_key
+            && v.expose_secret().trim().is_empty()
+        {
+            self.dtone_api_key = None;
+        }
+        if let Some(ref v) = self.dtone_api_secret
+            && v.expose_secret().trim().is_empty()
+        {
+            self.dtone_api_secret = None;
+        }
+        if let Some(ref v) = self.dtone_base_url
+            && v.trim().is_empty()
+        {
+            self.dtone_base_url = None;
+        }
+        if let Some(ref v) = self.dtone_callback_url
+            && v.trim().is_empty()
+        {
+            self.dtone_callback_url = None;
+        }
+        if let Some(ref v) = self.dtone_callback_user
+            && v.expose_secret().trim().is_empty()
+        {
+            self.dtone_callback_user = None;
+        }
+        if let Some(ref v) = self.dtone_callback_pass
+            && v.expose_secret().trim().is_empty()
+        {
+            self.dtone_callback_pass = None;
+        }
+        if let Some(ref v) = self.dtone_callback_ips
+            && v.trim().is_empty()
+        {
+            self.dtone_callback_ips = None;
+        }
+
+        if self.dtone_api_key.is_some() != self.dtone_api_secret.is_some() {
+            anyhow::bail!("DTONE_API_KEY and DTONE_API_SECRET must be set together");
+        }
+        if self.dtone_callback_user.is_some() != self.dtone_callback_pass.is_some() {
+            anyhow::bail!("DTONE_CALLBACK_USER and DTONE_CALLBACK_PASS must be set together");
+        }
+        if self.dtone_api_key.is_some() {
+            if self.dtone_callback_url.is_none() {
+                anyhow::bail!("DTONE_CALLBACK_URL is required when DTONE_API_KEY is set");
+            }
+            if self.dtone_callback_user.is_none() {
+                anyhow::bail!(
+                    "DTONE_CALLBACK_USER and DTONE_CALLBACK_PASS are required when DTONE_API_KEY is set"
+                );
+            }
+        }
+        if self.catalogue_max_age_minutes == 0 {
+            anyhow::bail!("CATALOGUE_MAX_AGE_MINUTES must be greater than 0");
+        }
+        if self.catalogue_refresh_seconds == 0 {
+            anyhow::bail!("CATALOGUE_REFRESH_SECONDS must be greater than 0");
         }
 
         if let Some(ref v) = self.remita_merchant_id {

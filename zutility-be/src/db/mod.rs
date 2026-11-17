@@ -20,6 +20,24 @@ pub struct OrderStatusTransitionRecord {
 }
 
 #[derive(Debug, Clone)]
+pub struct WebhookTransition {
+    pub from_status: String,
+    pub to_status: String,
+    pub event: String,
+    pub delivery_token: Option<String>,
+    pub provider_reference: Option<String>,
+    pub detail: Value,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WebhookTransitionOutcome {
+    Applied,
+    Recorded,
+    Deferred,
+    Replayed,
+}
+
+#[derive(Debug, Clone)]
 pub struct CreateOrderInput {
     pub access_token_hash: String,
     pub utility_type: String,
@@ -729,6 +747,90 @@ pub async fn find_order_by_provider_reference(
     .await?;
 
     rows.into_iter().map(map_order_row).next().transpose()
+}
+
+pub async fn find_order_for_webhook(pool: &PgPool, reference: &str) -> Result<Option<OrderRow>> {
+    let row = sqlx::query(
+        "SELECT id, status, access_token_hash, utility_type, utility_slug, service_ref,
+                amount_ngn, deposit_address, address_type, zec_amount, zec_rate_id,
+                txid, confirmations, required_confs, total_received, created_at,
+                expires_at, confirmed_at, completed_at, vtpass_request_id,
+                delivery_token, ip_hash, metadata, variation_code, provider, customer_name, user_id
+         FROM orders
+         WHERE vtpass_request_id = $1
+         ORDER BY created_at DESC
+         LIMIT 1",
+    )
+    .bind(reference)
+    .fetch_optional(pool)
+    .await?;
+
+    row.map(map_order_row).transpose()
+}
+
+pub async fn record_webhook_and_transition(
+    tx: &mut Transaction<'_, Postgres>,
+    provider: &str,
+    event_key: &str,
+    order_id: Uuid,
+    transition: Option<&WebhookTransition>,
+) -> Result<WebhookTransitionOutcome> {
+    let inserted = sqlx::query(
+        "INSERT INTO webhook_events (provider, event_key) VALUES ($1, $2)
+         ON CONFLICT (provider, event_key) DO NOTHING",
+    )
+    .bind(provider)
+    .bind(event_key)
+    .execute(tx.as_mut())
+    .await?
+    .rows_affected();
+
+    if inserted == 0 {
+        return Ok(WebhookTransitionOutcome::Replayed);
+    }
+
+    let Some(transition) = transition else {
+        return Ok(WebhookTransitionOutcome::Recorded);
+    };
+
+    let updated = sqlx::query(
+        "UPDATE orders
+         SET status = $3,
+             delivery_token = COALESCE($4, delivery_token),
+             vtpass_request_id = COALESCE($5, vtpass_request_id)
+         WHERE id = $1 AND status = $2",
+    )
+    .bind(order_id)
+    .bind(&transition.from_status)
+    .bind(&transition.to_status)
+    .bind(&transition.delivery_token)
+    .bind(&transition.provider_reference)
+    .execute(tx.as_mut())
+    .await?
+    .rows_affected();
+
+    if updated == 0 {
+        sqlx::query("DELETE FROM webhook_events WHERE provider = $1 AND event_key = $2")
+            .bind(provider)
+            .bind(event_key)
+            .execute(tx.as_mut())
+            .await?;
+        return Ok(WebhookTransitionOutcome::Deferred);
+    }
+
+    sqlx::query(
+        "INSERT INTO audit_log (order_id, event, old_status, new_status, detail)
+         VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(order_id)
+    .bind(&transition.event)
+    .bind(&transition.from_status)
+    .bind(&transition.to_status)
+    .bind(&transition.detail)
+    .execute(tx.as_mut())
+    .await?;
+
+    Ok(WebhookTransitionOutcome::Applied)
 }
 
 #[derive(Debug, Clone)]
