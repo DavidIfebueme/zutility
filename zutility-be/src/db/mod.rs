@@ -2003,3 +2003,124 @@ fn map_notification_row(row: sqlx::postgres::PgRow) -> Result<NotificationRow> {
         created_at: row.try_get("created_at")?,
     })
 }
+
+pub async fn list_catalogue(
+    pool: &PgPool,
+    country: Option<&str>,
+) -> Result<Vec<crate::domain::catalogue::CatalogueCountry>> {
+    let rows = sqlx::query(
+        "SELECT c.iso2, c.name AS country_name, c.currency,
+                p.id, p.utility_category, p.slug, p.name AS product_name, p.descriptor,
+                p.icon_key, p.service_ref_label, p.service_ref_placeholder,
+                p.service_ref_pattern, p.quick_amounts, p.amount_kind, p.amount_min,
+                p.amount_max, p.amount_increment, p.destination_currency,
+                p.fulfilment_kind, p.operator_id, p.operator_name, p.required_fields,
+                p.field_labels
+         FROM countries c
+         JOIN provider_products p ON p.country_iso2 = c.iso2 AND p.enabled
+         WHERE c.enabled AND ($1::text IS NULL OR c.iso2::text = $1)
+         ORDER BY c.iso2, p.utility_category, p.name",
+    )
+    .bind(country)
+    .fetch_all(pool)
+    .await?;
+
+    let product_ids: Vec<Uuid> = rows
+        .iter()
+        .map(|row| row.try_get::<Uuid, _>("id"))
+        .collect::<std::result::Result<_, _>>()?;
+
+    let mut variations: std::collections::HashMap<
+        Uuid,
+        Vec<crate::domain::catalogue::CatalogueVariation>,
+    > = std::collections::HashMap::new();
+    if !product_ids.is_empty() {
+        let variation_rows = sqlx::query(
+            "SELECT product_id, variation_code, name, amount
+             FROM provider_product_variations
+             WHERE enabled AND product_id = ANY($1)
+             ORDER BY amount, name",
+        )
+        .bind(&product_ids)
+        .fetch_all(pool)
+        .await?;
+        for row in variation_rows {
+            variations
+                .entry(row.try_get("product_id")?)
+                .or_default()
+                .push(crate::domain::catalogue::CatalogueVariation {
+                    variation_code: row.try_get("variation_code")?,
+                    name: row.try_get("name")?,
+                    amount: catalogue_amount(row.try_get("amount")?),
+                });
+        }
+    }
+
+    let mut country_order: Vec<String> = Vec::new();
+    let mut country_meta: std::collections::HashMap<String, (String, String)> =
+        std::collections::HashMap::new();
+    let mut country_products: std::collections::HashMap<
+        String,
+        Vec<crate::domain::catalogue::CatalogueProduct>,
+    > = std::collections::HashMap::new();
+
+    for row in rows {
+        let iso2: String = row.try_get("iso2")?;
+        if !country_meta.contains_key(&iso2) {
+            country_order.push(iso2.clone());
+            country_meta.insert(
+                iso2.clone(),
+                (row.try_get("country_name")?, row.try_get("currency")?),
+            );
+        }
+        let product_id: Uuid = row.try_get("id")?;
+        let product = crate::domain::catalogue::CatalogueProduct {
+            id: product_id,
+            category: row.try_get("utility_category")?,
+            slug: row.try_get("slug")?,
+            name: row.try_get("product_name")?,
+            descriptor: row.try_get("descriptor")?,
+            icon_key: row.try_get("icon_key")?,
+            service_ref_label: row.try_get("service_ref_label")?,
+            service_ref_placeholder: row.try_get("service_ref_placeholder")?,
+            service_ref_pattern: row.try_get("service_ref_pattern")?,
+            quick_amounts: row.try_get("quick_amounts")?,
+            amount_kind: row.try_get("amount_kind")?,
+            amount_min: row
+                .try_get::<Option<Decimal>, _>("amount_min")?
+                .map(catalogue_amount),
+            amount_max: row
+                .try_get::<Option<Decimal>, _>("amount_max")?
+                .map(catalogue_amount),
+            amount_increment: row
+                .try_get::<Option<Decimal>, _>("amount_increment")?
+                .map(catalogue_amount),
+            currency: row.try_get("destination_currency")?,
+            fulfilment_kind: row.try_get("fulfilment_kind")?,
+            operator_id: row.try_get("operator_id")?,
+            operator_name: row.try_get("operator_name")?,
+            required_fields: row.try_get("required_fields")?,
+            field_labels: row.try_get("field_labels")?,
+            variations: variations.remove(&product_id).unwrap_or_default(),
+        };
+        country_products.entry(iso2).or_default().push(product);
+    }
+
+    Ok(country_order
+        .into_iter()
+        .filter_map(|iso2| {
+            let (name, currency) = country_meta.remove(&iso2)?;
+            let products = country_products.remove(&iso2)?;
+            Some(crate::domain::catalogue::CatalogueCountry {
+                iso2,
+                name,
+                currency,
+                categories: crate::domain::catalogue::group_by_category(products),
+            })
+        })
+        .collect())
+}
+
+fn catalogue_amount(value: Decimal) -> String {
+    value.normalize().to_string()
+}

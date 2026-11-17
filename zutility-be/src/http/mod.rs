@@ -16,6 +16,7 @@ use tower_http::{
 pub mod admin_handlers;
 pub mod auth;
 pub mod auth_handlers;
+pub mod catalogue;
 pub mod docs;
 pub mod error;
 pub mod gift_handlers;
@@ -35,6 +36,7 @@ use auth_handlers::{
     change_password, delete_account, forgot_password, get_me, get_order_history, login, logout,
     refresh, register, resend_verification, reset_password, update_profile, verify_email,
 };
+use catalogue::get_catalogue;
 use docs::{docs_ui, openapi_json};
 use gift_handlers::{cancel_gift, claim_gift, create_gift, get_gift, list_gifts, rotate_gift_code};
 use handlers::{
@@ -127,6 +129,7 @@ fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool
         .route("/api/v1/auth/logout", post(logout))
         .route("/api/v1/auth/verify-email", post(verify_email))
         .route("/api/v1/rates/current", get(get_current_rate))
+        .route("/api/v1/catalogue", get(get_catalogue))
         .route("/api/v1/utilities", get(list_utilities))
         .route(
             "/api/v1/utilities/{slug}/validate",
