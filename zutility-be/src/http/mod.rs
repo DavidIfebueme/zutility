@@ -24,7 +24,6 @@ pub mod handlers;
 pub mod mw;
 pub mod notification_handlers;
 pub mod rate_limit;
-pub mod service_ref;
 pub mod support_handlers;
 pub mod types;
 pub mod waitlist_handlers;

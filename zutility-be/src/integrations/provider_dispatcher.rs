@@ -64,6 +64,126 @@ impl ProviderDispatcher {
         self.dtone.clone()
     }
 
+    pub fn provider_name_is_known(provider: &str) -> bool {
+        matches!(
+            provider,
+            "inlomax" | "vtpass" | "remita" | "remita_collections" | "dtone"
+        )
+    }
+
+    pub fn is_configured(&self, provider: &str) -> bool {
+        match provider {
+            "inlomax" => self.inlomax.is_some(),
+            "vtpass" => true,
+            "remita" => self.remita.is_some(),
+            "remita_collections" => self.remita_collections.is_some(),
+            "dtone" => self.dtone.is_some(),
+            _ => false,
+        }
+    }
+
+    pub fn provider_for_name(
+        &self,
+        provider: &str,
+    ) -> Result<Arc<dyn UtilityProvider>, ProviderError> {
+        match provider {
+            "inlomax" => match self.inlomax.clone() {
+                Some(client) => Ok(client as Arc<dyn UtilityProvider>),
+                None => Err(ProviderError::outage("inlomax is not configured")),
+            },
+            "vtpass" => Ok(self.vtpass.clone() as Arc<dyn UtilityProvider>),
+            "remita" => match self.remita.clone() {
+                Some(client) => Ok(client as Arc<dyn UtilityProvider>),
+                None => Err(ProviderError::outage("remita is not configured")),
+            },
+            "remita_collections" => match self.remita_collections.clone() {
+                Some(client) => Ok(client as Arc<dyn UtilityProvider>),
+                None => Err(ProviderError::outage(
+                    "remita collections is not configured",
+                )),
+            },
+            "dtone" => match self.dtone.clone() {
+                Some(client) => Ok(client as Arc<dyn UtilityProvider>),
+                None => Err(ProviderError::outage("dt one is not configured")),
+            },
+            other => Err(ProviderError::permanent(format!(
+                "unknown provider {other} for this product"
+            ))),
+        }
+    }
+
+    pub async fn pay_for_product(
+        &self,
+        provider: &str,
+        failover: Option<&str>,
+        request: &UtilityPurchaseRequest,
+    ) -> Result<UtilityPurchaseResponse, ProviderError> {
+        let primary = self.provider_for_name(provider)?;
+        let result = primary.pay(request).await;
+
+        let Err(error) = result else {
+            return result;
+        };
+
+        self.record_provider_error(primary.kind());
+
+        if matches!(
+            error.kind,
+            ProviderErrorKind::Outage | ProviderErrorKind::Transient
+        ) && let Some(failover) = failover
+            && self.is_configured(failover)
+            && failover != provider
+        {
+            tracing::warn!(
+                provider,
+                failover,
+                error = %error,
+                "product provider outage, falling back to the recorded failover"
+            );
+            let secondary = self.provider_for_name(failover)?;
+            let retried = secondary.pay(request).await;
+            if retried.is_err() {
+                self.record_provider_error(secondary.kind());
+            }
+            return retried;
+        }
+
+        Err(error)
+    }
+
+    pub async fn requery_for_product(
+        &self,
+        provider: &str,
+        request_id: &str,
+    ) -> Result<RequeryResponse, ProviderError> {
+        let provider = self.provider_for_name(provider)?;
+        let result = provider.requery(request_id).await;
+        if result.is_err() {
+            self.record_provider_error(provider.kind());
+        }
+        result
+    }
+
+    pub fn warn_unconfigured_providers(&self, rows: &[(String, Option<String>)]) {
+        for (provider, failover) in rows {
+            if !Self::provider_name_is_known(provider) || !self.is_configured(provider) {
+                tracing::warn!(
+                    provider,
+                    "enabled product resolves to a provider adapter that is not configured"
+                );
+            }
+            if let Some(failover) = failover
+                && (!Self::provider_name_is_known(failover) || !self.is_configured(failover))
+            {
+                tracing::warn!(
+                    provider,
+                    failover,
+                    "enabled product names a failover adapter that is not configured"
+                );
+            }
+        }
+    }
+
     fn record_provider_error(&self, kind: ProviderKind) {
         if let Some(metrics) = self.metrics.as_ref() {
             metrics.record_provider_error(kind.as_label());

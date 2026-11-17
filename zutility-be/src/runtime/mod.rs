@@ -1,7 +1,7 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::time::Duration;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use chrono::Utc;
 use rust_decimal::Decimal;
 use sqlx::PgPool;
@@ -13,11 +13,11 @@ use crate::{
     db,
     domain::{
         gift::{GiftStatus, HeldGiftOutcome, held_gift_outcome},
-        money::Money,
         order::{OrderStatus, OrderStatusTransition, ThresholdPolicy},
     },
     http::handlers::HttpState,
     integrations::{
+        dtone::PROVIDER_NAME as DTONE_PROVIDER_NAME,
         provider_dispatcher::ProviderDispatcher,
         rates::RateOracle,
         remita::RemitaClient,
@@ -27,13 +27,20 @@ use crate::{
         vtpass::VtpassClient,
         zcash::{ReceivedNote, group_notes_by_address},
     },
-    jobs::{address_pool::AddressPoolManager, rate_refresher::RateRefresher},
+    jobs::{
+        address_pool::AddressPoolManager, catalogue_refresher::CatalogueRefresher,
+        rate_refresher::RateRefresher,
+    },
     ws::WsOrderEvent,
 };
+
+pub const DTONE_DISPATCH_TIMEOUT_FLAG: &str = "dtone_dispatch_timeout";
+pub const DTONE_RESOLUTION_TIMEOUT_HOURS: i64 = 24;
 
 pub fn start_background_workers(state: HttpState, config: AppConfig, pool: PgPool) {
     start_http_heartbeat(&state);
     start_rate_refresher(state.clone(), config.clone(), pool.clone());
+    start_catalogue_refresher(state.clone(), config.clone(), pool.clone());
     start_order_orchestrator(state.clone(), config.clone(), pool.clone());
     start_address_pool_refill(state, config, pool);
 }
@@ -69,6 +76,37 @@ fn start_rate_refresher(state: HttpState, config: AppConfig, pool: PgPool) {
 
             if let Err(error) = refresher.refresh_once(&pool).await {
                 tracing::warn!(error = %error, "rate refresh iteration failed");
+            }
+        }
+    });
+}
+
+fn start_catalogue_refresher(state: HttpState, config: AppConfig, pool: PgPool) {
+    let jobs = state.observability.jobs();
+    tokio::spawn(async move {
+        let client = match crate::integrations::dtone::DtoneClient::from_config(&config) {
+            Ok(client) => client,
+            Err(error) => {
+                tracing::info!(error = %error, "no dtone client — catalogue refresher disabled");
+                return;
+            }
+        };
+
+        let refresher = CatalogueRefresher::new(std::sync::Arc::new(client));
+        let seconds = config.catalogue_refresh_seconds.max(60);
+        let mut ticker = interval(Duration::from_secs(seconds));
+
+        loop {
+            ticker.tick().await;
+            jobs.mark_alive("catalogue_refresher");
+
+            match refresher.refresh_once(&pool).await {
+                Ok(updated) => {
+                    tracing::info!(updated, "catalogue refresh iteration finished");
+                }
+                Err(error) => {
+                    tracing::warn!(error = %error, "catalogue refresh iteration failed");
+                }
             }
         }
     });
@@ -135,6 +173,13 @@ fn start_order_orchestrator(state: HttpState, config: AppConfig, pool: PgPool) {
         let dispatcher =
             ProviderDispatcher::new(vtpass, remita, remita_collections, inlomax, dtone)
                 .with_metrics(state.observability.metrics());
+
+        match db::list_configured_product_providers(&pool).await {
+            Ok(rows) => dispatcher.warn_unconfigured_providers(&rows),
+            Err(error) => {
+                tracing::warn!(error = %error, "could not check product provider configuration");
+            }
+        }
 
         let mut ticker = interval(Duration::from_secs(25));
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -313,6 +358,13 @@ async fn process_order(
 
     if updated_status == OrderStatus::AwaitingClaim {
         resolve_held_gift(state, &updated).await?;
+        return Ok(());
+    }
+
+    if updated_status == OrderStatus::FlaggedForReview {
+        if updated.flag_reason.as_deref() == Some(DTONE_DISPATCH_TIMEOUT_FLAG) {
+            requery_utility_dispatch(state, dispatcher, pool, &updated).await?;
+        }
         return Ok(());
     }
 
@@ -708,23 +760,98 @@ async fn detect_payment_and_progress(
     Ok(())
 }
 
+pub fn purchase_request_for(
+    order: &db::OrderRow,
+    product: Option<&db::ProductRow>,
+    variation: Option<&db::ProductVariationRow>,
+    request_id: &str,
+) -> Result<UtilityPurchaseRequest> {
+    let product_id = variation
+        .map(|variation| variation.provider_product_id.clone())
+        .or_else(|| product.map(|product| product.provider_product_id.clone()))
+        .unwrap_or_default();
+
+    let metadata = match product {
+        Some(product) => serde_json::json!({
+            "utility_type": order.utility_type,
+            "customer_name": order.customer_name,
+            "meter_type": order.metadata.get("meter_type"),
+            "variation_code": order.variation_code,
+            "amount_kind": product.amount_kind,
+            "required_fields": product.required_fields,
+            "fulfilment_kind": product.fulfilment_kind,
+            "country_iso2": product.country_iso2,
+        }),
+        None => order.metadata.clone(),
+    };
+
+    Ok(UtilityPurchaseRequest {
+        order_id: order.id,
+        request_id: request_id.to_owned(),
+        context: ProviderContext {
+            utility_type: order.utility_type.clone(),
+            service_id: order.utility_slug.clone(),
+            billers_code: order.service_ref.clone(),
+            variation_code: order.variation_code.clone(),
+            meter_type: order
+                .metadata
+                .get("meter_type")
+                .and_then(serde_json::Value::as_str)
+                .map(ToOwned::to_owned),
+            phone: Some(order.service_ref.clone()),
+        },
+        cost_ngn: order.cost()?,
+        settlement: order.settlement()?,
+        product_id,
+        external_id: order.id.to_string(),
+        inputs: order.inputs.clone(),
+        metadata,
+        zec_amount: order.zec_amount,
+    })
+}
+
+async fn load_order_product(
+    pool: &PgPool,
+    order: &db::OrderRow,
+) -> Result<(Option<db::ProductRow>, Option<db::ProductVariationRow>)> {
+    let Some(product_id) = order.product_id else {
+        return Ok((None, None));
+    };
+
+    let product = db::find_product_by_id(pool, product_id).await?;
+    let variation = match (&product, order.variation_code.as_deref()) {
+        (Some(product), Some(code)) => db::find_product_variation(pool, product.id, code).await?,
+        _ => None,
+    };
+
+    Ok((product, variation))
+}
+
+fn request_id_for(order: &db::OrderRow, provider_name: &str) -> String {
+    match provider_name {
+        DTONE_PROVIDER_NAME => order.id.to_string(),
+        "remita" | "remita_collections" => order.service_ref.clone(),
+        "inlomax" => format!("inl-{}", order.id.as_simple()),
+        _ => format!("vp-{}", order.id.as_simple()),
+    }
+}
+
 async fn dispatch_utility(
     state: &HttpState,
     dispatcher: &ProviderDispatcher,
     pool: &PgPool,
     order: &db::OrderRow,
 ) -> Result<()> {
-    let provider_kind = dispatcher.provider_kind_for(&order.utility_type);
-    let provider_name = format!("{provider_kind:?}").to_lowercase();
+    let (product, variation) = load_order_product(pool, order).await?;
 
-    let request_id = match provider_kind {
-        crate::integrations::utility_provider::ProviderKind::Remita => order.service_ref.clone(),
-        crate::integrations::utility_provider::ProviderKind::Inlomax => {
-            format!("inl-{}", order.id.as_simple())
-        }
-        crate::integrations::utility_provider::ProviderKind::Dtone => order.id.to_string(),
-        _ => format!("vp-{}", order.id.as_simple()),
+    let provider_name = match &product {
+        Some(product) => product.provider.clone(),
+        None => order.provider.clone().unwrap_or_else(|| {
+            format!("{:?}", dispatcher.provider_kind_for(&order.utility_type)).to_lowercase()
+        }),
     };
+
+    let request_id = request_id_for(order, &provider_name);
 
     let transitioned =
         db::set_order_dispatching(pool, order.id, &provider_name, Some(&request_id)).await?;
@@ -749,40 +876,20 @@ async fn dispatch_utility(
         serde_json::json!({ "utility_slug": order.utility_slug }),
     );
 
-    let response = dispatcher
-        .pay(
-            &order.utility_type,
-            &UtilityPurchaseRequest {
-                order_id: order.id,
-                request_id: request_id.clone(),
-                context: ProviderContext {
-                    utility_type: order.utility_type.clone(),
-                    service_id: order.utility_slug.clone(),
-                    billers_code: order.service_ref.clone(),
-                    variation_code: order.variation_code.clone(),
-                    meter_type: order
-                        .metadata
-                        .get("meter_type")
-                        .and_then(serde_json::Value::as_str)
-                        .map(ToOwned::to_owned),
-                    phone: Some(order.service_ref.clone()),
-                },
-                cost_ngn: Money::from_ngn_whole(order.amount_ngn)
-                    .context("order amount is not a valid naira amount")?,
-                settlement: Money::from_ngn_whole(order.amount_ngn)
-                    .context("order amount is not a valid naira amount")?,
-                product_id: String::new(),
-                external_id: order.id.to_string(),
-                inputs: BTreeMap::new(),
-                metadata: serde_json::json!({
-                    "utility_type": order.utility_type,
-                    "customer_name": order.customer_name,
-                    "meter_type": order.metadata.get("meter_type"),
-                }),
-                zec_amount: order.zec_amount,
-            },
-        )
-        .await;
+    let request = purchase_request_for(order, product.as_ref(), variation.as_ref(), &request_id)?;
+
+    let response = match &product {
+        Some(product) => {
+            dispatcher
+                .pay_for_product(
+                    &product.provider,
+                    product.failover_provider.as_deref(),
+                    &request,
+                )
+                .await
+        }
+        None => dispatcher.pay(&order.utility_type, &request).await,
+    };
 
     match response {
         Ok(result) => {
@@ -790,6 +897,19 @@ async fn dispatch_utility(
                 && let Err(error) = db::mark_provider_accepted(pool, order.id).await
             {
                 tracing::warn!(order_id = %order.id, error = %error, "failed to record provider acceptance");
+            }
+
+            if !result.provider_reference.is_empty()
+                && result.provider_reference != result.provider_request_id
+                && let Err(error) = db::store_provider_transaction_id(
+                    pool,
+                    order.id,
+                    &result.provider_reference,
+                    Some(&format!("{:?}", result.status).to_lowercase()),
+                )
+                .await
+            {
+                tracing::warn!(order_id = %order.id, error = %error, "failed to store provider transaction id");
             }
 
             if result.status == ProviderTxnStatus::Delivered {
@@ -802,6 +922,13 @@ async fn dispatch_utility(
                 )
                 .await;
             } else if result.status == ProviderTxnStatus::Failed {
+                db::record_failure(
+                    pool,
+                    order.id,
+                    "provider_failed",
+                    "the provider reported a failure",
+                )
+                .await?;
                 fail_order(state, pool, order.id, "provider_failed").await;
             } else if !result.provider_request_id.is_empty()
                 && let Err(error) =
@@ -851,9 +978,25 @@ async fn requery_utility_dispatch(
     pool: &PgPool,
     order: &db::OrderRow,
 ) -> Result<()> {
+    let (product, _variation) = load_order_product(pool, order).await?;
+    let provider_name = match &product {
+        Some(product) => product.provider.clone(),
+        None => order.provider.clone().unwrap_or_else(|| {
+            format!("{:?}", dispatcher.provider_kind_for(&order.utility_type)).to_lowercase()
+        }),
+    };
+
     let fallback_ref = order.id.to_string();
-    let reference = order.vtpass_request_id.as_deref().unwrap_or(&fallback_ref);
-    if order.vtpass_request_id.is_none() {
+    let reference = if provider_name == DTONE_PROVIDER_NAME {
+        order
+            .provider_external_id
+            .as_deref()
+            .unwrap_or(&fallback_ref)
+    } else {
+        order.vtpass_request_id.as_deref().unwrap_or(&fallback_ref)
+    };
+
+    if order.vtpass_request_id.is_none() && order.provider_external_id.is_none() {
         tracing::warn!(order_id = %order.id, "requery has no stored provider reference, falling back to order ID");
     }
 
@@ -876,7 +1019,7 @@ async fn requery_utility_dispatch(
                 order.id,
                 "utility_dispatching",
                 "flagged_for_review",
-                "dispatch_stuck",
+                DTONE_DISPATCH_TIMEOUT_FLAG,
                 serde_json::json!({ "reference": reference, "minutes": 120 }),
             )
             .await?;
@@ -884,7 +1027,7 @@ async fn requery_utility_dispatch(
             if transitioned {
                 current_status = OrderStatus::FlaggedForReview;
                 tracing::error!(order_id = %order.id, "dispatch stuck for 2 hours, flagged");
-                broadcast_flagged(state, order.id, "dispatch_stuck").await;
+                broadcast_flagged(state, order.id, DTONE_DISPATCH_TIMEOUT_FLAG).await;
                 notify_order(
                     pool,
                     order,
@@ -897,7 +1040,43 @@ async fn requery_utility_dispatch(
         }
     }
 
-    let response = dispatcher.requery(&order.utility_type, reference).await;
+    if current_status == OrderStatus::FlaggedForReview
+        && provider_name == DTONE_PROVIDER_NAME
+        && Utc::now() - order.created_at > chrono::Duration::hours(DTONE_RESOLUTION_TIMEOUT_HOURS)
+    {
+        let failed = db::update_order_status_cas(
+            pool,
+            order.id,
+            "flagged_for_review",
+            "failed",
+            "dtone_resolution_timeout",
+            serde_json::json!({ "reference": reference, "hours": DTONE_RESOLUTION_TIMEOUT_HOURS }),
+        )
+        .await?;
+
+        if failed {
+            tracing::error!(order_id = %order.id, "dt one order unresolved for 24 hours, failed");
+            let _ = state
+                .ws_hub
+                .broadcast_event(
+                    order.id,
+                    &WsOrderEvent::Failed {
+                        reason: String::from("dtone_resolution_timeout"),
+                    },
+                )
+                .await;
+        }
+        return Ok(());
+    }
+
+    let response = match &product {
+        Some(product) => {
+            dispatcher
+                .requery_for_product(&product.provider, reference)
+                .await
+        }
+        None => dispatcher.requery(&order.utility_type, reference).await,
+    };
 
     match response {
         Ok(result) if result.status == ProviderTxnStatus::Delivered => {
@@ -931,48 +1110,58 @@ async fn requery_utility_dispatch(
                 return Ok(());
             }
 
-            if current_status == OrderStatus::FlaggedForReview {
-                let completed = db::complete_flagged_school_fee_order(
-                    pool,
-                    order.id,
-                    result.token.as_deref(),
-                    Some(result.provider_request_id.as_str()),
-                )
-                .await?;
+            complete_order(
+                state,
+                pool,
+                order.id,
+                result.token.as_deref(),
+                Some(result.provider_request_id.as_str()),
+            )
+            .await;
+        }
+        Ok(result) if result.status == ProviderTxnStatus::Reversed => {
+            let reversed = db::mark_order_reversed(
+                pool,
+                order.id,
+                order.provider_status.as_deref().unwrap_or("80000"),
+                None,
+            )
+            .await?;
 
-                if completed {
-                    let _ = state
-                        .ws_hub
-                        .broadcast_event(
-                            order.id,
-                            &WsOrderEvent::Completed {
-                                delivery_token: result.token.clone(),
-                                reference: order.id.to_string(),
-                            },
-                        )
-                        .await;
-                    notify_order(
-                        pool,
-                        order,
-                        "order_completed",
-                        "Order Completed",
-                        "Your school fees payment was delivered.",
-                        serde_json::json!({ "utility_slug": order.utility_slug }),
-                    );
-                }
-            } else {
-                complete_order(
-                    state,
+            if reversed {
+                tracing::error!(order_id = %order.id, "provider reported a reversal, order reversed");
+                notify_order(
                     pool,
-                    order.id,
-                    result.token.as_deref(),
-                    Some(result.provider_request_id.as_str()),
-                )
-                .await;
+                    order,
+                    "order_reversed",
+                    "Order Reversed",
+                    &format!(
+                        "Your {} payment was reversed by the provider. Support will refund it to {}.",
+                        order.utility_slug, order.deposit_address
+                    ),
+                    serde_json::json!({
+                        "utility_slug": order.utility_slug,
+                        "refund_address": order.deposit_address,
+                    }),
+                );
+                let _ = state
+                    .ws_hub
+                    .broadcast_event(order.id, &WsOrderEvent::Reversed)
+                    .await;
             }
         }
         Ok(result) if result.status == ProviderTxnStatus::Failed => {
-            if current_status == OrderStatus::UtilityDispatching {
+            if matches!(
+                current_status,
+                OrderStatus::UtilityDispatching | OrderStatus::FlaggedForReview
+            ) {
+                db::record_failure(
+                    pool,
+                    order.id,
+                    "provider_failed",
+                    "the provider reported a failure on requery",
+                )
+                .await?;
                 fail_order(state, pool, order.id, "provider_failed").await;
             }
         }

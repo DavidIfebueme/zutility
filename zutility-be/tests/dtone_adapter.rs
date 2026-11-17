@@ -665,6 +665,13 @@ async fn seed_dispatching_order(pool: &PgPool) -> Uuid {
             utility_slug: String::from("woyofal-senegal"),
             service_ref: String::from(ACCOUNT_NUMBER),
             amount_ngn: 1000,
+            country_iso2: String::from("NG"),
+            product_id: None,
+            settlement: zutility_be::domain::money::Money::from_ngn_whole(1000)
+                .expect("naira settlement"),
+            cost_amount: Decimal::from(1000),
+            inputs: std::collections::BTreeMap::new(),
+            fulfilment_kind: None,
             address_type: String::from("shielded"),
             zec_amount: Decimal::new(1, 0),
             zec_rate_id: rate_id,
@@ -761,7 +768,15 @@ async fn completed_then_reversed_records_two_events_and_applies_both() {
         .fetch_one(&pool)
         .await
         .expect("order status after reversal");
-    assert_eq!(status, "flagged_for_review");
+    assert_eq!(status, "reversed");
+
+    let flag_reason =
+        sqlx::query_scalar::<_, Option<String>>("SELECT flag_reason FROM orders WHERE id = $1")
+            .bind(order_id)
+            .fetch_one(&pool)
+            .await
+            .expect("order flag reason after reversal");
+    assert_eq!(flag_reason.as_deref(), Some("dtone_reversed"));
 
     let keys = sqlx::query_scalar::<_, String>(
         "SELECT event_key FROM webhook_events WHERE provider = $1 AND event_key LIKE $2 ORDER BY event_key",

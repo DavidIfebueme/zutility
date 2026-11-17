@@ -1,0 +1,19 @@
+ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_utility_type_check;
+ALTER TABLE orders ADD CONSTRAINT orders_utility_type_check CHECK (
+    utility_type IN (
+        'airtime',
+        'data',
+        'dstv',
+        'gotv',
+        'startimes',
+        'showmax',
+        'electricity',
+        'school_fees',
+        'waec',
+        'jamb',
+        'television',
+        'internet',
+        'landline',
+        'voip'
+    )
+);

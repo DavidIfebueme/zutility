@@ -349,7 +349,7 @@ fn utility_type_to_inlomax_endpoint(utility_type: &str) -> Option<&'static str> 
     match utility_type {
         "airtime" => Some("airtime"),
         "data" => Some("data"),
-        "dstv" | "gotv" | "startimes" => Some("subcable"),
+        "dstv" | "gotv" | "startimes" | "television" => Some("subcable"),
         "electricity" => Some("payelectric"),
         "waec" | "jamb" => Some("education"),
         _ => None,
@@ -581,7 +581,7 @@ impl UtilityProvider for InlomaxClient {
                     "request-id": request_id,
                 })
             }
-            "dstv" | "gotv" | "startimes" => {
+            "dstv" | "gotv" | "startimes" | "television" => {
                 let sid = context.variation_code.clone().unwrap_or_else(|| {
                     slug_to_inlomax_service_id(&context.service_id)
                         .unwrap_or_else(|| context.service_id.clone())

@@ -67,14 +67,26 @@ pub struct FxQuoteResponse {
 }
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct SettlementRequest {
+    pub currency: String,
+    pub amount: String,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct CreateOrderRequest {
     pub utility_type: String,
     pub utility_slug: String,
     pub service_ref: String,
-    pub amount_ngn: i64,
+    #[serde(default)]
+    pub amount_ngn: Option<i64>,
     pub zec_address_type: String,
     pub variation_code: Option<String>,
     pub meter_type: Option<String>,
+    pub country_iso2: Option<String>,
+    pub product_id: Option<Uuid>,
+    pub settlement: Option<SettlementRequest>,
+    #[serde(default)]
+    pub inputs: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -108,6 +120,8 @@ pub struct OrderStatusResponse {
     pub expires_at: DateTime<Utc>,
     pub completed_at: Option<DateTime<Utc>>,
     pub delivery_token: Option<String>,
+    pub failure_code: Option<String>,
+    pub failure_message: Option<String>,
     pub display: DisplayMoney,
 }
 
