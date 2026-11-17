@@ -2,6 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use axum::http::HeaderMap;
 use chrono::{Datelike, Timelike, Utc};
 use hmac::{Hmac, Mac};
 use rand::{RngExt, distr::Alphanumeric};
@@ -440,7 +441,7 @@ impl UtilityProvider for VtpassClient {
         Ok(ValidateRefResponse {
             is_valid,
             customer_name,
-            amount_ngn: None,
+            settlement: None,
             biller_name: None,
             product_name: None,
             reference: None,
@@ -452,16 +453,21 @@ impl UtilityProvider for VtpassClient {
         &self,
         request: &UtilityPurchaseRequest,
     ) -> Result<UtilityPurchaseResponse, ProviderError> {
+        let context = &request.context;
+        let amount = request.settlement.to_ngn_whole().map_err(|error| {
+            ProviderError::permanent(format!("vtpass amount is not whole naira: {error}"))
+        })?;
+
         let response = self
             .post_json(
                 "pay",
                 json!({
                     "request_id": request.request_id,
-                    "serviceID": request.service_id,
-                    "billersCode": request.billers_code,
-                    "variation_code": request.variation_code,
-                    "amount": request.amount_ngn,
-                    "phone": request.phone,
+                    "serviceID": context.service_id,
+                    "billersCode": context.billers_code,
+                    "variation_code": context.variation_code,
+                    "amount": amount,
+                    "phone": context.phone,
                     "metadata": request.metadata,
                     "order_id": request.order_id.to_string(),
                     "idempotency_ref": request.order_id.to_string(),
@@ -524,13 +530,20 @@ impl UtilityProvider for VtpassClient {
         })
     }
 
-    fn verify_webhook_signature(&self, payload: &[u8], signature: &str) -> bool {
+    fn verify_webhook(&self, headers: &HeaderMap, body: &[u8]) -> bool {
+        let Some(signature) = headers
+            .get("x-vtpass-signature")
+            .and_then(|value| value.to_str().ok())
+        else {
+            return false;
+        };
+
         let Ok(mut mac) =
             Hmac::<Sha256>::new_from_slice(self.webhook_hmac_secret.expose_secret().as_bytes())
         else {
             return false;
         };
-        mac.update(payload);
+        mac.update(body);
         let expected = hex::encode(mac.finalize().into_bytes());
         expected
             .as_bytes()
@@ -597,6 +610,7 @@ fn bounded_backoff(initial: Duration, max: Duration, attempt: u8) -> Duration {
 mod tests {
     use std::time::Duration;
 
+    use axum::http::{HeaderMap, HeaderValue};
     use hmac::{Hmac, Mac};
     use secrecy::SecretString;
     use sha2::Sha256;
@@ -647,8 +661,21 @@ mod tests {
         mac.update(payload);
         let signature = hex::encode(mac.finalize().into_bytes());
 
-        assert!(client.verify_webhook_signature(payload, &signature));
-        assert!(!client.verify_webhook_signature(payload, "bad-signature"));
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-vtpass-signature",
+            HeaderValue::from_str(&signature).expect("signature header"),
+        );
+
+        assert!(client.verify_webhook(&headers, payload));
+
+        let mut wrong = HeaderMap::new();
+        wrong.insert(
+            "x-vtpass-signature",
+            HeaderValue::from_static("bad-signature"),
+        );
+        assert!(!client.verify_webhook(&wrong, payload));
+        assert!(!client.verify_webhook(&HeaderMap::new(), payload));
     }
 
     #[test]

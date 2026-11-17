@@ -1,7 +1,7 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use chrono::Utc;
 use rust_decimal::Decimal;
 use sqlx::PgPool;
@@ -13,6 +13,7 @@ use crate::{
     db,
     domain::{
         gift::{GiftStatus, HeldGiftOutcome, held_gift_outcome},
+        money::Money,
         order::{OrderStatus, OrderStatusTransition, ThresholdPolicy},
     },
     http::handlers::HttpState,
@@ -20,7 +21,9 @@ use crate::{
         provider_dispatcher::ProviderDispatcher,
         rates::RateOracle,
         remita::RemitaClient,
-        utility_provider::{ProviderErrorKind, ProviderTxnStatus, UtilityPurchaseRequest},
+        utility_provider::{
+            ProviderContext, ProviderErrorKind, ProviderTxnStatus, UtilityPurchaseRequest,
+        },
         vtpass::VtpassClient,
         zcash::{ReceivedNote, group_notes_by_address},
     },
@@ -738,11 +741,25 @@ async fn dispatch_utility(
             &UtilityPurchaseRequest {
                 order_id: order.id,
                 request_id: request_id.clone(),
-                service_id: order.utility_slug.clone(),
-                billers_code: order.service_ref.clone(),
-                variation_code: order.variation_code.clone(),
-                amount_ngn: order.amount_ngn,
-                phone: Some(order.service_ref.clone()),
+                context: ProviderContext {
+                    utility_type: order.utility_type.clone(),
+                    service_id: order.utility_slug.clone(),
+                    billers_code: order.service_ref.clone(),
+                    variation_code: order.variation_code.clone(),
+                    meter_type: order
+                        .metadata
+                        .get("meter_type")
+                        .and_then(serde_json::Value::as_str)
+                        .map(ToOwned::to_owned),
+                    phone: Some(order.service_ref.clone()),
+                },
+                cost_ngn: Money::from_ngn_whole(order.amount_ngn)
+                    .context("order amount is not a valid naira amount")?,
+                settlement: Money::from_ngn_whole(order.amount_ngn)
+                    .context("order amount is not a valid naira amount")?,
+                product_id: String::new(),
+                external_id: order.id.to_string(),
+                inputs: BTreeMap::new(),
                 metadata: serde_json::json!({
                     "utility_type": order.utility_type,
                     "customer_name": order.customer_name,

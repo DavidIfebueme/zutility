@@ -1,9 +1,12 @@
-use std::{fmt::Display, sync::Arc};
+use std::{collections::BTreeMap, fmt::Display, sync::Arc};
 
 use async_trait::async_trait;
+use axum::http::HeaderMap;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+use crate::domain::money::Money;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProviderKind {
@@ -71,11 +74,11 @@ pub struct ValidateRefRequest {
     pub meter_type: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct ValidateRefResponse {
     pub is_valid: bool,
     pub customer_name: Option<String>,
-    pub amount_ngn: Option<i64>,
+    pub settlement: Option<Money>,
     pub biller_name: Option<String>,
     pub product_name: Option<String>,
     pub reference: Option<String>,
@@ -83,14 +86,25 @@ pub struct ValidateRefResponse {
 }
 
 #[derive(Debug, Clone)]
-pub struct UtilityPurchaseRequest {
-    pub order_id: Uuid,
-    pub request_id: String,
+pub struct ProviderContext {
+    pub utility_type: String,
     pub service_id: String,
     pub billers_code: String,
     pub variation_code: Option<String>,
-    pub amount_ngn: i64,
+    pub meter_type: Option<String>,
     pub phone: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct UtilityPurchaseRequest {
+    pub order_id: Uuid,
+    pub request_id: String,
+    pub context: ProviderContext,
+    pub cost_ngn: Money,
+    pub settlement: Money,
+    pub product_id: String,
+    pub external_id: String,
+    pub inputs: BTreeMap<String, String>,
     pub metadata: serde_json::Value,
     pub zec_amount: Decimal,
 }
@@ -163,7 +177,7 @@ pub trait UtilityProvider: Send + Sync {
 
     async fn requery(&self, request_id: &str) -> Result<RequeryResponse, ProviderError>;
 
-    fn verify_webhook_signature(&self, payload: &[u8], signature: &str) -> bool;
+    fn verify_webhook(&self, headers: &HeaderMap, body: &[u8]) -> bool;
 
     fn parse_webhook_event(&self, payload: &[u8]) -> Result<ProviderWebhookEvent, ProviderError>;
 }
@@ -226,13 +240,16 @@ mod tests {
     use std::sync::Arc;
 
     use async_trait::async_trait;
+    use axum::http::HeaderMap;
     use rust_decimal::Decimal;
     use uuid::Uuid;
 
+    use crate::domain::money::Money;
+
     use super::{
-        ProviderError, ProviderErrorKind, ProviderKind, RequeryResponse, UtilityProvider,
-        UtilityProviderRouter, UtilityPurchaseRequest, UtilityPurchaseResponse, UtilityVariation,
-        ValidateRefRequest, ValidateRefResponse,
+        ProviderContext, ProviderError, ProviderErrorKind, ProviderKind, RequeryResponse,
+        UtilityProvider, UtilityProviderRouter, UtilityPurchaseRequest, UtilityPurchaseResponse,
+        UtilityVariation, ValidateRefRequest, ValidateRefResponse,
     };
 
     #[derive(Clone)]
@@ -261,7 +278,7 @@ mod tests {
             Ok(ValidateRefResponse {
                 is_valid: true,
                 customer_name: Some(String::from("ok")),
-                amount_ngn: None,
+                settlement: None,
                 biller_name: None,
                 product_name: None,
                 reference: None,
@@ -297,7 +314,7 @@ mod tests {
             })
         }
 
-        fn verify_webhook_signature(&self, _payload: &[u8], _signature: &str) -> bool {
+        fn verify_webhook(&self, _headers: &HeaderMap, _body: &[u8]) -> bool {
             true
         }
 
@@ -329,11 +346,19 @@ mod tests {
         let request = UtilityPurchaseRequest {
             order_id: Uuid::new_v4(),
             request_id: String::from("req-id"),
-            service_id: String::from("mtn"),
-            billers_code: String::from("080"),
-            variation_code: None,
-            amount_ngn: 1000,
-            phone: None,
+            context: ProviderContext {
+                utility_type: String::from("airtime"),
+                service_id: String::from("mtn"),
+                billers_code: String::from("080"),
+                variation_code: None,
+                meter_type: None,
+                phone: None,
+            },
+            cost_ngn: Money::from_ngn_whole(1000).expect("naira amount"),
+            settlement: Money::from_ngn_whole(1000).expect("naira amount"),
+            product_id: String::new(),
+            external_id: String::from("req-id"),
+            inputs: std::collections::BTreeMap::new(),
             metadata: serde_json::json!({}),
             zec_amount: Decimal::new(1, 0),
         };

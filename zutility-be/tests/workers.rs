@@ -7,6 +7,7 @@ use std::{
 
 use anyhow::Result;
 use async_trait::async_trait;
+use axum::http::HeaderMap;
 use chrono::{Duration, Utc};
 use rust_decimal::Decimal;
 use tokio::sync::Mutex;
@@ -191,7 +192,7 @@ impl UtilityProvider for RetryTrackingProvider {
         Ok(ValidateRefResponse {
             is_valid: true,
             customer_name: None,
-            amount_ngn: None,
+            settlement: None,
             biller_name: None,
             product_name: None,
             reference: None,
@@ -235,7 +236,7 @@ impl UtilityProvider for RetryTrackingProvider {
         })
     }
 
-    fn verify_webhook_signature(&self, _payload: &[u8], _signature: &str) -> bool {
+    fn verify_webhook(&self, _headers: &HeaderMap, _body: &[u8]) -> bool {
         true
     }
 
@@ -277,7 +278,7 @@ impl UtilityProvider for MockProvider {
         Ok(ValidateRefResponse {
             is_valid: true,
             customer_name: None,
-            amount_ngn: None,
+            settlement: None,
             biller_name: None,
             product_name: None,
             reference: None,
@@ -313,7 +314,7 @@ impl UtilityProvider for MockProvider {
         })
     }
 
-    fn verify_webhook_signature(&self, _payload: &[u8], _signature: &str) -> bool {
+    fn verify_webhook(&self, _headers: &HeaderMap, _body: &[u8]) -> bool {
         true
     }
 
