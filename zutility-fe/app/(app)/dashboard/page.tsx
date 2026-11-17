@@ -8,40 +8,17 @@ import { useAuthStore } from "@/store/auth"
 import { useOrderStore } from "@/store/order"
 import { useRate } from "@/lib/hooks/useRate"
 import { useCurrency } from "@/lib/hooks/useCurrency"
-import { useFxRates } from "@/lib/hooks/useFxRates"
 import { apiGet } from "@/lib/api"
 import { formatZEC } from "@/lib/utils"
-import {
-  convertFromNGN,
-  formatCurrency,
-  formatLocalAmount,
-  type CurrencyCode,
-  type FxRates,
-} from "@/lib/currency"
+import { convertFromNGN, formatCurrency, fxRatesFromRate, type CurrencyCode } from "@/lib/currency"
+import { DisplayAmount } from "@/components/ui/display-amount"
+import type { OrderHistoryItem, RateResponse } from "@/lib/types"
 import { getStatusMeta, STATUS_TONE_CLASS } from "@/lib/order-status"
 
-interface OrderHistoryItem {
-  order_id: string
-  utility_slug: string
-  utility_type: string
-  amount_ngn: number
-  zec_amount: string
-  status: string
-  created_at: string
-  completed_at: string | null
-}
-
-function rateForCurrency(rate: NonNullable<ReturnType<typeof useRate>["rate"]>, currency: CurrencyCode): number {
-  const fx: FxRates = {
-    usd_ngn: parseFloat(rate.usd_ngn) || 1,
-    usd_kes: parseFloat(rate.usd_kes) || 0,
-    usd_ghs: parseFloat(rate.usd_ghs) || 0,
-    usd_zar: parseFloat(rate.usd_zar) || 0,
-    usd_egp: parseFloat(rate.usd_egp) || 0,
-  }
+function rateForCurrency(rate: RateResponse, currency: CurrencyCode): number {
   if (currency === "NGN") return parseFloat(rate.zec_ngn)
   if (currency === "USD") return parseFloat(rate.zec_usd)
-  return convertFromNGN(parseFloat(rate.zec_ngn), currency, fx)
+  return convertFromNGN(parseFloat(rate.zec_ngn), currency, fxRatesFromRate(rate))
 }
 
 export default function DashboardPage() {
@@ -50,7 +27,6 @@ export default function DashboardPage() {
   const activeOrder = storedOrder && activeOrderUserId === user?.id ? storedOrder : null
   const { rate, isError: rateError } = useRate()
   const currency = useCurrency()
-  const fxRates = useFxRates()
   const [orders, setOrders] = React.useState<OrderHistoryItem[]>([])
   const [ordersLoading, setOrdersLoading] = React.useState(true)
   const [ordersError, setOrdersError] = React.useState(false)
@@ -209,7 +185,7 @@ export default function DashboardPage() {
                         </td>
                         <td className="px-4 py-3 text-right">
                           <span className="num block text-[13px] text-ink">
-                            {fxRates ? formatLocalAmount(order.amount_ngn, currency, fxRates) : "—"}
+                            <DisplayAmount display={order.display} nairaAmount={order.amount_ngn} />
                           </span>
                           <span className="num block text-[11px] text-muted">
                             {formatZEC(order.zec_amount)} ZEC

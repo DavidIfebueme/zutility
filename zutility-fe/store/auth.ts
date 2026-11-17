@@ -2,7 +2,8 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { apiPost, clearSessionFreshness } from '@/lib/api'
 import { useOrderStore } from '@/store/order'
-import { detectCurrency, type CurrencyCode } from '@/lib/currency'
+import type { CurrencyCode } from '@/lib/currency'
+import { isCurrencyCode } from '@/lib/currency'
 import { toast } from 'sonner'
 
 export interface AuthUser {
@@ -10,6 +11,7 @@ export interface AuthUser {
   email: string
   display_name: string | null
   email_verified: boolean
+  preferred_currency?: CurrencyCode
 }
 
 interface AuthState {
@@ -19,8 +21,14 @@ interface AuthState {
   hasHydrated: boolean
   setUser: (user: AuthUser) => void
   logout: () => Promise<boolean>
-  setPreferredCurrency: (currency: CurrencyCode) => void
   setHasHydrated: (v: boolean) => void
+}
+
+const PERSIST_VERSION = 2
+
+type PersistedAuth = {
+  user: AuthUser | null
+  isAuthenticated: boolean
 }
 
 function clearAuthCookies() {
@@ -35,9 +43,14 @@ function clearAuthCookies() {
   }
 }
 
+function preferredFromUser(user: AuthUser): CurrencyCode | null {
+  const value = user.preferred_currency
+  return value && isCurrencyCode(value) ? value : null
+}
+
 export const useAuthStore = create<AuthState>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       user: null,
       isAuthenticated: false,
       preferredCurrency: null,
@@ -45,7 +58,7 @@ export const useAuthStore = create<AuthState>()(
       setUser: (user: AuthUser) => set({
         user,
         isAuthenticated: true,
-        preferredCurrency: get().preferredCurrency || detectCurrency(),
+        preferredCurrency: preferredFromUser(user),
       }),
       logout: async () => {
         try {
@@ -60,16 +73,23 @@ export const useAuthStore = create<AuthState>()(
         set({ user: null, isAuthenticated: false, preferredCurrency: null })
         return true
       },
-      setPreferredCurrency: (currency: CurrencyCode) => set({ preferredCurrency: currency }),
       setHasHydrated: (v: boolean) => set({ hasHydrated: v }),
     }),
     {
       name: 'zutility-auth',
+      version: PERSIST_VERSION,
       partialize: (state) => ({
         user: state.user,
         isAuthenticated: state.isAuthenticated,
-        preferredCurrency: state.preferredCurrency,
       }),
+      migrate: (persisted) => {
+        const state = (persisted ?? {}) as Record<string, unknown>
+        delete state.preferredCurrency
+        return {
+          user: (state.user as AuthUser | null) ?? null,
+          isAuthenticated: state.isAuthenticated === true,
+        } satisfies PersistedAuth
+      },
       onRehydrateStorage: () => (state) => {
         state?.setHasHydrated(true)
       },

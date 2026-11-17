@@ -12,10 +12,8 @@ import { WordmarkLink } from "@/components/ui/wordmark"
 import { getApiBaseUrl } from "@/lib/api"
 import { UTILITIES } from "@/lib/constants"
 import { formatZEC } from "@/lib/utils"
+import { formatDisplay } from "@/lib/money"
 import { INVALID_PHONE_MESSAGE, normalizePhone } from "@/lib/phone"
-import { useCurrency } from "@/lib/hooks/useCurrency"
-import { useFxRates } from "@/lib/hooks/useFxRates"
-import { formatLocalAmount } from "@/lib/currency"
 import type { GiftView, OrderStatus } from "@/lib/types"
 
 const apiBase = getApiBaseUrl()
@@ -78,15 +76,11 @@ export function GiftClaim({ code, initialGift }: { code: string; initialGift: Gi
   const [missing, setMissing] = React.useState(initialGift === null)
 
   const utility = gift ? UTILITIES.find((item) => item.slug === gift.utility_slug) : undefined
-  const currency = useCurrency()
-  const fxRates = useFxRates()
-  const amountLabel = gift
+  const amount = gift
     ? gift.zec_amount
-      ? `${formatZEC(gift.zec_amount)} ZEC`
-      : fxRates
-        ? formatLocalAmount(gift.amount_ngn, currency, fxRates)
-        : "a utility gift"
-    : ""
+      ? { text: `${formatZEC(gift.zec_amount)} ZEC`, marker: null }
+      : formatDisplay(gift.display, gift.amount_ngn)
+    : { text: "a utility gift", marker: null }
 
   const refresh = React.useCallback(async () => {
     try {
@@ -168,7 +162,10 @@ export function GiftClaim({ code, initialGift }: { code: string; initialGift: Gi
                 A utility gift
               </p>
               <h1 className="mt-2 text-2xl leading-tight text-ink">
-                {gift.sender_name} sent you {amountLabel}
+                {gift.sender_name} sent you {amount.text}
+                {amount.marker ? (
+                  <span className="ml-1 text-[13px] text-muted">{amount.marker}</span>
+                ) : null}
               </h1>
               <p className="mt-1 text-[13px] text-muted">
                 {utility?.name ?? gift.utility_slug}
@@ -186,7 +183,10 @@ export function GiftClaim({ code, initialGift }: { code: string; initialGift: Gi
                 <div className="min-w-0">
                   <p className="text-[13px] font-medium text-ink">{utility?.name ?? gift.utility_slug}</p>
                   <p className="num text-[12px] text-muted">
-                    {amountLabel}
+                    {amount.text}
+                    {amount.marker ? (
+                      <span className="ml-1 text-[11px] text-muted">{amount.marker}</span>
+                    ) : null}
                   </p>
                 </div>
               </div>
