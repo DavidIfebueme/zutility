@@ -1,4 +1,5 @@
 import Link from "next/link"
+import { cookies, headers } from "next/headers"
 import { ArrowRight, Check, Clock, Lock, Wallet } from "lucide-react"
 import { SiteHeader } from "@/components/marketing/site-header"
 import { SiteFooter } from "@/components/marketing/site-footer"
@@ -7,6 +8,69 @@ import { Button } from "@/components/ui/button"
 import { RateTicker } from "@/components/ui/rate-ticker"
 import { Reveal } from "@/components/ui/reveal"
 import { UTILITIES } from "@/lib/constants"
+import {
+  CURRENCY_COOKIE,
+  DEFAULT_CURRENCY,
+  convertFromNGN,
+  currencyFromCountry,
+  fxRatesFromRate,
+  isCurrencyCode,
+  type CurrencyCode,
+  type FxRates,
+} from "@/lib/currency"
+import { formatDisplay, type DisplayText } from "@/lib/money"
+import { SAMPLE_ORDERS } from "@/lib/sample-orders"
+import type { RateResponse } from "@/lib/types"
+
+const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "http://127.0.0.1:3001"
+
+const COUNTRY_HEADERS = ["x-vercel-ip-country", "cf-ipcountry", "x-geo-country"]
+
+async function resolveGuestCurrency(): Promise<CurrencyCode | null> {
+  const requestHeaders = await headers()
+  const country = COUNTRY_HEADERS.map((name) => requestHeaders.get(name)).find(Boolean)
+  const fromCountry = country ? currencyFromCountry(country) : null
+  if (fromCountry) return fromCountry
+
+  const requestCookies = await cookies()
+  const value = requestCookies.get(CURRENCY_COOKIE)?.value
+  return value && isCurrencyCode(value) ? value : null
+}
+
+async function fetchRates(): Promise<FxRates | null> {
+  try {
+    const response = await fetch(`${apiBase}/api/v1/rates/current`, { next: { revalidate: 60 } })
+    if (!response.ok) return null
+    const body = (await response.json()) as RateResponse
+    return fxRatesFromRate(body)
+  } catch {
+    return null
+  }
+}
+
+function sampleAmounts(currency: CurrencyCode, rates: FxRates | null): Record<string, DisplayText> {
+  return Object.fromEntries(
+    SAMPLE_ORDERS.map((sample) => {
+      const converted = currency === "NGN"
+        ? sample.amountNgn
+        : rates
+          ? convertFromNGN(sample.amountNgn, currency, rates)
+          : 0
+      const available = currency === "NGN" || converted > 0
+      return [
+        sample.id,
+        formatDisplay(
+          {
+            currency,
+            amount: available ? String(converted) : null,
+            rate_available: available,
+          },
+          sample.amountNgn
+        ),
+      ]
+    })
+  )
+}
 
 const HERO_FACTS = [
   { icon: Clock, label: "Settlement", value: "About a minute or two" },
@@ -71,7 +135,12 @@ const FEATURED_NAMES = [
   "JAMB",
 ]
 
-export default function HomePage() {
+export default async function HomePage() {
+  const guestCurrency = await resolveGuestCurrency()
+  const currency = guestCurrency ?? DEFAULT_CURRENCY
+  const rates = currency === "NGN" ? null : await fetchRates()
+  const amounts = sampleAmounts(currency, rates)
+
   const counts = UTILITIES.reduce<Record<string, number>>((acc, utility) => {
     acc[utility.type] = (acc[utility.type] ?? 0) + 1
     return acc
@@ -121,7 +190,7 @@ export default function HomePage() {
 
             <div className="flex min-w-0 justify-center lg:justify-end">
               <Reveal delay={100} className="w-full max-w-md">
-                <SampleReceiptStack />
+                <SampleReceiptStack amounts={amounts} />
               </Reveal>
             </div>
           </div>
@@ -192,7 +261,7 @@ export default function HomePage() {
 
               <div className="mt-8 inline-flex flex-col gap-1 rounded-lg border border-line bg-cream px-5 py-4">
                 <span className="label-xs text-muted">Current rate</span>
-                <RateTicker className="text-[22px]" />
+                <RateTicker className="text-[22px]" initialCurrency={guestCurrency} />
                 <span className="text-[12px] text-muted">
                   Refreshed every minute. Orders keep their quoted amount.
                 </span>

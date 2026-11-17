@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { AuthFooterLink, AuthShell } from "@/components/auth/auth-shell"
 import { apiPostRaw } from "@/lib/api"
+import { detectCurrency, readCurrencyCookie } from "@/lib/currency"
 import { useShake } from "@/lib/hooks/useShake"
 import { toast } from "sonner"
 
@@ -46,6 +47,7 @@ export default function SignupPage() {
         email: data.email,
         password: data.password,
         display_name: data.display_name,
+        preferred_currency: readCurrencyCookie() ?? detectCurrency(),
       })
       if (res.ok) {
         toast.success("Account created. Check your email for the code.")

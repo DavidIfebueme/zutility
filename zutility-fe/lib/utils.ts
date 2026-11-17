@@ -1,17 +1,8 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
-import { formatCurrency, type CurrencyCode } from "@/lib/currency"
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
-}
-
-export function formatNGN(amount: number | string): string {
-  return formatCurrency(amount, 'NGN')
-}
-
-export function formatLocal(amount: number | string, currency: CurrencyCode = 'NGN'): string {
-  return formatCurrency(amount, currency)
 }
 
 export function formatZEC(amount: string): string {

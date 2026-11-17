@@ -4,17 +4,21 @@ import * as React from "react"
 import { cn } from "@/lib/utils"
 import { useRate } from "@/lib/hooks/useRate"
 import { useCurrency } from "@/lib/hooks/useCurrency"
-import { formatCurrency, convertFromNGN, type FxRates } from "@/lib/currency"
+import { convertFromNGN, formatCurrency, fxRatesFromRate, type CurrencyCode } from "@/lib/currency"
 
-interface RateTickerProps extends React.HTMLAttributes<HTMLDivElement> {}
+interface RateTickerProps extends React.HTMLAttributes<HTMLDivElement> {
+  initialCurrency?: CurrencyCode | null
+}
 
-export function RateTicker({ className, ...props }: RateTickerProps) {
+export function RateTicker({ className, initialCurrency, ...props }: RateTickerProps) {
   const { rate, isLoading, isError } = useRate()
-  const currency = useCurrency()
+  const currency = useCurrency(initialCurrency)
+  const label = `ZEC/${currency}`
 
   if (isLoading) {
     return (
       <div className={cn("flex items-center gap-2", className)} {...props}>
+        <span className="label-xs text-muted">{label}</span>
         <span className="h-3 w-20 animate-pulse rounded-sm bg-paper-3" />
       </div>
     )
@@ -22,27 +26,18 @@ export function RateTicker({ className, ...props }: RateTickerProps) {
 
   if (isError || !rate) {
     return (
-      <div className={cn("text-[13px] text-muted", className)} {...props}>
-        Rate unavailable
+      <div className={cn("flex items-center gap-2 text-[13px]", className)} {...props}>
+        <span className="label-xs text-muted">{label}</span>
+        <span className="text-muted">Rate unavailable</span>
       </div>
     )
-  }
-
-  const fxRates: FxRates = {
-    usd_ngn: parseFloat(rate.usd_ngn) || 1,
-    usd_kes: parseFloat(rate.usd_kes) || 0,
-    usd_ghs: parseFloat(rate.usd_ghs) || 0,
-    usd_zar: parseFloat(rate.usd_zar) || 0,
-    usd_egp: parseFloat(rate.usd_egp) || 0,
   }
 
   const zecLocal = currency === 'NGN'
     ? parseFloat(rate.zec_ngn)
     : currency === 'USD'
       ? parseFloat(rate.zec_usd)
-      : convertFromNGN(parseFloat(rate.zec_ngn), currency, fxRates)
-
-  const label = currency === 'NGN' ? 'ZEC/NGN' : `ZEC/${currency}`
+      : convertFromNGN(parseFloat(rate.zec_ngn), currency, fxRatesFromRate(rate))
 
   return (
     <div className={cn("flex items-baseline gap-2 text-[13px]", className)} {...props}>

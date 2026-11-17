@@ -1,4 +1,8 @@
-export type CurrencyCode = 'NGN' | 'KES' | 'GHS' | 'ZAR' | 'EGP' | 'USD'
+import { CURRENCY_DISPLAY, isCurrencyCode, type CurrencyCode } from '@/lib/money'
+import type { RateResponse } from '@/lib/types'
+
+export type { CurrencyCode } from '@/lib/money'
+export { isCurrencyCode, formatAmount, formatDisplay } from '@/lib/money'
 
 export interface CurrencyInfo {
   code: CurrencyCode
@@ -8,23 +12,42 @@ export interface CurrencyInfo {
   country: string
 }
 
-export const CURRENCIES: Record<CurrencyCode, CurrencyInfo> = {
-  NGN: { code: 'NGN', symbol: '₦', locale: 'en-NG', name: 'Naira', country: 'Nigeria' },
-  KES: { code: 'KES', symbol: 'KSh', locale: 'en-KE', name: 'Shilling', country: 'Kenya' },
-  GHS: { code: 'GHS', symbol: 'GH₵', locale: 'en-GH', name: 'Cedi', country: 'Ghana' },
-  ZAR: { code: 'ZAR', symbol: 'R', locale: 'en-ZA', name: 'Rand', country: 'South Africa' },
-  EGP: { code: 'EGP', symbol: 'E£', locale: 'ar-EG', name: 'Pound', country: 'Egypt' },
-  USD: { code: 'USD', symbol: '$', locale: 'en-US', name: 'Dollar', country: 'Global' },
+export const CURRENCIES = Object.fromEntries(
+  Object.entries(CURRENCY_DISPLAY).map(([code, info]) => [code, { code, ...info }])
+) as Record<CurrencyCode, CurrencyInfo>
+
+export const DEFAULT_CURRENCY: CurrencyCode = 'NGN'
+export const CURRENCY_COOKIE = 'display_currency'
+
+const COUNTRY_CURRENCY: Record<string, CurrencyCode> = {
+  NG: 'NGN',
+  SN: 'XOF',
+  ML: 'XOF',
+  BJ: 'XOF',
+  BF: 'XOF',
+  CI: 'XOF',
+  TG: 'XOF',
+  GM: 'GMD',
+  MW: 'MWK',
+  ZW: 'USD',
+  ZM: 'ZMW',
+  ZA: 'ZAR',
+  KE: 'KES',
+  GH: 'GHS',
+  EG: 'EGP',
 }
 
 const TIMEZONE_CURRENCY: Record<string, CurrencyCode> = {
   'Africa/Lagos': 'NGN',
-  'Africa/Porto-Novo': 'NGN',
-  'Africa/Douala': 'NGN',
-  'Africa/Malabo': 'NGN',
-  'Africa/Libreville': 'NGN',
-  'Africa/Niamey': 'NGN',
-  'Africa/Bangui': 'NGN',
+  'Africa/Porto-Novo': 'XOF',
+  'Africa/Niamey': 'XOF',
+  'Africa/Bissau': 'XOF',
+  'Africa/Dakar': 'XOF',
+  'Africa/Bamako': 'XOF',
+  'Africa/Ouagadougou': 'XOF',
+  'Africa/Abidjan': 'XOF',
+  'Africa/Lome': 'XOF',
+  'Africa/Banjul': 'GMD',
   'Africa/Nairobi': 'KES',
   'Africa/Addis_Ababa': 'KES',
   'Africa/Dar_es_Salaam': 'KES',
@@ -32,27 +55,15 @@ const TIMEZONE_CURRENCY: Record<string, CurrencyCode> = {
   'Africa/Mogadishu': 'KES',
   'Africa/Asmara': 'KES',
   'Africa/Accra': 'GHS',
-  'Africa/Abidjan': 'GHS',
-  'Africa/Ouagadougou': 'GHS',
-  'Africa/Bamako': 'GHS',
-  'Africa/Conakry': 'GHS',
-  'Africa/Freetown': 'GHS',
-  'Africa/Monrovia': 'GHS',
-  'Africa/Lome': 'GHS',
-  'Africa/Ndjamena': 'GHS',
-  'Africa/Dakar': 'GHS',
-  'Africa/Banjul': 'GHS',
-  'Africa/Bissau': 'GHS',
-  'Africa/Nouakchott': 'GHS',
   'Africa/Johannesburg': 'ZAR',
   'Africa/Maseru': 'ZAR',
   'Africa/Mbabane': 'ZAR',
   'Africa/Maputo': 'ZAR',
   'Africa/Gaborone': 'ZAR',
   'Africa/Windhoek': 'ZAR',
-  'Africa/Harare': 'ZAR',
-  'Africa/Lusaka': 'ZAR',
-  'Africa/Blantyre': 'ZAR',
+  'Africa/Harare': 'USD',
+  'Africa/Lusaka': 'ZMW',
+  'Africa/Blantyre': 'MWK',
   'Africa/Cairo': 'EGP',
   'Africa/Tripoli': 'EGP',
   'Africa/Khartoum': 'EGP',
@@ -61,13 +72,27 @@ const TIMEZONE_CURRENCY: Record<string, CurrencyCode> = {
   'Africa/Casablanca': 'EGP',
 }
 
+export function currencyFromCountry(iso2: string): CurrencyCode | null {
+  return COUNTRY_CURRENCY[iso2.toUpperCase()] ?? null
+}
+
+export function readCurrencyCookie(): CurrencyCode | null {
+  if (typeof document === 'undefined') return null
+  const entry = document.cookie
+    .split('; ')
+    .find((row) => row.startsWith(`${CURRENCY_COOKIE}=`))
+  if (!entry) return null
+  const value = decodeURIComponent(entry.slice(CURRENCY_COOKIE.length + 1))
+  return isCurrencyCode(value) ? value : null
+}
+
 export function detectCurrency(): CurrencyCode {
-  if (typeof window === 'undefined') return 'USD'
+  if (typeof window === 'undefined') return DEFAULT_CURRENCY
   try {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
-    return TIMEZONE_CURRENCY[tz] || 'USD'
+    return TIMEZONE_CURRENCY[tz] || DEFAULT_CURRENCY
   } catch {
-    return 'USD'
+    return DEFAULT_CURRENCY
   }
 }
 
@@ -92,33 +117,60 @@ export interface FxRates {
   usd_ghs: number
   usd_zar: number
   usd_egp: number
+  usd_xof?: number
+  usd_gmd?: number
+  usd_mwk?: number
+  usd_zmw?: number
+}
+
+function quotePerUsd(rate: RateResponse, code: string): number {
+  const quote = (rate.fx ?? []).find((entry) => entry.quote === code)
+  return quote ? parseFloat(quote.per_usd) || 0 : 0
+}
+
+export function fxRatesFromRate(rate: RateResponse): FxRates {
+  return {
+    usd_ngn: parseFloat(rate.usd_ngn) || 1,
+    usd_kes: quotePerUsd(rate, 'KES') || parseFloat(rate.usd_kes) || 0,
+    usd_ghs: quotePerUsd(rate, 'GHS') || parseFloat(rate.usd_ghs) || 0,
+    usd_zar: quotePerUsd(rate, 'ZAR') || parseFloat(rate.usd_zar) || 0,
+    usd_egp: quotePerUsd(rate, 'EGP') || parseFloat(rate.usd_egp) || 0,
+    usd_xof: quotePerUsd(rate, 'XOF'),
+    usd_gmd: quotePerUsd(rate, 'GMD'),
+    usd_mwk: quotePerUsd(rate, 'MWK'),
+    usd_zmw: quotePerUsd(rate, 'ZMW'),
+  }
+}
+
+function perUsdFor(currency: CurrencyCode, rates: FxRates): number | null {
+  switch (currency) {
+    case 'KES': return rates.usd_kes || null
+    case 'GHS': return rates.usd_ghs || null
+    case 'ZAR': return rates.usd_zar || null
+    case 'EGP': return rates.usd_egp || null
+    case 'XOF': return rates.usd_xof || null
+    case 'GMD': return rates.usd_gmd || null
+    case 'MWK': return rates.usd_mwk || null
+    case 'ZMW': return rates.usd_zmw || null
+    default: return null
+  }
 }
 
 export function convertFromNGN(amountNGN: number, targetCurrency: CurrencyCode, rates: FxRates): number {
   if (targetCurrency === 'NGN') return amountNGN
   const usdAmount = amountNGN / (rates.usd_ngn || 1)
-  switch (targetCurrency) {
-    case 'KES': return usdAmount * (rates.usd_kes || 0)
-    case 'GHS': return usdAmount * (rates.usd_ghs || 0)
-    case 'ZAR': return usdAmount * (rates.usd_zar || 0)
-    case 'EGP': return usdAmount * (rates.usd_egp || 0)
-    case 'USD': return usdAmount
-    default: return amountNGN
-  }
+  if (targetCurrency === 'USD') return usdAmount
+  const perUsd = perUsdFor(targetCurrency, rates)
+  if (perUsd === null) return 0
+  return usdAmount * perUsd
 }
 
 export function convertToNGN(amountLocal: number, fromCurrency: CurrencyCode, rates: FxRates): number {
   if (fromCurrency === 'NGN') return amountLocal
-  let usdAmount: number
-  switch (fromCurrency) {
-    case 'KES': usdAmount = amountLocal / (rates.usd_kes || 1); break
-    case 'GHS': usdAmount = amountLocal / (rates.usd_ghs || 1); break
-    case 'ZAR': usdAmount = amountLocal / (rates.usd_zar || 1); break
-    case 'EGP': usdAmount = amountLocal / (rates.usd_egp || 1); break
-    case 'USD': usdAmount = amountLocal; break
-    default: return amountLocal
-  }
-  return usdAmount * (rates.usd_ngn || 1)
+  if (fromCurrency === 'USD') return amountLocal * (rates.usd_ngn || 1)
+  const perUsd = perUsdFor(fromCurrency, rates)
+  if (perUsd === null) return amountLocal
+  return (amountLocal / perUsd) * (rates.usd_ngn || 1)
 }
 
 export function formatLocalAmount(amountNGN: number, currency: CurrencyCode, rates: FxRates): string {

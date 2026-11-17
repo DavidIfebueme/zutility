@@ -23,6 +23,7 @@ import {
   convertToNGN,
   formatCurrency,
   formatLocalAmount,
+  fxRatesFromRate,
   type FxRates,
 } from "@/lib/currency"
 import { toast } from "sonner"
@@ -95,16 +96,7 @@ export default function PayPage() {
   const [giftHideName, setGiftHideName] = React.useState(false)
 
   const fxRates: FxRates | null = React.useMemo(
-    () =>
-      rate
-        ? {
-            usd_ngn: parseFloat(rate.usd_ngn) || 1,
-            usd_kes: parseFloat(rate.usd_kes) || 0,
-            usd_ghs: parseFloat(rate.usd_ghs) || 0,
-            usd_zar: parseFloat(rate.usd_zar) || 0,
-            usd_egp: parseFloat(rate.usd_egp) || 0,
-          }
-        : null,
+    () => (rate ? fxRatesFromRate(rate) : null),
     [rate]
   )
 
