@@ -38,7 +38,7 @@ fn state(pool: PgPool) -> HttpState {
 
 async fn seed_user(pool: &PgPool) -> (Uuid, Uuid) {
     let email = format!("session-{}@zutility.xyz", Uuid::new_v4().simple());
-    let user = db::create_user(pool, &email, Some("probe"), "not-a-real-hash")
+    let user = db::create_user(pool, &email, Some("probe"), "not-a-real-hash", "NGN")
         .await
         .expect("user");
     db::verify_user_email(pool, user.id)
@@ -150,15 +150,19 @@ async fn logout_revokes_the_presented_token_without_an_access_token() {
 
     let cookies = set_cookies(&response);
     assert!(
-        cookies.iter().any(|cookie| cookie.starts_with("refresh_token=;")
-            && cookie.contains("Max-Age=0")
-            && cookie.contains("Path=/api/v1/auth;")
-            && cookie.contains("Domain=zutility.xyz")),
+        cookies
+            .iter()
+            .any(|cookie| cookie.starts_with("refresh_token=;")
+                && cookie.contains("Max-Age=0")
+                && cookie.contains("Path=/api/v1/auth;")
+                && cookie.contains("Domain=zutility.xyz")),
         "logout must expire the refresh cookie on the current path: {cookies:?}"
     );
     assert!(
-        cookies.iter().any(|cookie| cookie.starts_with("refresh_token=;")
-            && cookie.contains("Path=/api/v1/auth/refresh")),
+        cookies
+            .iter()
+            .any(|cookie| cookie.starts_with("refresh_token=;")
+                && cookie.contains("Path=/api/v1/auth/refresh")),
         "logout must also expire the cookie left by the previous release: {cookies:?}"
     );
     assert!(
@@ -216,7 +220,10 @@ async fn concurrent_refreshes_rotate_once_and_converge() {
         }));
     }
     for handle in handles {
-        assert!(handle.await.expect("task"), "every concurrent refresh succeeds");
+        assert!(
+            handle.await.expect("task"),
+            "every concurrent refresh succeeds"
+        );
     }
 
     assert_eq!(
@@ -399,7 +406,10 @@ async fn five_failed_logins_lock_the_account() -> Result<(), Box<dyn std::error:
     }
 
     let locked = db::login_lockout_until(&pool, user_id).await?;
-    assert!(locked.is_some(), "the fifth failure should lock the account");
+    assert!(
+        locked.is_some(),
+        "the fifth failure should lock the account"
+    );
 
     db::clear_failed_logins(&pool, user_id).await?;
     assert!(db::login_lockout_until(&pool, user_id).await?.is_none());

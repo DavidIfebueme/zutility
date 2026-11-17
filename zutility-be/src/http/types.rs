@@ -6,7 +6,23 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::domain::gift::GiftStatus;
+use crate::domain::money::Money;
 use crate::domain::order::OrderStatus;
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct MoneyDto {
+    pub currency: String,
+    pub amount: String,
+}
+
+impl MoneyDto {
+    pub fn from_money(money: Money) -> Self {
+        Self {
+            currency: money.currency().iso().to_string(),
+            amount: money.round_to_currency().to_string(),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct CreateOrderRequest {
@@ -117,6 +133,7 @@ pub struct RegisterRequest {
     pub email: String,
     pub display_name: Option<String>,
     pub password: String,
+    pub preferred_currency: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
@@ -152,6 +169,7 @@ pub struct AuthUserResponse {
     pub email: String,
     pub display_name: Option<String>,
     pub email_verified: bool,
+    pub preferred_currency: String,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -240,6 +258,7 @@ pub struct SupportRequest {
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct UpdateProfileRequest {
     pub display_name: Option<String>,
+    pub preferred_currency: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
