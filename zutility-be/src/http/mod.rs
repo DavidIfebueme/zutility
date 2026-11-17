@@ -95,7 +95,10 @@ pub fn build_router_from_state(state: HttpState, enable_rate_limits: bool) -> Ro
 }
 
 fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool) -> Router {
-    let jwt_secret_for_mw = state.jwt_secret.clone();
+    let auth_middleware_state = mw::AuthMiddlewareState {
+        pool: state.pool.clone(),
+        jwt_secret: state.jwt_secret.clone(),
+    };
     let app_base_url = state.app_base_url.clone();
     let frontend_url = state.frontend_url.clone();
 
@@ -208,7 +211,7 @@ fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool
         )
         .with_state(state.clone())
         .layer(middleware::from_fn_with_state(
-            jwt_secret_for_mw.clone(),
+            auth_middleware_state,
             mw::auth_middleware,
         ));
 

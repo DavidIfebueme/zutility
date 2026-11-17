@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, sync::Arc, time::Duration};
+use std::{cmp::Ordering, collections::BTreeMap, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
@@ -6,6 +6,21 @@ use reqwest::Client;
 use rust_decimal::Decimal;
 use serde_json::Value;
 use tokio::sync::RwLock;
+
+use crate::domain::money::CurrencyCode;
+
+pub const FX_QUOTES: [CurrencyCode; 8] = [
+    CurrencyCode::Xof,
+    CurrencyCode::Gmd,
+    CurrencyCode::Mwk,
+    CurrencyCode::Zmw,
+    CurrencyCode::Zar,
+    CurrencyCode::Kes,
+    CurrencyCode::Ghs,
+    CurrencyCode::Egp,
+];
+
+pub const FX_SOURCE: &str = "open.er-api.com";
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CurrentRate {
@@ -33,6 +48,7 @@ pub struct RateSnapshot {
     pub kraken_zec_usd: Option<Decimal>,
     pub coinbase_zec_usd: Option<Decimal>,
     pub sources_used: Vec<String>,
+    pub fx_quotes: BTreeMap<CurrencyCode, Decimal>,
     pub fetched_at: DateTime<Utc>,
 }
 
@@ -66,10 +82,7 @@ struct SourceSamples {
     coingecko_zec_ngn: Option<Decimal>,
     zec_usd_samples: Vec<(String, Decimal)>,
     usd_ngn: Option<Decimal>,
-    usd_kes: Option<Decimal>,
-    usd_ghs: Option<Decimal>,
-    usd_zar: Option<Decimal>,
-    usd_egp: Option<Decimal>,
+    fx: BTreeMap<CurrencyCode, Decimal>,
 }
 
 impl RateOracle {
@@ -95,24 +108,17 @@ impl RateOracle {
         self.refresh_from_samples(
             samples.zec_usd_samples,
             usd_ngn,
-            samples.usd_kes,
-            samples.usd_ghs,
-            samples.usd_zar,
-            samples.usd_egp,
+            &samples.fx,
             samples.coingecko_zec_ngn,
             previous,
         )
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn refresh_from_samples(
         &self,
         samples: Vec<(String, Decimal)>,
         usd_ngn: Decimal,
-        usd_kes: Option<Decimal>,
-        usd_ghs: Option<Decimal>,
-        usd_zar: Option<Decimal>,
-        usd_egp: Option<Decimal>,
+        fx: &BTreeMap<CurrencyCode, Decimal>,
         coingecko_zec_ngn: Option<Decimal>,
         previous: Option<&CurrentRate>,
     ) -> Result<RateRefreshResult> {
@@ -126,19 +132,17 @@ impl RateOracle {
         let zec_ngn = (zec_usd * usd_ngn).round_dp(4);
         let fetched_at = Utc::now();
 
-        let fx_kes = usd_kes.unwrap_or(Decimal::ZERO);
-        let fx_ghs = usd_ghs.unwrap_or(Decimal::ZERO);
-        let fx_zar = usd_zar.unwrap_or(Decimal::ZERO);
-        let fx_egp = usd_egp.unwrap_or(Decimal::ZERO);
+        let fx_value =
+            |code: CurrencyCode| fx.get(&code).copied().unwrap_or(Decimal::ZERO).round_dp(4);
 
         let current = CurrentRate {
             zec_ngn,
             zec_usd: zec_usd.round_dp(4),
             usd_ngn: usd_ngn.round_dp(4),
-            usd_kes: fx_kes.round_dp(4),
-            usd_ghs: fx_ghs.round_dp(4),
-            usd_zar: fx_zar.round_dp(4),
-            usd_egp: fx_egp.round_dp(4),
+            usd_kes: fx_value(CurrencyCode::Kes),
+            usd_ghs: fx_value(CurrencyCode::Ghs),
+            usd_zar: fx_value(CurrencyCode::Zar),
+            usd_egp: fx_value(CurrencyCode::Egp),
             updated_at: fetched_at,
         };
 
@@ -185,15 +189,16 @@ impl RateOracle {
             zec_ngn,
             zec_usd: zec_usd.round_dp(4),
             usd_ngn: usd_ngn.round_dp(4),
-            usd_kes: fx_kes.round_dp(4),
-            usd_ghs: fx_ghs.round_dp(4),
-            usd_zar: fx_zar.round_dp(4),
-            usd_egp: fx_egp.round_dp(4),
+            usd_kes: fx_value(CurrencyCode::Kes),
+            usd_ghs: fx_value(CurrencyCode::Ghs),
+            usd_zar: fx_value(CurrencyCode::Zar),
+            usd_egp: fx_value(CurrencyCode::Egp),
             coingecko_zec_ngn,
             binance_zec_usd: sample_value(&samples, "binance"),
             kraken_zec_usd: sample_value(&samples, "kraken"),
             coinbase_zec_usd: sample_value(&samples, "coinbase"),
             sources_used: samples.into_iter().map(|(name, _)| name).collect(),
+            fx_quotes: fx.clone(),
             fetched_at,
         };
 
@@ -235,11 +240,9 @@ impl RateOracle {
                 .push((String::from("coinbase"), value));
         }
         if let Ok(rates) = fx_rates {
-            samples.usd_ngn = rates.get("NGN").copied();
-            samples.usd_kes = rates.get("KES").copied();
-            samples.usd_ghs = rates.get("GHS").copied();
-            samples.usd_zar = rates.get("ZAR").copied();
-            samples.usd_egp = rates.get("EGP").copied();
+            samples.usd_ngn = rates.get(&CurrencyCode::Ngn).copied();
+            samples.fx = rates;
+            samples.fx.remove(&CurrencyCode::Ngn);
         }
 
         Ok(samples)
@@ -328,7 +331,7 @@ impl RateOracle {
         )
     }
 
-    async fn fetch_african_fx(&self) -> Result<std::collections::HashMap<String, Decimal>> {
+    async fn fetch_african_fx(&self) -> Result<BTreeMap<CurrencyCode, Decimal>> {
         let response = self
             .client
             .get("https://open.er-api.com/v6/latest/USD")
@@ -345,12 +348,13 @@ impl RateOracle {
             .and_then(Value::as_object)
             .context("african fx rates object missing")?;
 
-        let mut result = std::collections::HashMap::new();
-        for code in &["NGN", "KES", "GHS", "ZAR", "EGP"] {
-            if let Some(val) = rates_obj.get(*code)
+        let mut result = BTreeMap::new();
+        for code in FX_QUOTES.into_iter().chain([CurrencyCode::Ngn]) {
+            if let Some(val) = rates_obj.get(code.iso())
                 && let Ok(parsed) = parse_decimal(val)
+                && parsed > Decimal::ZERO
             {
-                result.insert(String::from(*code), parsed);
+                result.insert(code, parsed);
             }
         }
         Ok(result)
@@ -435,7 +439,7 @@ fn compute_drift_alert(
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::{collections::BTreeMap, time::Duration};
 
     use rust_decimal::Decimal;
 
@@ -479,10 +483,7 @@ mod tests {
                     (String::from("kraken"), Decimal::new(105, 0)),
                 ],
                 Decimal::new(1000, 0),
-                None,
-                None,
-                None,
-                None,
+                &BTreeMap::new(),
                 None,
                 Some(&previous),
             )
@@ -497,10 +498,7 @@ mod tests {
                     (String::from("kraken"), Decimal::new(121, 0)),
                 ],
                 Decimal::new(1000, 0),
-                None,
-                None,
-                None,
-                None,
+                &BTreeMap::new(),
                 None,
                 Some(&previous),
             )

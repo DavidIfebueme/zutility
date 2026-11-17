@@ -3,7 +3,7 @@ use sqlx::PgPool;
 
 use crate::{
     db::{self, PersistRateSnapshotInput},
-    integrations::rates::{RateAlertLevel, RateOracle, SharedRateCache},
+    integrations::rates::{FX_SOURCE, RateAlertLevel, RateOracle, SharedRateCache},
 };
 
 #[derive(Debug, Clone)]
@@ -37,6 +37,14 @@ impl RateRefresher {
             fetched_at: refreshed.snapshot.fetched_at,
         };
         let _ = db::persist_rate_snapshot(pool, &snapshot_input).await?;
+
+        db::upsert_fx_rates(
+            pool,
+            &refreshed.snapshot.fx_quotes,
+            FX_SOURCE,
+            refreshed.snapshot.fetched_at,
+        )
+        .await?;
 
         {
             let mut cache = self.cache.write().await;
