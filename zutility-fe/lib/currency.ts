@@ -96,86 +96,12 @@ export function detectCurrency(): CurrencyCode {
   }
 }
 
-export function formatCurrency(amount: number | string, currency: CurrencyCode = 'NGN'): string {
-  const num = typeof amount === 'string' ? parseFloat(amount) : amount
-  if (isNaN(num)) return `${CURRENCIES[currency].symbol}0.00`
-  try {
-    return new Intl.NumberFormat(CURRENCIES[currency].locale, {
-      style: 'currency',
-      currency,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(num)
-  } catch {
-    return `${CURRENCIES[currency].symbol}${num.toFixed(2)}`
-  }
-}
-
-export interface FxRates {
-  usd_ngn: number
-  usd_kes: number
-  usd_ghs: number
-  usd_zar: number
-  usd_egp: number
-  usd_xof?: number
-  usd_gmd?: number
-  usd_mwk?: number
-  usd_zmw?: number
-}
-
-function quotePerUsd(rate: RateResponse, code: string): number {
-  const quote = (rate.fx ?? []).find((entry) => entry.quote === code)
-  return quote ? parseFloat(quote.per_usd) || 0 : 0
-}
-
-export function fxRatesFromRate(rate: RateResponse): FxRates {
-  return {
-    usd_ngn: parseFloat(rate.usd_ngn) || 1,
-    usd_kes: quotePerUsd(rate, 'KES') || parseFloat(rate.usd_kes) || 0,
-    usd_ghs: quotePerUsd(rate, 'GHS') || parseFloat(rate.usd_ghs) || 0,
-    usd_zar: quotePerUsd(rate, 'ZAR') || parseFloat(rate.usd_zar) || 0,
-    usd_egp: quotePerUsd(rate, 'EGP') || parseFloat(rate.usd_egp) || 0,
-    usd_xof: quotePerUsd(rate, 'XOF'),
-    usd_gmd: quotePerUsd(rate, 'GMD'),
-    usd_mwk: quotePerUsd(rate, 'MWK'),
-    usd_zmw: quotePerUsd(rate, 'ZMW'),
-  }
-}
-
-function perUsdFor(currency: CurrencyCode, rates: FxRates): number | null {
-  switch (currency) {
-    case 'KES': return rates.usd_kes || null
-    case 'GHS': return rates.usd_ghs || null
-    case 'ZAR': return rates.usd_zar || null
-    case 'EGP': return rates.usd_egp || null
-    case 'XOF': return rates.usd_xof || null
-    case 'GMD': return rates.usd_gmd || null
-    case 'MWK': return rates.usd_mwk || null
-    case 'ZMW': return rates.usd_zmw || null
-    default: return null
-  }
-}
-
-export function convertFromNGN(amountNGN: number, targetCurrency: CurrencyCode, rates: FxRates): number {
-  if (targetCurrency === 'NGN') return amountNGN
-  const usdAmount = amountNGN / (rates.usd_ngn || 1)
-  if (targetCurrency === 'USD') return usdAmount
-  const perUsd = perUsdFor(targetCurrency, rates)
-  if (perUsd === null) return 0
-  return usdAmount * perUsd
-}
-
-export function convertToNGN(amountLocal: number, fromCurrency: CurrencyCode, rates: FxRates): number {
-  if (fromCurrency === 'NGN') return amountLocal
-  if (fromCurrency === 'USD') return amountLocal * (rates.usd_ngn || 1)
-  const perUsd = perUsdFor(fromCurrency, rates)
-  if (perUsd === null) return amountLocal
-  return (amountLocal / perUsd) * (rates.usd_ngn || 1)
-}
-
-export function formatLocalAmount(amountNGN: number, currency: CurrencyCode, rates: FxRates): string {
-  if (currency === 'NGN') return formatCurrency(amountNGN, 'NGN')
-  const converted = convertFromNGN(amountNGN, currency, rates)
-  if (converted === 0) return formatCurrency(amountNGN, 'NGN')
-  return formatCurrency(converted, currency)
+export function zecPriceInCurrency(rate: RateResponse, currency: CurrencyCode): number | null {
+  if (currency === 'NGN') return parseFloat(rate.zec_ngn) || null
+  if (currency === 'USD') return parseFloat(rate.zec_usd) || null
+  const usdNgn = parseFloat(rate.usd_ngn) || 0
+  const quote = (rate.fx ?? []).find((entry) => entry.quote === currency)
+  const perUsd = quote ? parseFloat(quote.per_usd) || 0 : 0
+  if (usdNgn <= 0 || perUsd <= 0) return null
+  return (parseFloat(rate.zec_ngn) / usdNgn) * perUsd
 }

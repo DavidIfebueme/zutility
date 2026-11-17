@@ -4,7 +4,7 @@ import * as React from "react"
 import { cn } from "@/lib/utils"
 import { useRate } from "@/lib/hooks/useRate"
 import { useCurrency } from "@/lib/hooks/useCurrency"
-import { convertFromNGN, formatCurrency, fxRatesFromRate, type CurrencyCode } from "@/lib/currency"
+import { formatAmount, zecPriceInCurrency, type CurrencyCode } from "@/lib/currency"
 
 interface RateTickerProps extends React.HTMLAttributes<HTMLDivElement> {
   initialCurrency?: CurrencyCode | null
@@ -33,16 +33,14 @@ export function RateTicker({ className, initialCurrency, ...props }: RateTickerP
     )
   }
 
-  const zecLocal = currency === 'NGN'
-    ? parseFloat(rate.zec_ngn)
-    : currency === 'USD'
-      ? parseFloat(rate.zec_usd)
-      : convertFromNGN(parseFloat(rate.zec_ngn), currency, fxRatesFromRate(rate))
+  const zecLocal = zecPriceInCurrency(rate, currency)
 
   return (
     <div className={cn("flex items-baseline gap-2 text-[13px]", className)} {...props}>
       <span className="label-xs text-muted">{label}</span>
-      <span className="num text-ink">{formatCurrency(zecLocal, currency)}</span>
+      <span className="num text-ink">
+        {zecLocal === null ? "Rate unavailable" : formatAmount(zecLocal, currency)}
+      </span>
     </div>
   )
 }

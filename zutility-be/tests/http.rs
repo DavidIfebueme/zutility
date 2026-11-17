@@ -21,7 +21,7 @@ async fn create_and_get_order_with_valid_token() {
         .uri("/api/v1/orders/create")
         .header("content-type", "application/json")
         .body(Body::from(
-            r#"{"utility_type":"airtime","utility_slug":"mtn","service_ref":"08000000000","amount_ngn":5000,"zec_address_type":"shielded"}"#,
+            r#"{"utility_type":"airtime","utility_slug":"mtn","service_ref":"08000000000","settlement":{"currency":"NGN","amount":"5000"},"zec_address_type":"shielded"}"#,
         ))
         .expect("build request");
 
@@ -63,6 +63,24 @@ async fn create_and_get_order_with_valid_token() {
     assert_eq!(get_json.get("total_received"), Some(&Value::Null));
     assert_eq!(get_json.get("completed_at"), Some(&Value::Null));
     assert_eq!(get_json.get("delivery_token"), Some(&Value::Null));
+    assert_eq!(
+        get_json
+            .get("settlement")
+            .and_then(|settlement| settlement.get("currency"))
+            .and_then(Value::as_str),
+        Some("NGN")
+    );
+    assert_eq!(
+        get_json
+            .get("settlement")
+            .and_then(|settlement| settlement.get("amount"))
+            .and_then(Value::as_str),
+        Some("5000.00")
+    );
+    assert_eq!(
+        get_json.get("fulfilment_kind").and_then(Value::as_str),
+        Some("payment")
+    );
 }
 
 #[tokio::test]
@@ -76,7 +94,7 @@ async fn get_order_with_invalid_token_is_forbidden() {
         .uri("/api/v1/orders/create")
         .header("content-type", "application/json")
         .body(Body::from(
-            r#"{"utility_type":"airtime","utility_slug":"mtn","service_ref":"08000000000","amount_ngn":5000,"zec_address_type":"shielded"}"#,
+            r#"{"utility_type":"airtime","utility_slug":"mtn","service_ref":"08000000000","settlement":{"currency":"NGN","amount":"5000"},"zec_address_type":"shielded"}"#,
         ))
         .expect("build request");
 
@@ -114,7 +132,7 @@ async fn cancel_order_changes_status() {
         .uri("/api/v1/orders/create")
         .header("content-type", "application/json")
         .body(Body::from(
-            r#"{"utility_type":"airtime","utility_slug":"airtel","service_ref":"08011111111","amount_ngn":7000,"zec_address_type":"shielded"}"#,
+            r#"{"utility_type":"airtime","utility_slug":"airtel","service_ref":"08011111111","settlement":{"currency":"NGN","amount":"7000"},"zec_address_type":"shielded"}"#,
         ))
         .expect("build request");
 
@@ -170,7 +188,7 @@ async fn create_order_response_matches_frontend_contract_shape() {
         .uri("/api/v1/orders/create")
         .header("content-type", "application/json")
         .body(Body::from(
-            r#"{"utility_type":"airtime","utility_slug":"mtn","service_ref":"08011110000","amount_ngn":5000,"zec_address_type":"shielded"}"#,
+            r#"{"utility_type":"airtime","utility_slug":"mtn","service_ref":"08011110000","settlement":{"currency":"NGN","amount":"5000"},"zec_address_type":"shielded"}"#,
         ))
         .expect("build request");
 
@@ -227,7 +245,7 @@ async fn create_order_response_matches_frontend_contract_shape() {
 }
 
 #[tokio::test]
-async fn rates_utilities_and_validate_endpoints_respond() {
+async fn rates_and_validate_endpoints_respond() {
     let app = http::router();
 
     let rates_req = Request::builder()
@@ -237,14 +255,6 @@ async fn rates_utilities_and_validate_endpoints_respond() {
         .expect("build request");
     let rates_res = app.clone().oneshot(rates_req).await.expect("response");
     assert_eq!(rates_res.status(), StatusCode::OK);
-
-    let utilities_req = Request::builder()
-        .method("GET")
-        .uri("/api/v1/utilities")
-        .body(Body::empty())
-        .expect("build request");
-    let utilities_res = app.clone().oneshot(utilities_req).await.expect("response");
-    assert_eq!(utilities_res.status(), StatusCode::OK);
 
     let validate_req = Request::builder()
         .method("GET")
@@ -267,7 +277,7 @@ async fn service_ref_velocity_limit_returns_too_many_requests() {
             .uri("/api/v1/orders/create")
             .header("content-type", "application/json")
             .body(Body::from(
-                r#"{"utility_type":"airtime","utility_slug":"mtn","service_ref":"08099999999","amount_ngn":5000,"zec_address_type":"shielded"}"#,
+                r#"{"utility_type":"airtime","utility_slug":"mtn","service_ref":"08099999999","settlement":{"currency":"NGN","amount":"5000"},"zec_address_type":"shielded"}"#,
             ))
             .expect("build request");
         let create_res = app.clone().oneshot(create_req).await.expect("response");
@@ -279,7 +289,7 @@ async fn service_ref_velocity_limit_returns_too_many_requests() {
         .uri("/api/v1/orders/create")
         .header("content-type", "application/json")
         .body(Body::from(
-            r#"{"utility_type":"airtime","utility_slug":"mtn","service_ref":"08099999999","amount_ngn":5000,"zec_address_type":"shielded"}"#,
+            r#"{"utility_type":"airtime","utility_slug":"mtn","service_ref":"08099999999","settlement":{"currency":"NGN","amount":"5000"},"zec_address_type":"shielded"}"#,
         ))
         .expect("build request");
     let blocked_res = app.oneshot(blocked_req).await.expect("response");
