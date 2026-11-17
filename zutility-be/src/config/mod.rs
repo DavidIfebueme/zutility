@@ -147,39 +147,61 @@ impl AppConfig {
         ensure_non_empty("VTPASS_BASE_URL", &self.vtpass_base_url)?;
         ensure_non_empty_secret("VTPASS_API_KEY", &self.vtpass_api_key)?;
         ensure_non_empty_secret("VTPASS_SECRET_KEY", &self.vtpass_secret_key)?;
-        if let Some(ref v) = self.remita_merchant_id {
-            if v.trim().is_empty() { self.remita_merchant_id = None; }
+        if let Some(ref v) = self.remita_merchant_id
+            && v.trim().is_empty()
+        {
+            self.remita_merchant_id = None;
         }
-        if let Some(ref v) = self.cookie_domain {
-            if v.trim().is_empty() { self.cookie_domain = None; }
+        if let Some(ref v) = self.cookie_domain
+            && v.trim().is_empty()
+        {
+            self.cookie_domain = None;
         }
-        if let Some(ref v) = self.remita_api_key {
-            if v.expose_secret().trim().is_empty() { self.remita_api_key = None; }
+        if let Some(ref v) = self.remita_api_key
+            && v.expose_secret().trim().is_empty()
+        {
+            self.remita_api_key = None;
         }
-        if let Some(ref v) = self.remita_service_type_id {
-            if v.trim().is_empty() { self.remita_service_type_id = None; }
+        if let Some(ref v) = self.remita_service_type_id
+            && v.trim().is_empty()
+        {
+            self.remita_service_type_id = None;
         }
-        if let Some(ref v) = self.remita_base_url {
-            if v.trim().is_empty() { self.remita_base_url = None; }
+        if let Some(ref v) = self.remita_base_url
+            && v.trim().is_empty()
+        {
+            self.remita_base_url = None;
         }
-        if let Some(ref v) = self.remita_webhook_secret {
-            if v.expose_secret().trim().is_empty() { self.remita_webhook_secret = None; }
+        if let Some(ref v) = self.remita_webhook_secret
+            && v.expose_secret().trim().is_empty()
+        {
+            self.remita_webhook_secret = None;
         }
-        if let Some(ref v) = self.remita_collections_base_url {
-            if v.trim().is_empty() { self.remita_collections_base_url = None; }
+        if let Some(ref v) = self.remita_collections_base_url
+            && v.trim().is_empty()
+        {
+            self.remita_collections_base_url = None;
         }
-        if let Some(ref v) = self.remita_collections_secret_key {
-            if v.expose_secret().trim().is_empty() { self.remita_collections_secret_key = None; }
+        if let Some(ref v) = self.remita_collections_secret_key
+            && v.expose_secret().trim().is_empty()
+        {
+            self.remita_collections_secret_key = None;
         }
 
-        if let Some(ref v) = self.inlomax_api_key {
-            if v.expose_secret().trim().is_empty() { self.inlomax_api_key = None; }
+        if let Some(ref v) = self.inlomax_api_key
+            && v.expose_secret().trim().is_empty()
+        {
+            self.inlomax_api_key = None;
         }
-        if let Some(ref v) = self.inlomax_base_url {
-            if v.trim().is_empty() { self.inlomax_base_url = None; }
+        if let Some(ref v) = self.inlomax_base_url
+            && v.trim().is_empty()
+        {
+            self.inlomax_base_url = None;
         }
-        if let Some(ref v) = self.inlomax_webhook_secret {
-            if v.expose_secret().trim().is_empty() { self.inlomax_webhook_secret = None; }
+        if let Some(ref v) = self.inlomax_webhook_secret
+            && v.expose_secret().trim().is_empty()
+        {
+            self.inlomax_webhook_secret = None;
         }
 
         if let Some(ref v) = self.remita_merchant_id {
@@ -204,14 +226,13 @@ impl AppConfig {
             ensure_non_empty_secret("REMITA_COLLECTIONS_SECRET_KEY", v)?;
         }
 
-        if matches!(self.app_env, AppEnv::Prod) {
-            if let Some(ref url) = self.remita_collections_base_url {
-                if url.contains("remitademo") {
-                    anyhow::bail!(
-                        "REMITA_COLLECTIONS_BASE_URL must not point at the demo gateway in production"
-                    );
-                }
-            }
+        if matches!(self.app_env, AppEnv::Prod)
+            && let Some(ref url) = self.remita_collections_base_url
+            && url.contains("remitademo")
+        {
+            anyhow::bail!(
+                "REMITA_COLLECTIONS_BASE_URL must not point at the demo gateway in production"
+            );
         }
 
         if matches!(self.zcash_backend, ZcashBackend::Rpc) {
@@ -276,14 +297,20 @@ impl AppConfig {
             anyhow::bail!("REFRESH_TOKEN_TTL_HOURS must be greater than 0");
         }
 
-        if let Some(ref v) = self.brevo_api_key {
-            if v.expose_secret().trim().is_empty() { self.brevo_api_key = None; }
+        if let Some(ref v) = self.brevo_api_key
+            && v.expose_secret().trim().is_empty()
+        {
+            self.brevo_api_key = None;
         }
-        if let Some(ref v) = self.brevo_sender_email {
-            if v.trim().is_empty() { self.brevo_sender_email = None; }
+        if let Some(ref v) = self.brevo_sender_email
+            && v.trim().is_empty()
+        {
+            self.brevo_sender_email = None;
         }
-        if let Some(ref v) = self.brevo_sender_name {
-            if v.trim().is_empty() { self.brevo_sender_name = None; }
+        if let Some(ref v) = self.brevo_sender_name
+            && v.trim().is_empty()
+        {
+            self.brevo_sender_name = None;
         }
 
         if self.brevo_api_key.is_some() && self.brevo_sender_email.is_none() {

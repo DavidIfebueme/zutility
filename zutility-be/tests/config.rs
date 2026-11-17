@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use zutility_be::config::{AppConfig, AppEnv, ZcashNetwork, ZcashRpcMode};
 use zutility_be::integrations::zcash::validate_backend;
 

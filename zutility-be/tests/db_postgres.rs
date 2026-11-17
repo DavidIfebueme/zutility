@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use chrono::{Duration, Utc};
 use rust_decimal::Decimal;
 use sqlx::{PgPool, postgres::PgPoolOptions};

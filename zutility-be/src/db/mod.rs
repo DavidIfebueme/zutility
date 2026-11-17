@@ -1679,6 +1679,7 @@ pub struct WaitlistEntryRow {
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn create_waitlist_entry(
     pool: &PgPool,
     email: &str,

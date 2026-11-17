@@ -884,7 +884,7 @@ pub async fn change_password(
 pub async fn delete_account(
     State(state): State<HttpState>,
     Extension(user): Extension<AuthenticatedUser>,
-    jar: CookieJar,
+    _jar: CookieJar,
     Json(payload): Json<DeleteAccountRequest>,
 ) -> Result<Response, ApiError> {
     let db_user = db::find_user_by_id(&state.pool, user.user_id)

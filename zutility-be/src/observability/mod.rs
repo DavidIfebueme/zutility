@@ -118,6 +118,12 @@ impl Default for ObservabilityState {
     }
 }
 
+impl Default for MetricsRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MetricsRegistry {
     pub fn new() -> Self {
         Self {
@@ -277,6 +283,12 @@ impl MetricsRegistry {
         }
 
         output
+    }
+}
+
+impl Default for JobLivenessRegistry {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

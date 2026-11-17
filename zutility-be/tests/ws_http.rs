@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use axum::body::{Body, to_bytes};
 use axum::http::Request;
 use axum::http::StatusCode;
@@ -6,11 +8,14 @@ use serde_json::Value;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 use tower::util::ServiceExt;
-use zutility_be::http;
+
+mod support;
 
 #[tokio::test]
 async fn websocket_handshake_requires_valid_order_token() {
-    let app = http::router();
+    let Some(app) = support::authed_router().await else {
+        return;
+    };
 
     let create_req = Request::builder()
         .method("POST")
@@ -22,11 +27,16 @@ async fn websocket_handshake_requires_valid_order_token() {
         .expect("build request");
 
     let create_res = app.clone().oneshot(create_req).await.expect("response");
-    assert_eq!(create_res.status(), StatusCode::OK);
-
+    let create_status = create_res.status();
     let create_body = to_bytes(create_res.into_body(), 1024 * 1024)
         .await
         .expect("read body");
+    assert_eq!(
+        create_status,
+        StatusCode::OK,
+        "create failed: {}",
+        String::from_utf8_lossy(&create_body)
+    );
     let create_json: Value = serde_json::from_slice(&create_body).expect("parse create response");
     let order_id = create_json
         .get("order_id")
@@ -41,8 +51,11 @@ async fn websocket_handshake_requires_valid_order_token() {
         .await
         .expect("bind listener");
     let addr = listener.local_addr().expect("listener local addr");
+    let Some(other_app) = support::authed_router().await else {
+        return;
+    };
     let server = tokio::spawn(async move {
-        let _ = axum::serve(listener, app).await;
+        let _ = axum::serve(listener, other_app).await;
     });
 
     let invalid_url = format!("ws://{addr}/api/v1/orders/{order_id}/stream?token=wrong");
@@ -62,7 +75,9 @@ async fn websocket_handshake_requires_valid_order_token() {
 
 #[tokio::test]
 async fn websocket_reconnect_with_same_token_is_safe() {
-    let app = http::router();
+    let Some(app) = support::authed_router().await else {
+        return;
+    };
 
     let create_req = Request::builder()
         .method("POST")
@@ -74,11 +89,16 @@ async fn websocket_reconnect_with_same_token_is_safe() {
         .expect("build request");
 
     let create_res = app.clone().oneshot(create_req).await.expect("response");
-    assert_eq!(create_res.status(), StatusCode::OK);
-
+    let create_status = create_res.status();
     let create_body = to_bytes(create_res.into_body(), 1024 * 1024)
         .await
         .expect("read body");
+    assert_eq!(
+        create_status,
+        StatusCode::OK,
+        "create failed: {}",
+        String::from_utf8_lossy(&create_body)
+    );
     let create_json: Value = serde_json::from_slice(&create_body).expect("parse create response");
     let order_id = create_json
         .get("order_id")
@@ -93,8 +113,11 @@ async fn websocket_reconnect_with_same_token_is_safe() {
         .await
         .expect("bind listener");
     let addr = listener.local_addr().expect("listener local addr");
+    let Some(other_app) = support::authed_router().await else {
+        return;
+    };
     let server = tokio::spawn(async move {
-        let _ = axum::serve(listener, app).await;
+        let _ = axum::serve(listener, other_app).await;
     });
 
     let url = format!("ws://{addr}/api/v1/orders/{order_id}/stream?token={token}");
@@ -115,7 +138,9 @@ async fn websocket_reconnect_with_same_token_is_safe() {
 
 #[tokio::test]
 async fn websocket_stream_emits_terminal_event_shape() {
-    let app = http::router();
+    let Some(app) = support::authed_router().await else {
+        return;
+    };
 
     let create_req = Request::builder()
         .method("POST")
@@ -127,11 +152,16 @@ async fn websocket_stream_emits_terminal_event_shape() {
         .expect("build request");
 
     let create_res = app.clone().oneshot(create_req).await.expect("response");
-    assert_eq!(create_res.status(), StatusCode::OK);
-
+    let create_status = create_res.status();
     let create_body = to_bytes(create_res.into_body(), 1024 * 1024)
         .await
         .expect("read body");
+    assert_eq!(
+        create_status,
+        StatusCode::OK,
+        "create failed: {}",
+        String::from_utf8_lossy(&create_body)
+    );
     let create_json: Value = serde_json::from_slice(&create_body).expect("parse create response");
     let order_id = create_json
         .get("order_id")
@@ -146,8 +176,11 @@ async fn websocket_stream_emits_terminal_event_shape() {
         .await
         .expect("bind listener");
     let addr = listener.local_addr().expect("listener local addr");
+    let Some(other_app) = support::authed_router().await else {
+        return;
+    };
     let server = tokio::spawn(async move {
-        let _ = axum::serve(listener, app).await;
+        let _ = axum::serve(listener, other_app).await;
     });
 
     let url = format!("ws://{addr}/api/v1/orders/{order_id}/stream?token={token}");
