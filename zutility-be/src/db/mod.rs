@@ -137,7 +137,9 @@ pub async fn claim_unused_deposit_address(
     .fetch_optional(tx.as_mut())
     .await?;
 
-    claimed.ok_or_else(|| anyhow!("no unused deposit address available for {address_type} on {network}"))
+    claimed.ok_or_else(|| {
+        anyhow!("no unused deposit address available for {address_type} on {network}")
+    })
 }
 
 pub async fn count_unused_deposit_addresses(
@@ -399,15 +401,13 @@ pub async fn update_order_status_cas(
     event: &str,
     detail: Value,
 ) -> Result<bool> {
-    let rows_affected = sqlx::query(
-        "UPDATE orders SET status = $1 WHERE id = $2 AND status = $3",
-    )
-    .bind(to_status)
-    .bind(order_id)
-    .bind(from_status)
-    .execute(pool)
-    .await?
-    .rows_affected();
+    let rows_affected = sqlx::query("UPDATE orders SET status = $1 WHERE id = $2 AND status = $3")
+        .bind(to_status)
+        .bind(order_id)
+        .bind(from_status)
+        .execute(pool)
+        .await?
+        .rows_affected();
 
     if rows_affected == 0 {
         return Ok(false);
@@ -482,9 +482,7 @@ pub async fn update_order_payment(
     total_received: Decimal,
     txid: Option<&str>,
 ) -> Result<()> {
-    let mut query = String::from(
-        "UPDATE orders SET confirmations = $1, total_received = $2",
-    );
+    let mut query = String::from("UPDATE orders SET confirmations = $1, total_received = $2");
     if txid.is_some() {
         query.push_str(", txid = $4");
     }
@@ -567,14 +565,16 @@ pub async fn fail_order(pool: &PgPool, order_id: Uuid) -> Result<bool> {
     Ok(rows_affected > 0)
 }
 
-pub async fn store_provider_reference(pool: &PgPool, order_id: Uuid, reference: &str) -> Result<()> {
-    sqlx::query(
-        "UPDATE orders SET vtpass_request_id = $2 WHERE id = $1",
-    )
-    .bind(order_id)
-    .bind(reference)
-    .execute(pool)
-    .await?;
+pub async fn store_provider_reference(
+    pool: &PgPool,
+    order_id: Uuid,
+    reference: &str,
+) -> Result<()> {
+    sqlx::query("UPDATE orders SET vtpass_request_id = $2 WHERE id = $1")
+        .bind(order_id)
+        .bind(reference)
+        .execute(pool)
+        .await?;
 
     Ok(())
 }
@@ -710,7 +710,10 @@ pub async fn list_active_orders(pool: &PgPool) -> Result<Vec<OrderRow>> {
     rows.into_iter().map(map_order_row).collect()
 }
 
-pub async fn find_order_by_provider_reference(pool: &PgPool, reference: &str) -> Result<Option<OrderRow>> {
+pub async fn find_order_by_provider_reference(
+    pool: &PgPool,
+    reference: &str,
+) -> Result<Option<OrderRow>> {
     let rows = sqlx::query(
         "SELECT id, status, access_token_hash, utility_type, utility_slug, service_ref,
                 amount_ngn, deposit_address, address_type, zec_amount, zec_rate_id,
@@ -1085,6 +1088,7 @@ pub struct UserRow {
     pub display_name: Option<String>,
     pub password_hash: String,
     pub email_verified: bool,
+    pub preferred_currency: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
     pub deleted_at: Option<chrono::DateTime<chrono::Utc>>,
@@ -1122,15 +1126,17 @@ pub async fn create_user(
     email: &str,
     display_name: Option<&str>,
     password_hash: &str,
+    preferred_currency: &str,
 ) -> Result<UserRow> {
     let row = sqlx::query(
-        "INSERT INTO users (email, display_name, password_hash)
-         VALUES (LOWER($1), $2, $3)
-         RETURNING id, email, display_name, password_hash, email_verified, created_at, updated_at, deleted_at",
+        "INSERT INTO users (email, display_name, password_hash, preferred_currency)
+         VALUES (LOWER($1), $2, $3, $4)
+         RETURNING id, email, display_name, password_hash, email_verified, preferred_currency, created_at, updated_at, deleted_at",
     )
     .bind(email)
     .bind(display_name)
     .bind(password_hash)
+    .bind(preferred_currency)
     .fetch_one(pool)
     .await?;
 
@@ -1139,7 +1145,7 @@ pub async fn create_user(
 
 pub async fn find_user_by_email(pool: &PgPool, email: &str) -> Result<Option<UserRow>> {
     let row = sqlx::query(
-        "SELECT id, email, display_name, password_hash, email_verified, created_at, updated_at, deleted_at
+        "SELECT id, email, display_name, password_hash, email_verified, preferred_currency, created_at, updated_at, deleted_at
          FROM users WHERE LOWER(email) = LOWER($1) AND deleted_at IS NULL",
     )
     .bind(email)
@@ -1151,7 +1157,7 @@ pub async fn find_user_by_email(pool: &PgPool, email: &str) -> Result<Option<Use
 
 pub async fn find_user_by_id(pool: &PgPool, id: Uuid) -> Result<Option<UserRow>> {
     let row = sqlx::query(
-        "SELECT id, email, display_name, password_hash, email_verified, created_at, updated_at, deleted_at
+        "SELECT id, email, display_name, password_hash, email_verified, preferred_currency, created_at, updated_at, deleted_at
          FROM users WHERE id = $1 AND deleted_at IS NULL",
     )
     .bind(id)
@@ -1166,7 +1172,7 @@ pub async fn find_user_by_id_tx(
     id: Uuid,
 ) -> Result<Option<UserRow>> {
     let row = sqlx::query(
-        "SELECT id, email, display_name, password_hash, email_verified, created_at, updated_at, deleted_at
+        "SELECT id, email, display_name, password_hash, email_verified, preferred_currency, created_at, updated_at, deleted_at
          FROM users WHERE id = $1 AND deleted_at IS NULL",
     )
     .bind(id)
@@ -1188,12 +1194,32 @@ pub async fn update_user_password(pool: &PgPool, user_id: Uuid, password_hash: &
     Ok(())
 }
 
-pub async fn update_user_display_name(pool: &PgPool, user_id: Uuid, display_name: Option<&str>) -> Result<()> {
+pub async fn update_user_display_name(
+    pool: &PgPool,
+    user_id: Uuid,
+    display_name: Option<&str>,
+) -> Result<()> {
     sqlx::query(
-        "UPDATE users SET display_name = $2, updated_at = now() WHERE id = $1 AND deleted_at IS NULL",
+        "UPDATE users SET display_name = COALESCE($2, display_name), updated_at = now() WHERE id = $1 AND deleted_at IS NULL",
     )
     .bind(user_id)
     .bind(display_name)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn update_user_preferred_currency(
+    pool: &PgPool,
+    user_id: Uuid,
+    code: &str,
+) -> Result<()> {
+    sqlx::query(
+        "UPDATE users SET preferred_currency = $2, updated_at = now() WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind(user_id)
+    .bind(code)
     .execute(pool)
     .await?;
 
@@ -1212,12 +1238,10 @@ pub async fn soft_delete_user(pool: &PgPool, user_id: Uuid) -> Result<()> {
 }
 
 pub async fn verify_user_email(pool: &PgPool, user_id: Uuid) -> Result<()> {
-    sqlx::query(
-        "UPDATE users SET email_verified = true, updated_at = now() WHERE id = $1",
-    )
-    .bind(user_id)
-    .execute(pool)
-    .await?;
+    sqlx::query("UPDATE users SET email_verified = true, updated_at = now() WHERE id = $1")
+        .bind(user_id)
+        .execute(pool)
+        .await?;
 
     Ok(())
 }
@@ -1363,15 +1387,17 @@ pub async fn find_refresh_token(pool: &PgPool, id: Uuid) -> Result<Option<Refres
     .fetch_optional(pool)
     .await?;
 
-    row.map(|r| Ok(RefreshTokenRow {
-        id: r.try_get("id")?,
-        user_id: r.try_get("user_id")?,
-        family_id: r.try_get("family_id")?,
-        replaced_by: r.try_get("replaced_by")?,
-        expires_at: r.try_get("expires_at")?,
-        created_at: r.try_get("created_at")?,
-        revoked_at: r.try_get("revoked_at")?,
-    }))
+    row.map(|r| {
+        Ok(RefreshTokenRow {
+            id: r.try_get("id")?,
+            user_id: r.try_get("user_id")?,
+            family_id: r.try_get("family_id")?,
+            replaced_by: r.try_get("replaced_by")?,
+            expires_at: r.try_get("expires_at")?,
+            created_at: r.try_get("created_at")?,
+            revoked_at: r.try_get("revoked_at")?,
+        })
+    })
     .transpose()
 }
 
@@ -1459,14 +1485,16 @@ pub async fn find_email_token_by_hash(
     .fetch_optional(pool)
     .await?;
 
-    row.map(|r| Ok(EmailTokenRow {
-        id: r.try_get("id")?,
-        user_id: r.try_get("user_id")?,
-        token_hash: r.try_get("token_hash")?,
-        token_type: r.try_get("token_type")?,
-        expires_at: r.try_get("expires_at")?,
-        used_at: r.try_get("used_at")?,
-    }))
+    row.map(|r| {
+        Ok(EmailTokenRow {
+            id: r.try_get("id")?,
+            user_id: r.try_get("user_id")?,
+            token_hash: r.try_get("token_hash")?,
+            token_type: r.try_get("token_type")?,
+            expires_at: r.try_get("expires_at")?,
+            used_at: r.try_get("used_at")?,
+        })
+    })
     .transpose()
 }
 
@@ -1481,11 +1509,7 @@ pub async fn mark_email_token_used(pool: &PgPool, id: Uuid) -> Result<bool> {
     Ok(result.rows_affected() > 0)
 }
 
-pub async fn invalidate_email_tokens(
-    pool: &PgPool,
-    user_id: Uuid,
-    token_type: &str,
-) -> Result<()> {
+pub async fn invalidate_email_tokens(pool: &PgPool, user_id: Uuid, token_type: &str) -> Result<()> {
     sqlx::query(
         "UPDATE email_verification_tokens SET used_at = now()
          WHERE user_id = $1 AND token_type = $2 AND used_at IS NULL",
@@ -1568,25 +1592,25 @@ pub async fn find_orders_by_user(
 }
 
 pub async fn set_order_user_id(pool: &PgPool, order_id: Uuid, user_id: Uuid) -> Result<()> {
-    sqlx::query(
-        "UPDATE orders SET user_id = $2 WHERE id = $1 AND user_id IS NULL",
-    )
-    .bind(order_id)
-    .bind(user_id)
-    .execute(pool)
-    .await?;
+    sqlx::query("UPDATE orders SET user_id = $2 WHERE id = $1 AND user_id IS NULL")
+        .bind(order_id)
+        .bind(user_id)
+        .execute(pool)
+        .await?;
 
     Ok(())
 }
 
-pub async fn set_order_user_id_tx(tx: &mut Transaction<'_, Postgres>, order_id: Uuid, user_id: Uuid) -> Result<()> {
-    sqlx::query(
-        "UPDATE orders SET user_id = $2 WHERE id = $1 AND user_id IS NULL",
-    )
-    .bind(order_id)
-    .bind(user_id)
-    .execute(tx.as_mut())
-    .await?;
+pub async fn set_order_user_id_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    order_id: Uuid,
+    user_id: Uuid,
+) -> Result<()> {
+    sqlx::query("UPDATE orders SET user_id = $2 WHERE id = $1 AND user_id IS NULL")
+        .bind(order_id)
+        .bind(user_id)
+        .execute(tx.as_mut())
+        .await?;
 
     Ok(())
 }
@@ -1598,6 +1622,7 @@ fn map_user_row(row: sqlx::postgres::PgRow) -> Result<UserRow> {
         display_name: row.try_get("display_name")?,
         password_hash: row.try_get("password_hash")?,
         email_verified: row.try_get("email_verified")?,
+        preferred_currency: row.try_get("preferred_currency")?,
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
         deleted_at: row.try_get("deleted_at")?,
@@ -1703,7 +1728,10 @@ pub async fn create_waitlist_entry(
     })
 }
 
-pub async fn find_waitlist_entry_by_email(pool: &PgPool, email: &str) -> Result<Option<WaitlistEntryRow>> {
+pub async fn find_waitlist_entry_by_email(
+    pool: &PgPool,
+    email: &str,
+) -> Result<Option<WaitlistEntryRow>> {
     let row = sqlx::query(
         "SELECT id, email, display_name, email_verified, referral_code, referred_by, ip_hash, utm_source, utm_medium, utm_campaign, utm_content, utm_term, verified_at, created_at
          FROM waitlist_entries WHERE LOWER(email) = LOWER($1)",
@@ -1712,25 +1740,31 @@ pub async fn find_waitlist_entry_by_email(pool: &PgPool, email: &str) -> Result<
     .fetch_optional(pool)
     .await?;
 
-    row.map(|r| Ok(WaitlistEntryRow {
-        id: r.try_get("id")?,
-        email: r.try_get("email")?,
-        display_name: r.try_get("display_name")?,
-        email_verified: r.try_get("email_verified")?,
-        referral_code: r.try_get("referral_code")?,
-        referred_by: r.try_get("referred_by")?,
-        ip_hash: r.try_get("ip_hash")?,
-        utm_source: r.try_get("utm_source")?,
-        utm_medium: r.try_get("utm_medium")?,
-        utm_campaign: r.try_get("utm_campaign")?,
-        utm_content: r.try_get("utm_content")?,
-        utm_term: r.try_get("utm_term")?,
-        verified_at: r.try_get("verified_at")?,
-        created_at: r.try_get("created_at")?,
-    })).transpose()
+    row.map(|r| {
+        Ok(WaitlistEntryRow {
+            id: r.try_get("id")?,
+            email: r.try_get("email")?,
+            display_name: r.try_get("display_name")?,
+            email_verified: r.try_get("email_verified")?,
+            referral_code: r.try_get("referral_code")?,
+            referred_by: r.try_get("referred_by")?,
+            ip_hash: r.try_get("ip_hash")?,
+            utm_source: r.try_get("utm_source")?,
+            utm_medium: r.try_get("utm_medium")?,
+            utm_campaign: r.try_get("utm_campaign")?,
+            utm_content: r.try_get("utm_content")?,
+            utm_term: r.try_get("utm_term")?,
+            verified_at: r.try_get("verified_at")?,
+            created_at: r.try_get("created_at")?,
+        })
+    })
+    .transpose()
 }
 
-pub async fn find_waitlist_entry_by_referral_code(pool: &PgPool, code: &str) -> Result<Option<WaitlistEntryRow>> {
+pub async fn find_waitlist_entry_by_referral_code(
+    pool: &PgPool,
+    code: &str,
+) -> Result<Option<WaitlistEntryRow>> {
     let row = sqlx::query(
         "SELECT id, email, display_name, email_verified, referral_code, referred_by, ip_hash, utm_source, utm_medium, utm_campaign, utm_content, utm_term, verified_at, created_at
          FROM waitlist_entries WHERE referral_code = $1",
@@ -1739,22 +1773,25 @@ pub async fn find_waitlist_entry_by_referral_code(pool: &PgPool, code: &str) -> 
     .fetch_optional(pool)
     .await?;
 
-    row.map(|r| Ok(WaitlistEntryRow {
-        id: r.try_get("id")?,
-        email: r.try_get("email")?,
-        display_name: r.try_get("display_name")?,
-        email_verified: r.try_get("email_verified")?,
-        referral_code: r.try_get("referral_code")?,
-        referred_by: r.try_get("referred_by")?,
-        ip_hash: r.try_get("ip_hash")?,
-        utm_source: r.try_get("utm_source")?,
-        utm_medium: r.try_get("utm_medium")?,
-        utm_campaign: r.try_get("utm_campaign")?,
-        utm_content: r.try_get("utm_content")?,
-        utm_term: r.try_get("utm_term")?,
-        verified_at: r.try_get("verified_at")?,
-        created_at: r.try_get("created_at")?,
-    })).transpose()
+    row.map(|r| {
+        Ok(WaitlistEntryRow {
+            id: r.try_get("id")?,
+            email: r.try_get("email")?,
+            display_name: r.try_get("display_name")?,
+            email_verified: r.try_get("email_verified")?,
+            referral_code: r.try_get("referral_code")?,
+            referred_by: r.try_get("referred_by")?,
+            ip_hash: r.try_get("ip_hash")?,
+            utm_source: r.try_get("utm_source")?,
+            utm_medium: r.try_get("utm_medium")?,
+            utm_campaign: r.try_get("utm_campaign")?,
+            utm_content: r.try_get("utm_content")?,
+            utm_term: r.try_get("utm_term")?,
+            verified_at: r.try_get("verified_at")?,
+            created_at: r.try_get("created_at")?,
+        })
+    })
+    .transpose()
 }
 
 pub async fn verify_waitlist_email(pool: &PgPool, entry_id: Uuid) -> Result<()> {
@@ -1810,7 +1847,10 @@ pub struct WaitlistVerifyTokenRow {
     pub used_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
-pub async fn find_waitlist_verify_token(pool: &PgPool, token_hash: &str) -> Result<Option<WaitlistVerifyTokenRow>> {
+pub async fn find_waitlist_verify_token(
+    pool: &PgPool,
+    token_hash: &str,
+) -> Result<Option<WaitlistVerifyTokenRow>> {
     let row = sqlx::query(
         "SELECT id, entry_id, expires_at, used_at FROM waitlist_verify_tokens WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now()",
     )
@@ -1818,12 +1858,15 @@ pub async fn find_waitlist_verify_token(pool: &PgPool, token_hash: &str) -> Resu
     .fetch_optional(pool)
     .await?;
 
-    row.map(|r| Ok(WaitlistVerifyTokenRow {
-        id: r.try_get("id")?,
-        entry_id: r.try_get("entry_id")?,
-        expires_at: r.try_get("expires_at")?,
-        used_at: r.try_get("used_at")?,
-    })).transpose()
+    row.map(|r| {
+        Ok(WaitlistVerifyTokenRow {
+            id: r.try_get("id")?,
+            entry_id: r.try_get("entry_id")?,
+            expires_at: r.try_get("expires_at")?,
+            used_at: r.try_get("used_at")?,
+        })
+    })
+    .transpose()
 }
 
 pub async fn mark_waitlist_verify_token_used(pool: &PgPool, token_id: Uuid) -> Result<bool> {
@@ -1939,12 +1982,10 @@ pub async fn mark_notification_read(pool: &PgPool, id: Uuid, user_id: Uuid) -> R
 }
 
 pub async fn mark_all_notifications_read(pool: &PgPool, user_id: Uuid) -> Result<()> {
-    sqlx::query(
-        "UPDATE notifications SET read_at = now() WHERE user_id = $1 AND read_at IS NULL",
-    )
-    .bind(user_id)
-    .execute(pool)
-    .await?;
+    sqlx::query("UPDATE notifications SET read_at = now() WHERE user_id = $1 AND read_at IS NULL")
+        .bind(user_id)
+        .execute(pool)
+        .await?;
     Ok(())
 }
 

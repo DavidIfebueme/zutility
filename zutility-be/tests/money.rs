@@ -1,0 +1,173 @@
+use rust_decimal::Decimal;
+use zutility_be::domain::money::{CurrencyCode, Money, MoneyError};
+
+fn parsed(currency: CurrencyCode, raw: &str) -> Option<Money> {
+    Money::from_major(currency, raw).ok()
+}
+
+#[test]
+fn ngn_whole_naira_round_trips() {
+    let money = Money::from_ngn_whole(5000).ok();
+    assert_eq!(
+        money.and_then(|value| value.to_ngn_whole().ok()),
+        Some(5000)
+    );
+}
+
+#[test]
+fn xof_has_no_decimals() {
+    let formatted =
+        parsed(CurrencyCode::Xof, "1000").map(|value| value.round_to_currency().to_string());
+    assert_eq!(formatted.as_deref(), Some("1000"));
+    assert_eq!(CurrencyCode::Xof.exponent(), 0);
+}
+
+#[test]
+fn xof_rounds_half_away_from_zero() {
+    let down =
+        parsed(CurrencyCode::Xof, "1000.4").map(|value| value.round_to_currency().to_string());
+    let up = parsed(CurrencyCode::Xof, "1000.5").map(|value| value.round_to_currency().to_string());
+    assert_eq!(down.as_deref(), Some("1000"));
+    assert_eq!(up.as_deref(), Some("1001"));
+}
+
+#[test]
+fn zar_keeps_two_decimals() {
+    let formatted =
+        parsed(CurrencyCode::Zar, "10.50").map(|value| value.round_to_currency().to_string());
+    assert_eq!(formatted.as_deref(), Some("10.50"));
+}
+
+#[test]
+fn zar_midpoint_rounds_up() {
+    let rounded =
+        parsed(CurrencyCode::Zar, "10.505").map(|value| value.round_to_currency().to_string());
+    assert_eq!(rounded.as_deref(), Some("10.51"));
+}
+
+#[test]
+fn negative_amounts_are_rejected() {
+    assert_eq!(
+        Money::from_major(CurrencyCode::Ngn, "-1").err(),
+        Some(MoneyError::Negative)
+    );
+    assert_eq!(Money::from_ngn_whole(-1).err(), Some(MoneyError::Negative));
+}
+
+#[test]
+fn over_precise_amounts_are_rejected_by_new() {
+    let amount = "10.505".parse::<Decimal>();
+    assert!(amount.is_ok());
+    if let Ok(value) = amount {
+        assert_eq!(
+            Money::new(CurrencyCode::Zar, value).err(),
+            Some(MoneyError::TooPrecise)
+        );
+    }
+}
+
+#[test]
+fn overflow_is_rejected() {
+    assert_eq!(
+        Money::from_major(CurrencyCode::Ngn, "1000000000001").err(),
+        Some(MoneyError::Overflow)
+    );
+}
+
+#[test]
+fn unknown_iso_codes_are_rejected() {
+    assert_eq!(CurrencyCode::from_iso("XXX"), None);
+    assert_eq!(CurrencyCode::from_iso("xof"), Some(CurrencyCode::Xof));
+    assert_eq!(CurrencyCode::ALL.len(), 10);
+}
+
+#[test]
+fn ngn_converts_through_usd() {
+    let naira = Money::from_ngn_whole(150_000);
+    assert!(naira.is_ok());
+    if let Ok(value) = naira {
+        let converted =
+            value.convert_from_ngn(CurrencyCode::Xof, Decimal::from(1500), Decimal::new(6, 1));
+        assert_eq!(
+            converted.map(|money| money.round_to_currency().to_string()),
+            Some("60".to_string())
+        );
+    }
+}
+
+#[test]
+fn conversion_rejects_a_zero_rate() {
+    let naira = Money::from_ngn_whole(150_000);
+    assert!(naira.is_ok());
+    if let Ok(value) = naira {
+        assert_eq!(
+            value.convert_from_ngn(CurrencyCode::Xof, Decimal::ZERO, Decimal::new(6, 1)),
+            None
+        );
+        assert_eq!(
+            value.convert_from_ngn(CurrencyCode::Xof, Decimal::from(1500), Decimal::ZERO),
+            None
+        );
+    }
+}
+
+#[test]
+fn display_includes_the_currency() {
+    let formatted = parsed(CurrencyCode::Xof, "1000").map(|value| value.to_string());
+    assert_eq!(formatted.as_deref(), Some("1000 XOF"));
+}
+
+#[tokio::test]
+async fn user_currency_round_trips_through_every_query() {
+    let Ok(url) = std::env::var("TEST_DATABASE_URL") else {
+        return;
+    };
+    let Ok(pool) = sqlx::PgPool::connect(&url).await else {
+        return;
+    };
+    if sqlx::migrate!("./migrations").run(&pool).await.is_err() {
+        return;
+    }
+
+    let email = format!("money-{}@example.com", uuid::Uuid::new_v4());
+    let Ok(created) =
+        zutility_be::db::create_user(&pool, &email, Some("probe"), "hash", "XOF").await
+    else {
+        return;
+    };
+    assert_eq!(created.preferred_currency, "XOF");
+
+    let by_email = zutility_be::db::find_user_by_email(&pool, &email)
+        .await
+        .ok()
+        .flatten()
+        .map(|user| user.preferred_currency);
+    assert_eq!(by_email.as_deref(), Some("XOF"));
+
+    let by_id = zutility_be::db::find_user_by_id(&pool, created.id)
+        .await
+        .ok()
+        .flatten()
+        .map(|user| user.preferred_currency);
+    assert_eq!(by_id.as_deref(), Some("XOF"));
+
+    zutility_be::db::update_user_preferred_currency(&pool, created.id, "GHS")
+        .await
+        .ok();
+    let updated = zutility_be::db::find_user_by_id(&pool, created.id)
+        .await
+        .ok()
+        .flatten()
+        .map(|user| user.preferred_currency);
+    assert_eq!(updated.as_deref(), Some("GHS"));
+
+    zutility_be::db::update_user_display_name(&pool, created.id, None)
+        .await
+        .ok();
+    let preserved = zutility_be::db::find_user_by_id(&pool, created.id)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|user| user.display_name);
+    assert_eq!(preserved.as_deref(), Some("probe"));
+}

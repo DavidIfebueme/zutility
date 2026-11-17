@@ -12,6 +12,7 @@ use uuid::Uuid;
 
 use crate::{
     db::{self, UserRow},
+    domain::money::CurrencyCode,
     http::auth,
     http::error::ApiError,
     http::handlers::HttpState,
@@ -125,7 +126,12 @@ fn set_auth_cookies(
 
     let mut jar = jar;
     for (cookie, value) in values {
-        jar = jar.add(build_auth_cookie(cookie, value, cookie.max_age(state), domain));
+        jar = jar.add(build_auth_cookie(
+            cookie,
+            value,
+            cookie.max_age(state),
+            domain,
+        ));
     }
     jar
 }
@@ -150,7 +156,9 @@ fn cookie_domain_from_base_url(base_url: &str) -> Option<String> {
     }
 }
 
-fn clear_legacy_refresh_cookie(cookie_domain: Option<&str>) -> axum_extra::extract::cookie::Cookie<'static> {
+fn clear_legacy_refresh_cookie(
+    cookie_domain: Option<&str>,
+) -> axum_extra::extract::cookie::Cookie<'static> {
     let mut builder = axum_extra::extract::cookie::Cookie::build(("refresh_token", String::new()))
         .http_only(true)
         .secure(cfg!(not(debug_assertions)))
@@ -211,6 +219,7 @@ fn user_to_response(user: &UserRow) -> AuthUserResponse {
         email: user.email.clone(),
         display_name: user.display_name.clone(),
         email_verified: user.email_verified,
+        preferred_currency: user.preferred_currency.clone(),
     }
 }
 
@@ -253,9 +262,11 @@ async fn create_session(
     let refresh_id = Uuid::now_v7();
     let expires_at = Utc::now() + Duration::hours(refresh_token_ttl_hours);
 
-    db::create_refresh_token(pool, refresh_id, user.id, refresh_id, expires_at, None, None)
-        .await
-        .map_err(internal_err)?;
+    db::create_refresh_token(
+        pool, refresh_id, user.id, refresh_id, expires_at, None, None,
+    )
+    .await
+    .map_err(internal_err)?;
 
     Ok((access_jwt, refresh_id, csrf_token))
 }
@@ -283,39 +294,54 @@ pub async fn register(
         return Err(ApiError::bad_request("invalid email address"));
     }
     if payload.password.len() < 8 {
-        return Err(ApiError::bad_request("password must be at least 8 characters"));
+        return Err(ApiError::bad_request(
+            "password must be at least 8 characters",
+        ));
     }
 
     let existing = db::find_user_by_email(&state.pool, &email)
         .await
         .map_err(internal_err)?;
     if existing.is_some() {
-        return Err(ApiError::conflict("an account with this email already exists"));
+        return Err(ApiError::conflict(
+            "an account with this email already exists",
+        ));
     }
 
-    let password_hash =
-        auth::hash_password(&payload.password).map_err(internal_err)?;
+    let password_hash = auth::hash_password(&payload.password).map_err(internal_err)?;
+
+    let preferred_currency = match payload.preferred_currency.as_deref() {
+        None => CurrencyCode::Ngn,
+        Some(raw) => CurrencyCode::from_iso(raw)
+            .ok_or_else(|| ApiError::bad_request("unsupported currency"))?,
+    };
 
     let user = db::create_user(
         &state.pool,
         &email,
         payload.display_name.as_deref(),
         &password_hash,
+        preferred_currency.iso(),
     )
     .await
     .map_err(internal_err)?;
 
     let verification_token = auth::generate_verification_token();
-    let token_hash = auth::hash_verification_token(&verification_token)
-        .map_err(internal_err)?;
+    let token_hash = auth::hash_verification_token(&verification_token).map_err(internal_err)?;
     let expires_at = Utc::now() + Duration::hours(24);
 
     db::invalidate_email_tokens(&state.pool, user.id, "verify_email")
         .await
         .map_err(internal_err)?;
-    db::create_email_token(&state.pool, user.id, &token_hash, "verify_email", expires_at)
-        .await
-        .map_err(internal_err)?;
+    db::create_email_token(
+        &state.pool,
+        user.id,
+        &token_hash,
+        "verify_email",
+        expires_at,
+    )
+    .await
+    .map_err(internal_err)?;
 
     if let Some(ref email_client) = state.email_client {
         let verification_link = format!(
@@ -346,7 +372,13 @@ pub async fn register(
     )
     .await?;
 
-    let jar = set_auth_cookies(jar, &state, &access_jwt, &refresh_id.to_string(), &csrf_token);
+    let jar = set_auth_cookies(
+        jar,
+        &state,
+        &access_jwt,
+        &refresh_id.to_string(),
+        &csrf_token,
+    );
 
     Ok(auth_created(jar, &user))
 }
@@ -373,8 +405,8 @@ pub async fn login(
         ));
     }
 
-    let valid = auth::verify_password(&payload.password, &user.password_hash)
-        .map_err(internal_err)?;
+    let valid =
+        auth::verify_password(&payload.password, &user.password_hash).map_err(internal_err)?;
 
     if !valid {
         let _ = db::record_failed_login(&state.pool, user.id).await;
@@ -396,21 +428,21 @@ pub async fn login(
     )
     .await?;
 
-    let jar = set_auth_cookies(jar, &state, &access_jwt, &refresh_id.to_string(), &csrf_token);
+    let jar = set_auth_cookies(
+        jar,
+        &state,
+        &access_jwt,
+        &refresh_id.to_string(),
+        &csrf_token,
+    );
 
     Ok(auth_ok(jar, &user))
 }
 
 const REFRESH_REUSE_GRACE_SECONDS: i64 = 900;
 
-pub async fn refresh(
-    State(state): State<HttpState>,
-    jar: CookieJar,
-) -> Result<Response, ApiError> {
-    let refresh_token_str = jar
-        .get("refresh_token")
-        .map(|c| c.value())
-        .unwrap_or("");
+pub async fn refresh(State(state): State<HttpState>, jar: CookieJar) -> Result<Response, ApiError> {
+    let refresh_token_str = jar.get("refresh_token").map(|c| c.value()).unwrap_or("");
 
     let refresh_id: Uuid = refresh_token_str
         .parse()
@@ -502,8 +534,13 @@ pub async fn refresh(
         {
             record_auth_event(&state, "refresh_replay");
             let (access_jwt, csrf_token) = mint_access_token(&state, &user)?;
-            let jar =
-                set_auth_cookies(jar, &state, &access_jwt, &successor.to_string(), &csrf_token);
+            let jar = set_auth_cookies(
+                jar,
+                &state,
+                &access_jwt,
+                &successor.to_string(),
+                &csrf_token,
+            );
             return Ok(auth_ok(jar, &user));
         }
 
@@ -531,7 +568,10 @@ pub async fn logout(State(state): State<HttpState>, jar: CookieJar) -> Result<Re
 
     record_auth_event(&state, "logout");
     let cookies = clear_auth_cookies(&state);
-    Ok(with_cookie_list(StatusCode::NO_CONTENT.into_response(), cookies))
+    Ok(with_cookie_list(
+        StatusCode::NO_CONTENT.into_response(),
+        cookies,
+    ))
 }
 
 pub async fn get_me(
@@ -551,8 +591,7 @@ pub async fn verify_email(
     jar: CookieJar,
     Json(payload): Json<VerifyEmailRequest>,
 ) -> Result<Response, ApiError> {
-    let token_hash = auth::hash_verification_token(&payload.token)
-        .map_err(internal_err)?;
+    let token_hash = auth::hash_verification_token(&payload.token).map_err(internal_err)?;
 
     let email_token = db::find_email_token_by_hash(&state.pool, &token_hash, "verify_email")
         .await
@@ -563,7 +602,9 @@ pub async fn verify_email(
         .await
         .map_err(internal_err)?
     {
-        return Err(ApiError::bad_request("invalid or expired verification token"));
+        return Err(ApiError::bad_request(
+            "invalid or expired verification token",
+        ));
     }
 
     let mut user = db::find_user_by_id(&state.pool, email_token.user_id)
@@ -589,7 +630,13 @@ pub async fn verify_email(
     )
     .await?;
 
-    let jar = set_auth_cookies(jar, &state, &access_jwt, &refresh_id.to_string(), &csrf_token);
+    let jar = set_auth_cookies(
+        jar,
+        &state,
+        &access_jwt,
+        &refresh_id.to_string(),
+        &csrf_token,
+    );
 
     Ok(auth_ok(jar, &user))
 }
@@ -613,16 +660,21 @@ pub async fn resend_verification(
     }
 
     let verification_token = auth::generate_verification_token();
-    let token_hash = auth::hash_verification_token(&verification_token)
-        .map_err(internal_err)?;
+    let token_hash = auth::hash_verification_token(&verification_token).map_err(internal_err)?;
     let expires_at = Utc::now() + Duration::hours(24);
 
     db::invalidate_email_tokens(&state.pool, user.id, "verify_email")
         .await
         .map_err(internal_err)?;
-    db::create_email_token(&state.pool, user.id, &token_hash, "verify_email", expires_at)
-        .await
-        .map_err(internal_err)?;
+    db::create_email_token(
+        &state.pool,
+        user.id,
+        &token_hash,
+        "verify_email",
+        expires_at,
+    )
+    .await
+    .map_err(internal_err)?;
 
     if let Some(ref email_client) = state.email_client {
         let verification_link = format!(
@@ -656,13 +708,18 @@ pub async fn forgot_password(
     };
 
     let reset_token = auth::generate_verification_token();
-    let token_hash = auth::hash_verification_token(&reset_token)
-        .map_err(internal_err)?;
+    let token_hash = auth::hash_verification_token(&reset_token).map_err(internal_err)?;
     let expires_at = Utc::now() + Duration::hours(1);
 
-    db::create_email_token(&state.pool, user.id, &token_hash, "reset_password", expires_at)
-        .await
-        .map_err(internal_err)?;
+    db::create_email_token(
+        &state.pool,
+        user.id,
+        &token_hash,
+        "reset_password",
+        expires_at,
+    )
+    .await
+    .map_err(internal_err)?;
 
     if let Some(ref email_client) = state.email_client {
         let reset_link = format!(
@@ -686,11 +743,12 @@ pub async fn reset_password(
     Json(payload): Json<ResetPasswordRequest>,
 ) -> Result<StatusCode, ApiError> {
     if payload.password.len() < 8 {
-        return Err(ApiError::bad_request("password must be at least 8 characters"));
+        return Err(ApiError::bad_request(
+            "password must be at least 8 characters",
+        ));
     }
 
-    let token_hash = auth::hash_verification_token(&payload.token)
-        .map_err(internal_err)?;
+    let token_hash = auth::hash_verification_token(&payload.token).map_err(internal_err)?;
 
     let email_token = db::find_email_token_by_hash(&state.pool, &token_hash, "reset_password")
         .await
@@ -752,15 +810,32 @@ pub async fn update_profile(
             return Err(ApiError::bad_request("display name cannot be empty"));
         }
         if name.len() > 100 {
-            return Err(ApiError::bad_request("display name must be 100 characters or less"));
+            return Err(ApiError::bad_request(
+                "display name must be 100 characters or less",
+            ));
         }
     }
 
     let display_name = payload.display_name.as_deref().map(|n| n.trim());
 
+    let preferred_currency = match payload.preferred_currency.as_deref() {
+        None => None,
+        Some(raw) => Some(
+            CurrencyCode::from_iso(raw)
+                .ok_or_else(|| ApiError::bad_request("unsupported currency"))?
+                .iso(),
+        ),
+    };
+
     db::update_user_display_name(&state.pool, user.user_id, display_name)
         .await
         .map_err(internal_err)?;
+
+    if let Some(code) = preferred_currency {
+        db::update_user_preferred_currency(&state.pool, user.user_id, code)
+            .await
+            .map_err(internal_err)?;
+    }
 
     let db_user = db::find_user_by_id(&state.pool, user.user_id)
         .await
@@ -776,7 +851,9 @@ pub async fn change_password(
     Json(payload): Json<ChangePasswordRequest>,
 ) -> Result<StatusCode, ApiError> {
     if payload.new_password.len() < 8 {
-        return Err(ApiError::bad_request("new password must be at least 8 characters"));
+        return Err(ApiError::bad_request(
+            "new password must be at least 8 characters",
+        ));
     }
 
     let db_user = db::find_user_by_id(&state.pool, user.user_id)
@@ -815,8 +892,8 @@ pub async fn delete_account(
         .map_err(internal_err)?
         .ok_or_else(|| ApiError::unauthorized("user not found"))?;
 
-    let valid = auth::verify_password(&payload.password, &db_user.password_hash)
-        .map_err(internal_err)?;
+    let valid =
+        auth::verify_password(&payload.password, &db_user.password_hash).map_err(internal_err)?;
 
     if !valid {
         return Err(ApiError::bad_request("password is incorrect"));
@@ -893,12 +970,7 @@ mod tests {
 
     #[test]
     fn clearing_a_cookie_expires_it_instead_of_letting_the_jar_drop_it() {
-        let cookie = build_auth_cookie(
-            AuthCookie::Refresh,
-            String::new(),
-            0,
-            Some("zutility.xyz"),
-        );
+        let cookie = build_auth_cookie(AuthCookie::Refresh, String::new(), 0, Some("zutility.xyz"));
         assert_eq!(cookie.max_age(), Some(time::Duration::seconds(0)));
         assert_eq!(cookie.domain(), Some("zutility.xyz"));
     }
