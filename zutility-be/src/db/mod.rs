@@ -1,9 +1,11 @@
+use crate::domain::money::CurrencyCode;
 use crate::domain::order::{OrderStatus, OrderStatusTransition};
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde_json::Value;
 use sqlx::{PgPool, Postgres, Row, Transaction};
+use std::collections::BTreeMap;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -286,6 +288,92 @@ pub async fn persist_rate_snapshot(
     .await?;
 
     Ok(snapshot_id)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FxRateRow {
+    pub quote: String,
+    pub per_usd: Decimal,
+    pub source: String,
+    pub fetched_at: DateTime<Utc>,
+}
+
+pub async fn upsert_fx_rates(
+    pool: &PgPool,
+    quotes: &BTreeMap<CurrencyCode, Decimal>,
+    source: &str,
+    fetched_at: DateTime<Utc>,
+) -> Result<usize> {
+    let mut tx = pool.begin().await?;
+    let mut written = 0usize;
+
+    for (currency, per_usd) in quotes {
+        if *per_usd <= Decimal::ZERO {
+            continue;
+        }
+
+        let affected = sqlx::query(
+            "INSERT INTO fx_rates (quote, per_usd, source, fetched_at)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (quote) DO UPDATE
+             SET per_usd = EXCLUDED.per_usd,
+                 source = EXCLUDED.source,
+                 fetched_at = EXCLUDED.fetched_at",
+        )
+        .bind(currency.iso())
+        .bind(*per_usd)
+        .bind(source)
+        .bind(fetched_at)
+        .execute(tx.as_mut())
+        .await?
+        .rows_affected();
+
+        written += usize::try_from(affected).unwrap_or(0);
+    }
+
+    tx.commit().await?;
+    Ok(written)
+}
+
+pub async fn list_fx_rates(pool: &PgPool) -> Result<Vec<FxRateRow>> {
+    let rows =
+        sqlx::query("SELECT quote, per_usd, source, fetched_at FROM fx_rates ORDER BY quote")
+            .fetch_all(pool)
+            .await?;
+
+    rows.into_iter().map(map_fx_rate_row).collect()
+}
+
+pub async fn find_fx_rate(pool: &PgPool, quote: &str) -> Result<Option<FxRateRow>> {
+    let row =
+        sqlx::query("SELECT quote, per_usd, source, fetched_at FROM fx_rates WHERE quote = $1")
+            .bind(quote)
+            .fetch_optional(pool)
+            .await?;
+
+    row.map(map_fx_rate_row).transpose()
+}
+
+fn map_fx_rate_row(row: sqlx::postgres::PgRow) -> Result<FxRateRow> {
+    Ok(FxRateRow {
+        quote: row.try_get("quote")?,
+        per_usd: row.try_get("per_usd")?,
+        source: row.try_get("source")?,
+        fetched_at: row.try_get("fetched_at")?,
+    })
+}
+
+pub async fn latest_usd_ngn(pool: &PgPool) -> Result<Option<(Decimal, DateTime<Utc>)>> {
+    let row = sqlx::query(
+        "SELECT usd_ngn, fetched_at FROM rate_snapshots ORDER BY fetched_at DESC LIMIT 1",
+    )
+    .fetch_optional(pool)
+    .await?;
+
+    match row {
+        Some(row) => Ok(Some((row.try_get("usd_ngn")?, row.try_get("fetched_at")?))),
+        None => Ok(None),
+    }
 }
 
 pub async fn insert_order_with_claimed_address(
@@ -1326,6 +1414,17 @@ pub async fn update_user_preferred_currency(
     .await?;
 
     Ok(())
+}
+
+pub async fn find_user_preferred_currency(pool: &PgPool, user_id: Uuid) -> Result<Option<String>> {
+    let currency = sqlx::query_scalar::<_, String>(
+        "SELECT preferred_currency FROM users WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(currency)
 }
 
 pub async fn soft_delete_user(pool: &PgPool, user_id: Uuid) -> Result<()> {

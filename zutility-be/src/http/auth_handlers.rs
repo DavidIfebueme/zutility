@@ -1,6 +1,6 @@
 use axum::{
     Json,
-    extract::{Extension, State},
+    extract::{Extension, Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
 };
@@ -12,15 +12,15 @@ use uuid::Uuid;
 
 use crate::{
     db::{self, UserRow},
-    domain::money::CurrencyCode,
+    domain::money::{CurrencyCode, Money},
     http::auth,
     http::error::ApiError,
-    http::handlers::HttpState,
+    http::handlers::{DisplayContext, HttpState},
     http::mw::AuthenticatedUser,
     http::types::{
-        AuthUserResponse, ChangePasswordRequest, DeleteAccountRequest, ForgotPasswordRequest,
-        LoginRequest, OrderHistoryItem, RegisterRequest, ResendVerificationRequest,
-        ResetPasswordRequest, UpdateProfileRequest, VerifyEmailRequest,
+        AuthUserResponse, ChangePasswordRequest, CurrencyQuery, DeleteAccountRequest,
+        ForgotPasswordRequest, LoginRequest, OrderHistoryItem, RegisterRequest,
+        ResendVerificationRequest, ResetPasswordRequest, UpdateProfileRequest, VerifyEmailRequest,
     },
 };
 
@@ -778,10 +778,13 @@ pub async fn reset_password(
 pub async fn get_order_history(
     State(state): State<HttpState>,
     Extension(user): Extension<AuthenticatedUser>,
+    Query(query): Query<CurrencyQuery>,
 ) -> Result<Json<Vec<OrderHistoryItem>>, ApiError> {
     let orders = db::find_orders_by_user(&state.pool, user.user_id, 50, 0)
         .await
         .map_err(internal_err)?;
+
+    let display = DisplayContext::load(&state, Some(&user), query.currency.as_deref()).await;
 
     let items: Vec<OrderHistoryItem> = orders
         .into_iter()
@@ -794,6 +797,7 @@ pub async fn get_order_history(
             status: o.status,
             created_at: o.created_at,
             completed_at: o.completed_at,
+            display: display.project(Money::from_ngn_whole(o.amount_ngn).ok()),
         })
         .collect();
 

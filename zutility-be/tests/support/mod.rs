@@ -42,6 +42,7 @@ async fn seed_addresses(pool: &PgPool) {
     }
 }
 
+#[allow(dead_code)]
 pub async fn session(pool: &PgPool) -> Option<Session> {
     let email = format!("test-{}@example.com", Uuid::new_v4());
     let user = zutility_be::db::create_user(pool, &email, Some("probe"), "hash", "NGN")
@@ -54,6 +55,7 @@ pub async fn session(pool: &PgPool) -> Option<Session> {
     Some(Session { jwt, csrf })
 }
 
+#[allow(dead_code)]
 pub async fn authed_router() -> Option<Router> {
     let pool = pool().await?;
     let session = session(&pool).await?;

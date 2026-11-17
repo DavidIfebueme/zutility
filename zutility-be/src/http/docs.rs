@@ -8,8 +8,9 @@ use crate::{
         error::ErrorEnvelope,
         handlers,
         types::{
-            CancelOrderResponse, CreateOrderRequest, CreateOrderResponse, OrderStatusResponse,
-            RateResponse, UtilityItem, UtilityValidateResponse,
+            CancelOrderResponse, CreateOrderRequest, CreateOrderResponse, DisplayMoney,
+            FxQuoteResponse, OrderStatusResponse, RateResponse, UtilityItem,
+            UtilityValidateResponse,
         },
     },
 };
@@ -35,6 +36,8 @@ use crate::{
             RateResponse,
             UtilityItem,
             UtilityValidateResponse,
+            DisplayMoney,
+            FxQuoteResponse,
             CatalogueResponse,
             ErrorEnvelope,
             OrderStatus,
