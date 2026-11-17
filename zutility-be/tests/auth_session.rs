@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use axum::extract::State;
 use axum::http::{HeaderMap, header::SET_COOKIE};
 use axum_extra::extract::CookieJar;

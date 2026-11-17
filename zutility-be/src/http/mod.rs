@@ -1,4 +1,4 @@
-use axum::http::{header::HeaderName, HeaderValue};
+use axum::http::{HeaderValue, header::HeaderName};
 use axum::{
     Router,
     extract::DefaultBodyLimit,
@@ -8,14 +8,14 @@ use axum::{
 use sqlx::PgPool;
 use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
 use tower_http::{
-    cors::{Any, CorsLayer},
+    cors::CorsLayer,
     request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer},
     trace::TraceLayer,
 };
 
+pub mod admin_handlers;
 pub mod auth;
 pub mod auth_handlers;
-pub mod admin_handlers;
 pub mod docs;
 pub mod error;
 pub mod gift_handlers;
@@ -30,26 +30,24 @@ pub mod waitlist_handlers;
 
 use crate::config::AppConfig;
 use crate::integrations::rates::SharedRateCache;
-use rate_limit::ClientIpKeyExtractor;
+use admin_handlers::wallet_balance;
 use auth_handlers::{
     change_password, delete_account, forgot_password, get_me, get_order_history, login, logout,
     refresh, register, resend_verification, reset_password, update_profile, verify_email,
 };
-use admin_handlers::wallet_balance;
-use notification_handlers::{
-    get_unread_count, list_notifications, mark_all_notifications_read, mark_notification_read,
-};
 use docs::{docs_ui, openapi_json};
-use gift_handlers::{
-    cancel_gift, claim_gift, create_gift, get_gift, list_gifts, rotate_gift_code,
-};
+use gift_handlers::{cancel_gift, claim_gift, create_gift, get_gift, list_gifts, rotate_gift_code};
 use handlers::{
     HttpState, alerts, cancel_order, create_order, get_current_rate, get_order, health_live,
     health_ready, list_utilities, list_utility_variations, metrics, rotate_order_access_token,
     stream_order, validate_utility_reference, webhook_inlomax, webhook_remita, webhook_vtpass,
 };
-use waitlist_handlers::{waitlist_join, waitlist_resend, waitlist_stats, waitlist_verify};
+use notification_handlers::{
+    get_unread_count, list_notifications, mark_all_notifications_read, mark_notification_read,
+};
+use rate_limit::ClientIpKeyExtractor;
 use support_handlers::support_contact;
+use waitlist_handlers::{waitlist_join, waitlist_resend, waitlist_stats, waitlist_verify};
 
 pub async fn build_router(config: &AppConfig) -> Result<Router, anyhow::Error> {
     let pool = PgPool::connect(&config.database_url).await?;
@@ -66,7 +64,11 @@ pub async fn build_router_with_rate_cache(
     build_router_from_state(state, true)
 }
 
-pub fn build_state(config: &AppConfig, rate_cache: Option<SharedRateCache>, pool: PgPool) -> HttpState {
+pub fn build_state(
+    config: &AppConfig,
+    rate_cache: Option<SharedRateCache>,
+    pool: PgPool,
+) -> HttpState {
     let state = HttpState::new(
         config.order_token_hmac_secret.clone(),
         i64::from(config.order_expiry_minutes),
@@ -97,7 +99,10 @@ fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool
     let auth_routes = Router::new()
         .route("/api/v1/auth/register", post(register))
         .route("/api/v1/auth/login", post(login))
-        .route("/api/v1/auth/resend-verification", post(resend_verification))
+        .route(
+            "/api/v1/auth/resend-verification",
+            post(resend_verification),
+        )
         .route("/api/v1/auth/forgot-password", post(forgot_password))
         .route("/api/v1/auth/reset-password", post(reset_password));
 
@@ -178,12 +183,21 @@ fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool
         .route("/api/v1/auth/delete-account", post(delete_account))
         .route("/api/v1/notifications", get(list_notifications))
         .route("/api/v1/notifications/unread-count", get(get_unread_count))
-        .route("/api/v1/notifications/{id}/read", post(mark_notification_read))
-        .route("/api/v1/notifications/mark-all-read", post(mark_all_notifications_read))
+        .route(
+            "/api/v1/notifications/{id}/read",
+            post(mark_notification_read),
+        )
+        .route(
+            "/api/v1/notifications/mark-all-read",
+            post(mark_all_notifications_read),
+        )
         .route("/api/v1/orders/history", get(get_order_history))
         .route("/api/v1/gifts", post(create_gift).get(list_gifts))
         .route("/api/v1/gifts/{gift_id}/cancel", post(cancel_gift))
-        .route("/api/v1/gifts/{gift_id}/rotate-code", post(rotate_gift_code))
+        .route(
+            "/api/v1/gifts/{gift_id}/rotate-code",
+            post(rotate_gift_code),
+        )
         .with_state(state.clone())
         .layer(middleware::from_fn_with_state(
             jwt_secret_for_mw.clone(),
@@ -198,9 +212,7 @@ fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool
             mw::admin_middleware,
         ));
 
-    let app = public_routes
-        .merge(protected_routes)
-        .merge(admin_routes);
+    let app = public_routes.merge(protected_routes).merge(admin_routes);
 
     let app = if enable_rate_limits {
         // per_second(n) is one token every n seconds, not n per second.
@@ -256,12 +268,12 @@ fn build_allowed_origins(app_base_url: &str, frontend_url: Option<&str>) -> Vec<
         app_base_url.replace("https://", "https://www."),
         app_base_url.replace("http://", "http://www."),
     ];
-    if let Some(frontend_url) = frontend_url {
-        if !frontend_url.is_empty() {
-            origins.push(frontend_url.to_owned());
-            origins.push(frontend_url.replace("https://", "https://www."));
-            origins.push(frontend_url.replace("http://", "http://www."));
-        }
+    if let Some(frontend_url) = frontend_url
+        && !frontend_url.is_empty()
+    {
+        origins.push(frontend_url.to_owned());
+        origins.push(frontend_url.replace("https://", "https://www."));
+        origins.push(frontend_url.replace("http://", "http://www."));
     }
     origins
         .into_iter()
@@ -269,7 +281,14 @@ fn build_allowed_origins(app_base_url: &str, frontend_url: Option<&str>) -> Vec<
         .collect()
 }
 
+pub const DEV_JWT_SECRET: &str = "dev_jwt_secret_key_change_in_prod";
+
 pub fn router() -> Router {
+    router_with_pool(None)
+}
+
+#[allow(clippy::expect_used)]
+pub fn router_with_pool(pool: Option<PgPool>) -> Router {
     let config = AppConfig {
         app_env: crate::config::AppEnv::Dev,
         http_bind_addr: "127.0.0.1:3001".parse().expect("valid bind address"),
@@ -313,7 +332,7 @@ pub fn router() -> Router {
         signing_service_url: String::from("http://10.0.0.2:8080"),
         signing_service_hmac_secret: secrecy::SecretString::from(String::from("hmac_secret")),
         rate_source_timeout_ms: 3000,
-        jwt_secret: secrecy::SecretString::from(String::from("dev_jwt_secret_key_change_in_prod")),
+        jwt_secret: secrecy::SecretString::from(String::from(DEV_JWT_SECRET)),
         access_token_ttl_minutes: 15,
         refresh_token_ttl_hours: 24,
         brevo_api_key: None,
@@ -322,24 +341,28 @@ pub fn router() -> Router {
         app_base_url: String::from("http://localhost:3000"),
         frontend_url: None,
         cookie_domain: None,
-        admin_secret: Some(secrecy::SecretString::from(String::from("dev_admin_secret"))),
+        admin_secret: Some(secrecy::SecretString::from(String::from(
+            "dev_admin_secret",
+        ))),
     };
 
     let rate_cache = crate::integrations::rates::new_shared_rate_cache(
         crate::integrations::rates::CurrentRate {
-            zec_ngn: rust_decimal::Decimal::new(150_000_0000, 4),
-            zec_usd: rust_decimal::Decimal::new(100_0000, 4),
-            usd_ngn: rust_decimal::Decimal::new(1500_0000, 4),
-            usd_kes: rust_decimal::Decimal::new(129_0000, 4),
-            usd_ghs: rust_decimal::Decimal::new(12_0000, 4),
-            usd_zar: rust_decimal::Decimal::new(18_0000, 4),
-            usd_egp: rust_decimal::Decimal::new(30_0000, 4),
+            zec_ngn: rust_decimal::Decimal::new(1_500_000_000, 4),
+            zec_usd: rust_decimal::Decimal::new(1_000_000, 4),
+            usd_ngn: rust_decimal::Decimal::new(15_000_000, 4),
+            usd_kes: rust_decimal::Decimal::new(1_290_000, 4),
+            usd_ghs: rust_decimal::Decimal::new(120_000, 4),
+            usd_zar: rust_decimal::Decimal::new(180_000, 4),
+            usd_egp: rust_decimal::Decimal::new(300_000, 4),
             updated_at: chrono::Utc::now(),
         },
     );
 
-    let pool = PgPool::connect_lazy(&config.database_url)
-        .expect("valid pool for test router");
+    let pool = match pool {
+        Some(pool) => pool,
+        None => PgPool::connect_lazy(&config.database_url).expect("valid pool for test router"),
+    };
 
     let state = build_state(&config, Some(rate_cache), pool);
     build_router_from_state(state, false)

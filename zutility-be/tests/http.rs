@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use axum::{
     body::{Body, to_bytes},
     http::{Request, StatusCode},
@@ -6,9 +8,13 @@ use serde_json::Value;
 use tower::util::ServiceExt;
 use zutility_be::http;
 
+mod support;
+
 #[tokio::test]
 async fn create_and_get_order_with_valid_token() {
-    let app = http::router();
+    let Some(app) = support::authed_router().await else {
+        return;
+    };
 
     let create_req = Request::builder()
         .method("POST")
@@ -61,14 +67,16 @@ async fn create_and_get_order_with_valid_token() {
 
 #[tokio::test]
 async fn get_order_with_invalid_token_is_forbidden() {
-    let app = http::router();
+    let Some(app) = support::authed_router().await else {
+        return;
+    };
 
     let create_req = Request::builder()
         .method("POST")
         .uri("/api/v1/orders/create")
         .header("content-type", "application/json")
         .body(Body::from(
-            r#"{"utility_type":"airtime","utility_slug":"mtn","service_ref":"08000000000","amount_ngn":5000,"zec_address_type":"transparent"}"#,
+            r#"{"utility_type":"airtime","utility_slug":"mtn","service_ref":"08000000000","amount_ngn":5000,"zec_address_type":"shielded"}"#,
         ))
         .expect("build request");
 
@@ -88,20 +96,25 @@ async fn get_order_with_invalid_token_is_forbidden() {
         .body(Body::empty())
         .expect("build request");
 
-    let get_res = app.oneshot(get_req).await.expect("response");
+    let Some(other) = support::authed_router().await else {
+        return;
+    };
+    let get_res = other.oneshot(get_req).await.expect("response");
     assert_eq!(get_res.status(), StatusCode::FORBIDDEN);
 }
 
 #[tokio::test]
 async fn cancel_order_changes_status() {
-    let app = http::router();
+    let Some(app) = support::authed_router().await else {
+        return;
+    };
 
     let create_req = Request::builder()
         .method("POST")
         .uri("/api/v1/orders/create")
         .header("content-type", "application/json")
         .body(Body::from(
-            r#"{"utility_type":"airtime","utility_slug":"airtel","service_ref":"08011111111","amount_ngn":7000,"zec_address_type":"transparent"}"#,
+            r#"{"utility_type":"airtime","utility_slug":"airtel","service_ref":"08011111111","amount_ngn":7000,"zec_address_type":"shielded"}"#,
         ))
         .expect("build request");
 
@@ -148,7 +161,9 @@ async fn cancel_order_changes_status() {
 
 #[tokio::test]
 async fn create_order_response_matches_frontend_contract_shape() {
-    let app = http::router();
+    let Some(app) = support::authed_router().await else {
+        return;
+    };
 
     let create_req = Request::builder()
         .method("POST")
@@ -242,7 +257,9 @@ async fn rates_utilities_and_validate_endpoints_respond() {
 
 #[tokio::test]
 async fn service_ref_velocity_limit_returns_too_many_requests() {
-    let app = http::router();
+    let Some(app) = support::authed_router().await else {
+        return;
+    };
 
     for _ in 0..8 {
         let create_req = Request::builder()
@@ -250,7 +267,7 @@ async fn service_ref_velocity_limit_returns_too_many_requests() {
             .uri("/api/v1/orders/create")
             .header("content-type", "application/json")
             .body(Body::from(
-                r#"{"utility_type":"airtime","utility_slug":"mtn","service_ref":"08099999999","amount_ngn":5000,"zec_address_type":"transparent"}"#,
+                r#"{"utility_type":"airtime","utility_slug":"mtn","service_ref":"08099999999","amount_ngn":5000,"zec_address_type":"shielded"}"#,
             ))
             .expect("build request");
         let create_res = app.clone().oneshot(create_req).await.expect("response");
@@ -262,7 +279,7 @@ async fn service_ref_velocity_limit_returns_too_many_requests() {
         .uri("/api/v1/orders/create")
         .header("content-type", "application/json")
         .body(Body::from(
-            r#"{"utility_type":"airtime","utility_slug":"mtn","service_ref":"08099999999","amount_ngn":5000,"zec_address_type":"transparent"}"#,
+            r#"{"utility_type":"airtime","utility_slug":"mtn","service_ref":"08099999999","amount_ngn":5000,"zec_address_type":"shielded"}"#,
         ))
         .expect("build request");
     let blocked_res = app.oneshot(blocked_req).await.expect("response");

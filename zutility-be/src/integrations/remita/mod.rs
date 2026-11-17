@@ -97,8 +97,7 @@ impl CircuitBreaker {
     pub async fn on_failure(&self) {
         let mut state = self.state.lock().await;
         let reopen_after = |duration: &std::time::Duration| {
-            chrono::Duration::from_std(*duration)
-                .unwrap_or_else(|_| chrono::Duration::seconds(30))
+            chrono::Duration::from_std(*duration).unwrap_or_else(|_| chrono::Duration::seconds(30))
         };
         let was_probe = state.half_open_in_flight;
         state.half_open_in_flight = false;
@@ -117,6 +116,7 @@ impl CircuitBreaker {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct RemitaStatusEnvelope {
     status_code: Option<String>,
@@ -151,15 +151,25 @@ impl RemitaClient {
     }
 
     pub fn from_config(config: &AppConfig) -> Result<Self> {
-        let base_url = config.remita_base_url.clone()
+        let base_url = config
+            .remita_base_url
+            .clone()
             .ok_or_else(|| anyhow::anyhow!("REMITA_BASE_URL not set"))?;
-        let merchant_id = config.remita_merchant_id.clone()
+        let merchant_id = config
+            .remita_merchant_id
+            .clone()
             .ok_or_else(|| anyhow::anyhow!("REMITA_MERCHANT_ID not set"))?;
-        let api_key = config.remita_api_key.clone()
+        let api_key = config
+            .remita_api_key
+            .clone()
             .ok_or_else(|| anyhow::anyhow!("REMITA_API_KEY not set"))?;
-        let service_type_id = config.remita_service_type_id.clone()
+        let service_type_id = config
+            .remita_service_type_id
+            .clone()
             .ok_or_else(|| anyhow::anyhow!("REMITA_SERVICE_TYPE_ID not set"))?;
-        let webhook_secret = config.remita_webhook_secret.clone()
+        let webhook_secret = config
+            .remita_webhook_secret
+            .clone()
             .ok_or_else(|| anyhow::anyhow!("REMITA_WEBHOOK_SECRET not set"))?;
         Self::new(
             base_url,
@@ -202,9 +212,7 @@ impl RemitaClient {
             .json(&payload)
             .send()
             .await
-            .map_err(|error| {
-                ProviderError::transient(format!("remita request failed: {error}"))
-            })?;
+            .map_err(|error| ProviderError::transient(format!("remita request failed: {error}")))?;
 
         let status = response.status();
         let response_json = response.json::<Value>().await.map_err(|error| {
@@ -258,9 +266,7 @@ impl RemitaClient {
             .query(query)
             .send()
             .await
-            .map_err(|error| {
-                ProviderError::transient(format!("remita request failed: {error}"))
-            })?;
+            .map_err(|error| ProviderError::transient(format!("remita request failed: {error}")))?;
 
         let status = response.status();
         let response_json = response.json::<Value>().await.map_err(|error| {
@@ -314,15 +320,15 @@ impl UtilityProvider for RemitaClient {
     ) -> Result<ValidateRefResponse, ProviderError> {
         if request.billers_code.trim().len() == 12 {
             let status = self
-                .get_json(
-                    &format!("rrr/{}/status", request.billers_code),
-                    &[],
-                )
+                .get_json(&format!("rrr/{}/status", request.billers_code), &[])
                 .await;
 
             match status {
                 Ok(value) => {
-                    let rrr = value.get("rrr").and_then(Value::as_str).map(ToOwned::to_owned);
+                    let rrr = value
+                        .get("rrr")
+                        .and_then(Value::as_str)
+                        .map(ToOwned::to_owned);
                     let is_valid = rrr.is_some();
                     let customer_name = value
                         .get("payerName")
@@ -381,8 +387,8 @@ impl UtilityProvider for RemitaClient {
 
         let response = self.post_json("billpayment/pay", payload).await?;
 
-        let envelope = serde_json::from_value::<RemitaStatusEnvelope>(response.clone())
-            .map_err(|error| {
+        let envelope =
+            serde_json::from_value::<RemitaStatusEnvelope>(response.clone()).map_err(|error| {
                 ProviderError::new(
                     ProviderErrorKind::InvalidResponse,
                     format!("remita pay response decode failed: {error}"),
@@ -417,13 +423,16 @@ impl UtilityProvider for RemitaClient {
 
         let response = self
             .get_json(
-                &format!("billpayment/status/{}/{}/{}", self.merchant_id, request_id, hash_hex),
+                &format!(
+                    "billpayment/status/{}/{}/{}",
+                    self.merchant_id, request_id, hash_hex
+                ),
                 &[],
             )
             .await?;
 
-        let envelope = serde_json::from_value::<RemitaStatusEnvelope>(response.clone())
-            .map_err(|error| {
+        let envelope =
+            serde_json::from_value::<RemitaStatusEnvelope>(response.clone()).map_err(|error| {
                 ProviderError::new(
                     ProviderErrorKind::InvalidResponse,
                     format!("remita requery response decode failed: {error}"),
@@ -446,8 +455,11 @@ impl UtilityProvider for RemitaClient {
     }
 
     fn verify_webhook_signature(&self, payload: &[u8], signature: &str) -> bool {
-        let mut mac = Hmac::<Sha256>::new_from_slice(self.webhook_secret.expose_secret().as_bytes())
-            .unwrap_or_else(|_| panic!("invalid hmac key"));
+        let Ok(mut mac) =
+            Hmac::<Sha256>::new_from_slice(self.webhook_secret.expose_secret().as_bytes())
+        else {
+            return false;
+        };
         mac.update(payload);
         let expected = hex::encode(mac.finalize().into_bytes());
         expected

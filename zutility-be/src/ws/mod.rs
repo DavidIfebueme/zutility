@@ -79,7 +79,10 @@ impl WsHub {
         let entries = guard.entry(order_id).or_insert_with(VecDeque::new);
 
         if entries.len() >= 3
-            && let Some((index, _)) = entries.iter().enumerate().min_by_key(|(_, entry)| entry.last_seen)
+            && let Some((index, _)) = entries
+                .iter()
+                .enumerate()
+                .min_by_key(|(_, entry)| entry.last_seen)
             && let Some(evicted) = entries.remove(index)
         {
             evicted_senders.push(evicted.sender);
@@ -193,10 +196,10 @@ pub async fn serve_connection(
         let _ = evicted_sender.send(Message::Close(None));
     }
 
-    if let Some(event) = initial_event {
-        if let Ok(payload) = serde_json::to_string(&event) {
-            let _ = sender.send(Message::Text(payload.into()));
-        }
+    if let Some(event) = initial_event
+        && let Ok(payload) = serde_json::to_string(&event)
+    {
+        let _ = sender.send(Message::Text(payload.into()));
     }
 
     let (mut ws_tx, mut ws_rx) = socket.split();

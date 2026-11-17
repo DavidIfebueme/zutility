@@ -102,11 +102,11 @@ impl ProviderDispatcher {
                     tracing::warn!(error = %error, "inlomax outage, falling back to vtpass");
                     return self.vtpass.pay(request).await;
                 }
-                if utility_type == "electricity" {
-                    if let Some(ref remita) = self.remita {
-                        tracing::warn!(error = %error, "primary electricity outage, falling back to remita");
-                        return remita.pay(request).await;
-                    }
+                if utility_type == "electricity"
+                    && let Some(ref remita) = self.remita
+                {
+                    tracing::warn!(error = %error, "primary electricity outage, falling back to remita");
+                    return remita.pay(request).await;
                 }
             }
             if matches!(
