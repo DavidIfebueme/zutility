@@ -1,8 +1,12 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    net::{IpAddr, SocketAddr},
+    sync::Arc,
+};
 
 use axum::{
     Json,
-    extract::{Extension, Path, Query, State, ws::WebSocketUpgrade},
+    extract::{ConnectInfo, Extension, Path, Query, State, ws::WebSocketUpgrade},
     http::StatusCode,
     response::Response,
 };
@@ -16,7 +20,7 @@ use uuid::Uuid;
 use crate::{
     config::{AppConfig, ZcashNetwork},
     db::{self, CreateOrderInput, OrderRow},
-    domain::order::OrderStatus,
+    domain::order::{OrderStatus, OrderStatusTransition},
     http::auth,
     integrations::provider_dispatcher::ProviderDispatcher,
     integrations::rates::{
@@ -24,7 +28,7 @@ use crate::{
     },
     integrations::remita::RemitaClient,
     integrations::utility_provider::{
-        ProviderError, ProviderErrorKind, ProviderTxnStatus, ValidateRefRequest,
+        ProviderError, ProviderErrorKind, ProviderTxnStatus, UtilityProvider, ValidateRefRequest,
     },
     integrations::vtpass::VtpassClient,
     integrations::zcash::ZcashClient,
@@ -123,13 +127,21 @@ impl HttpState {
             crate::integrations::remita_collections::RemitaCollectionsClient::from_config(config)
                 .ok();
         let inlomax = crate::integrations::inlomax::InlomaxClient::from_config(config).ok();
+        let dtone = match crate::integrations::dtone::DtoneClient::from_config(config) {
+            Ok(client) => {
+                tracing::info!("dtone client initialized successfully");
+                Some(client)
+            }
+            Err(error) => {
+                tracing::warn!(error = %error, "dtone client not configured — multi-country utilities will be unavailable");
+                None
+            }
+        };
         if let Some(vtpass) = vtpass {
-            self.provider_dispatcher = Some(ProviderDispatcher::new(
-                vtpass,
-                remita,
-                remita_collections,
-                inlomax,
-            ));
+            self.provider_dispatcher = Some(
+                ProviderDispatcher::new(vtpass, remita, remita_collections, inlomax, dtone)
+                    .with_metrics(self.observability.metrics()),
+            );
         }
 
         if let (Some(api_key), Some(sender_email), Some(sender_name)) = (
@@ -1242,6 +1254,12 @@ pub async fn webhook_inlomax(
             }
         },
         ProviderTxnStatus::Pending => {}
+        ProviderTxnStatus::Reversed => {
+            tracing::warn!(
+                order_id = %order_id,
+                "provider reported a reversal, only the dtone callback applies reversals"
+            );
+        }
     }
 
     Ok(StatusCode::OK)
@@ -1324,9 +1342,220 @@ pub async fn webhook_vtpass(
             }
         },
         ProviderTxnStatus::Pending => {}
+        ProviderTxnStatus::Reversed => {
+            tracing::warn!(
+                order_id = %order_id,
+                "provider reported a reversal, only the dtone callback applies reversals"
+            );
+        }
     }
 
     Ok(StatusCode::OK)
+}
+
+pub async fn webhook_dtone(
+    State(state): State<HttpState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: axum::http::HeaderMap,
+    body: axum::body::Bytes,
+) -> Result<StatusCode, ApiError> {
+    let Some(dispatcher) = state.provider_dispatcher.as_ref() else {
+        return Ok(StatusCode::SERVICE_UNAVAILABLE);
+    };
+    let Some(dtone) = dispatcher.dtone() else {
+        return Ok(StatusCode::SERVICE_UNAVAILABLE);
+    };
+
+    if !dtone.verify_webhook(&headers, &body) {
+        return Err(ApiError::unauthorized("invalid dtone callback credentials"));
+    }
+
+    if !callback_address_allowed(dtone.as_ref(), peer, &headers) {
+        tracing::warn!("dtone callback rejected from an address outside DTONE_CALLBACK_IPS");
+        return Err(ApiError::unauthorized(
+            "callback address is not allowlisted",
+        ));
+    }
+
+    let hint = dtone
+        .parse_callback(&body)
+        .map_err(|_| ApiError::bad_request("invalid dtone callback body"))?;
+
+    let transaction = match dtone.requery_transaction(&hint.external_id).await {
+        Ok(Some(transaction)) => transaction,
+        Ok(None) => {
+            tracing::warn!(
+                external_id = %hint.external_id,
+                "dtone callback requery found no transaction"
+            );
+            return Ok(StatusCode::OK);
+        }
+        Err(error) => {
+            state
+                .observability
+                .metrics()
+                .record_provider_error(crate::integrations::dtone::PROVIDER_NAME);
+            tracing::warn!(
+                external_id = %hint.external_id,
+                error = %error,
+                "dtone callback requery failed, leaving the order untouched"
+            );
+            return Err(ApiError::service_unavailable("dtone requery failed"));
+        }
+    };
+
+    let Some(class_id) = transaction.class_id else {
+        tracing::warn!(
+            external_id = %hint.external_id,
+            "dtone callback transaction has no status class"
+        );
+        return Ok(StatusCode::OK);
+    };
+
+    if transaction.provider_transaction_id.is_empty() {
+        tracing::warn!(
+            external_id = %hint.external_id,
+            "dtone callback transaction has no provider id"
+        );
+        return Ok(StatusCode::OK);
+    }
+
+    let order = match Uuid::parse_str(&hint.external_id) {
+        Ok(order_id) => db::get_order_by_id(&state.pool, order_id)
+            .await
+            .map_err(internal_err)?,
+        Err(_) => db::find_order_for_webhook(&state.pool, &hint.external_id)
+            .await
+            .map_err(internal_err)?,
+    };
+
+    let Some(order) = order else {
+        tracing::warn!(external_id = %hint.external_id, "dtone callback matches no order");
+        return Ok(StatusCode::OK);
+    };
+
+    let detail = serde_json::json!({
+        "provider": crate::integrations::dtone::PROVIDER_NAME,
+        "provider_transaction_id": transaction.provider_transaction_id,
+        "provider_status_class": class_id,
+    });
+
+    let transition = match transaction.status {
+        ProviderTxnStatus::Delivered => webhook_transition(
+            &order,
+            OrderStatus::Completed,
+            "provider_completed",
+            transaction.token.clone(),
+            detail,
+        ),
+        ProviderTxnStatus::Failed => webhook_transition(
+            &order,
+            OrderStatus::Failed,
+            "provider_failed_webhook",
+            None,
+            detail,
+        ),
+        ProviderTxnStatus::Reversed => webhook_transition(
+            &order,
+            OrderStatus::FlaggedForReview,
+            "provider_reversed",
+            None,
+            detail,
+        ),
+        ProviderTxnStatus::Pending => None,
+    };
+
+    let event_key = format!("{}:{}", transaction.provider_transaction_id, class_id);
+    let mut tx = db::begin_tx(&state.pool).await.map_err(internal_err)?;
+    let outcome = db::record_webhook_and_transition(
+        &mut tx,
+        crate::integrations::dtone::PROVIDER_NAME,
+        &event_key,
+        order.id,
+        transition.as_ref(),
+    )
+    .await
+    .map_err(internal_err)?;
+    tx.commit().await.map_err(internal_err)?;
+
+    tracing::info!(
+        order_id = %order.id,
+        external_id = %hint.external_id,
+        class_id,
+        status = ?transaction.status,
+        outcome = ?outcome,
+        "dtone callback processed"
+    );
+
+    if outcome == db::WebhookTransitionOutcome::Applied {
+        let event = match transaction.status {
+            ProviderTxnStatus::Delivered => Some(WsOrderEvent::Completed {
+                delivery_token: transaction.token.clone(),
+                reference: order.id.to_string(),
+            }),
+            ProviderTxnStatus::Failed => Some(WsOrderEvent::Failed {
+                reason: String::from("provider_failed_webhook"),
+            }),
+            ProviderTxnStatus::Reversed => Some(WsOrderEvent::Flagged {
+                reason: String::from("dtone_reversed"),
+            }),
+            ProviderTxnStatus::Pending => None,
+        };
+
+        if let Some(event) = event {
+            let _ = state.ws_hub.broadcast_event(order.id, &event).await;
+        }
+    }
+
+    Ok(StatusCode::OK)
+}
+
+fn callback_address_allowed(
+    dtone: &crate::integrations::dtone::DtoneClient,
+    peer: SocketAddr,
+    headers: &axum::http::HeaderMap,
+) -> bool {
+    if dtone.is_allowed_callback_ip(peer.ip()) {
+        return true;
+    }
+
+    if !is_trusted_proxy(peer.ip()) {
+        return false;
+    }
+
+    headers
+        .get("x-real-ip")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.trim().parse::<IpAddr>().ok())
+        .map(|address| dtone.is_allowed_callback_ip(address))
+        .unwrap_or(false)
+}
+
+fn is_trusted_proxy(address: IpAddr) -> bool {
+    match address {
+        IpAddr::V4(address) => address.is_loopback() || address.is_private(),
+        IpAddr::V6(address) => address.is_loopback() || address.is_unique_local(),
+    }
+}
+
+fn webhook_transition(
+    order: &OrderRow,
+    to: OrderStatus,
+    event: &str,
+    delivery_token: Option<String>,
+    detail: serde_json::Value,
+) -> Option<db::WebhookTransition> {
+    let from = OrderStatus::from_db(&order.status)?;
+    let transition = OrderStatusTransition::new(from, to).ok()?;
+
+    Some(db::WebhookTransition {
+        from_status: transition.from.as_db().to_owned(),
+        to_status: transition.to.as_db().to_owned(),
+        event: event.to_owned(),
+        delivery_token,
+        provider_reference: None,
+        detail,
+    })
 }
 
 pub async fn webhook_remita(
