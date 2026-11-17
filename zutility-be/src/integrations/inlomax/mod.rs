@@ -2,6 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use axum::http::HeaderMap;
 use chrono::{Datelike, Timelike, Utc};
 use reqwest::{Client, StatusCode};
 use secrecy::{ExposeSecret, SecretString};
@@ -512,7 +513,7 @@ impl UtilityProvider for InlomaxClient {
             return Ok(ValidateRefResponse {
                 is_valid: true,
                 customer_name: None,
-                amount_ngn: None,
+                settlement: None,
                 biller_name: None,
                 product_name: None,
                 reference: None,
@@ -534,7 +535,7 @@ impl UtilityProvider for InlomaxClient {
         Ok(ValidateRefResponse {
             is_valid,
             customer_name,
-            amount_ngn: None,
+            settlement: None,
             biller_name: None,
             product_name: None,
             reference: None,
@@ -546,81 +547,69 @@ impl UtilityProvider for InlomaxClient {
         &self,
         request: &UtilityPurchaseRequest,
     ) -> Result<UtilityPurchaseResponse, ProviderError> {
-        let endpoint = utility_type_to_inlomax_endpoint(
-            request
-                .metadata
-                .get("utility_type")
-                .and_then(Value::as_str)
-                .unwrap_or(""),
-        )
-        .ok_or_else(|| ProviderError::permanent("inlomax does not support this utility type"))?;
+        let context = &request.context;
+        let endpoint =
+            utility_type_to_inlomax_endpoint(&context.utility_type).ok_or_else(|| {
+                ProviderError::permanent("inlomax does not support this utility type")
+            })?;
+
+        let amount = request.settlement.to_ngn_whole().map_err(|error| {
+            ProviderError::permanent(format!("inlomax amount is not whole naira: {error}"))
+        })?;
 
         let request_id = self.request_id_for_order(request.order_id);
 
-        let payload = match request
-            .metadata
-            .get("utility_type")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-        {
+        let payload = match context.utility_type.as_str() {
             "airtime" => {
-                let sid = slug_to_inlomax_service_id(&request.service_id)
-                    .unwrap_or_else(|| request.service_id.clone());
+                let sid = slug_to_inlomax_service_id(&context.service_id)
+                    .unwrap_or_else(|| context.service_id.clone());
                 json!({
                     "serviceID": sid,
-                    "amount": request.amount_ngn,
-                    "mobileNumber": request.billers_code,
+                    "amount": amount,
+                    "mobileNumber": context.billers_code,
                     "request-id": request_id,
                 })
             }
             "data" => {
-                let sid = request
-                    .variation_code
-                    .as_deref()
-                    .map(String::from)
-                    .unwrap_or_else(|| {
-                        slug_to_inlomax_service_id(&request.service_id)
-                            .unwrap_or_else(|| request.service_id.clone())
-                    });
+                let sid = context.variation_code.clone().unwrap_or_else(|| {
+                    slug_to_inlomax_service_id(&context.service_id)
+                        .unwrap_or_else(|| context.service_id.clone())
+                });
                 json!({
                     "serviceID": sid,
-                    "mobileNumber": request.billers_code,
+                    "mobileNumber": context.billers_code,
                     "request-id": request_id,
                 })
             }
             "dstv" | "gotv" | "startimes" => {
-                let sid = request
-                    .variation_code
-                    .as_deref()
-                    .map(String::from)
-                    .unwrap_or_else(|| {
-                        slug_to_inlomax_service_id(&request.service_id)
-                            .unwrap_or_else(|| request.service_id.clone())
-                    });
+                let sid = context.variation_code.clone().unwrap_or_else(|| {
+                    slug_to_inlomax_service_id(&context.service_id)
+                        .unwrap_or_else(|| context.service_id.clone())
+                });
                 json!({
                     "serviceID": sid,
-                    "iucNum": request.billers_code,
+                    "iucNum": context.billers_code,
                     "request-id": request_id,
                 })
             }
             "electricity" => {
-                let sid = slug_to_inlomax_service_id(&request.service_id)
-                    .unwrap_or_else(|| request.service_id.clone());
-                let meter_type = match request.metadata.get("meter_type").and_then(Value::as_str) {
+                let sid = slug_to_inlomax_service_id(&context.service_id)
+                    .unwrap_or_else(|| context.service_id.clone());
+                let meter_type = match context.meter_type.as_deref() {
                     Some("postpaid") => 2,
                     _ => 1,
                 };
                 json!({
                     "serviceID": sid,
-                    "meterNum": request.billers_code,
+                    "meterNum": context.billers_code,
                     "meterType": meter_type,
-                    "amount": request.amount_ngn,
+                    "amount": amount,
                     "request-id": request_id,
                 })
             }
             "waec" | "jamb" => {
-                let sid = slug_to_inlomax_service_id(&request.service_id)
-                    .unwrap_or_else(|| request.service_id.clone());
+                let sid = slug_to_inlomax_service_id(&context.service_id)
+                    .unwrap_or_else(|| context.service_id.clone());
                 json!({
                     "serviceID": sid,
                     "quantity": 1,
@@ -698,16 +687,23 @@ impl UtilityProvider for InlomaxClient {
         })
     }
 
-    fn verify_webhook_signature(&self, payload: &[u8], signature: &str) -> bool {
+    fn verify_webhook(&self, headers: &HeaderMap, body: &[u8]) -> bool {
         use hmac::{Hmac, Mac};
         use sha2::Sha256;
+
+        let Some(signature) = headers
+            .get("x-inlomax-signature")
+            .and_then(|value| value.to_str().ok())
+        else {
+            return false;
+        };
 
         let Ok(mut mac) =
             Hmac::<Sha256>::new_from_slice(self.webhook_secret.expose_secret().as_bytes())
         else {
             return false;
         };
-        mac.update(payload);
+        mac.update(body);
         let expected = hex::encode(mac.finalize().into_bytes());
         expected
             .as_bytes()

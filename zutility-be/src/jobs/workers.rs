@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -8,9 +9,13 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
-    domain::order::{OrderStatus, OrderStatusTransition, PaymentAmountState, ThresholdPolicy},
+    domain::{
+        money::Money,
+        order::{OrderStatus, OrderStatusTransition, PaymentAmountState, ThresholdPolicy},
+    },
     integrations::utility_provider::{
-        ProviderErrorKind, ProviderTxnStatus, UtilityProviderRouter, UtilityPurchaseRequest,
+        ProviderContext, ProviderErrorKind, ProviderTxnStatus, UtilityProviderRouter,
+        UtilityPurchaseRequest,
     },
 };
 
@@ -281,14 +286,34 @@ impl UtilityDispatcher {
             )
             .await?;
 
+        let amount_ngn = Money::from_ngn_whole(order.amount_ngn)
+            .context("dispatch amount is not a valid naira amount")?;
+
         let request = UtilityPurchaseRequest {
             order_id: order.order_id,
             request_id: order.order_id.to_string(),
-            service_id: order.utility_slug.clone(),
-            billers_code: order.service_ref.clone(),
-            variation_code: None,
-            amount_ngn: order.amount_ngn,
-            phone: Some(order.service_ref.clone()),
+            context: ProviderContext {
+                utility_type: order
+                    .metadata
+                    .get("utility_type")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default()
+                    .to_owned(),
+                service_id: order.utility_slug.clone(),
+                billers_code: order.service_ref.clone(),
+                variation_code: None,
+                meter_type: order
+                    .metadata
+                    .get("meter_type")
+                    .and_then(serde_json::Value::as_str)
+                    .map(ToOwned::to_owned),
+                phone: Some(order.service_ref.clone()),
+            },
+            cost_ngn: amount_ngn,
+            settlement: amount_ngn,
+            product_id: String::new(),
+            external_id: order.order_id.to_string(),
+            inputs: BTreeMap::new(),
             metadata: order.metadata.clone(),
             zec_amount: order.zec_amount,
         };

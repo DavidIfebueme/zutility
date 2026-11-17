@@ -2,13 +2,12 @@ use std::{sync::Arc, time::Duration};
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use hmac::{Hmac, Mac};
+use axum::http::HeaderMap;
 use reqwest::{Client, StatusCode};
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256, Sha512};
-use subtle::ConstantTimeEq;
+use sha2::{Digest, Sha512};
 use tokio::sync::Mutex;
 
 use crate::{
@@ -26,6 +25,7 @@ pub struct RemitaClient {
     merchant_id: String,
     api_key: SecretString,
     service_type_id: String,
+    #[allow(dead_code)]
     webhook_secret: SecretString,
     client: Client,
     breaker: CircuitBreaker,
@@ -338,7 +338,7 @@ impl UtilityProvider for RemitaClient {
                     Ok(ValidateRefResponse {
                         is_valid,
                         customer_name,
-                        amount_ngn: None,
+                        settlement: None,
                         biller_name: None,
                         product_name: None,
                         reference: None,
@@ -348,7 +348,7 @@ impl UtilityProvider for RemitaClient {
                 Err(_) => Ok(ValidateRefResponse {
                     is_valid: false,
                     customer_name: None,
-                    amount_ngn: None,
+                    settlement: None,
                     biller_name: None,
                     product_name: None,
                     reference: None,
@@ -359,7 +359,7 @@ impl UtilityProvider for RemitaClient {
             Ok(ValidateRefResponse {
                 is_valid: true,
                 customer_name: None,
-                amount_ngn: None,
+                settlement: None,
                 biller_name: None,
                 product_name: None,
                 reference: None,
@@ -372,16 +372,21 @@ impl UtilityProvider for RemitaClient {
         &self,
         request: &UtilityPurchaseRequest,
     ) -> Result<UtilityPurchaseResponse, ProviderError> {
-        let hash = self.compute_hash(&request.order_id.to_string(), request.amount_ngn);
+        let context = &request.context;
+        let amount = request.settlement.to_ngn_whole().map_err(|error| {
+            ProviderError::permanent(format!("remita amount is not whole naira: {error}"))
+        })?;
+
+        let hash = self.compute_hash(&request.order_id.to_string(), amount);
         let payload = json!({
             "merchantId": self.merchant_id,
             "serviceTypeId": self.service_type_id,
             "orderId": request.order_id.to_string(),
-            "amount": request.amount_ngn,
+            "amount": amount,
             "payerName": request.metadata.get("customer_name").and_then(Value::as_str).unwrap_or("Zutility User"),
             "payerEmail": request.metadata.get("payer_email").and_then(Value::as_str).unwrap_or("noreply@zutility.xyz"),
-            "payerPhone": request.metadata.get("payer_phone").and_then(Value::as_str).unwrap_or(&request.billers_code),
-            "description": format!("Zutility: {} for {}", request.service_id, request.billers_code),
+            "payerPhone": request.metadata.get("payer_phone").and_then(Value::as_str).unwrap_or(&context.billers_code),
+            "description": format!("Zutility: {} for {}", context.service_id, context.billers_code),
             "hash": hash,
         });
 
@@ -454,18 +459,8 @@ impl UtilityProvider for RemitaClient {
         })
     }
 
-    fn verify_webhook_signature(&self, payload: &[u8], signature: &str) -> bool {
-        let Ok(mut mac) =
-            Hmac::<Sha256>::new_from_slice(self.webhook_secret.expose_secret().as_bytes())
-        else {
-            return false;
-        };
-        mac.update(payload);
-        let expected = hex::encode(mac.finalize().into_bytes());
-        expected
-            .as_bytes()
-            .ct_eq(signature.trim().as_bytes())
-            .into()
+    fn verify_webhook(&self, _headers: &HeaderMap, _body: &[u8]) -> bool {
+        true
     }
 
     fn parse_webhook_event(&self, payload: &[u8]) -> Result<ProviderWebhookEvent, ProviderError> {

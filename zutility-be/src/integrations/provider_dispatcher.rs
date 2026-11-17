@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use axum::http::HeaderMap;
+
 use crate::integrations::{
     inlomax::InlomaxClient,
     remita::RemitaClient,
@@ -128,14 +130,9 @@ impl ProviderDispatcher {
         self.provider_for(utility_type)?.requery(request_id).await
     }
 
-    pub fn verify_webhook_signature(
-        &self,
-        utility_type: &str,
-        payload: &[u8],
-        signature: &str,
-    ) -> bool {
+    pub fn verify_webhook(&self, utility_type: &str, headers: &HeaderMap, body: &[u8]) -> bool {
         match self.provider_for(utility_type) {
-            Ok(p) => p.verify_webhook_signature(payload, signature),
+            Ok(p) => p.verify_webhook(headers, body),
             Err(_) => false,
         }
     }

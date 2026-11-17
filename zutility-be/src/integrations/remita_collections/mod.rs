@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use axum::http::HeaderMap;
 use reqwest::Client;
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
@@ -9,6 +10,7 @@ use serde_json::{Value, json};
 
 use crate::{
     config::AppConfig,
+    domain::money::Money,
     integrations::utility_provider::{
         ProviderError, ProviderErrorKind, ProviderKind, ProviderTxnStatus, ProviderWebhookEvent,
         RequeryResponse, UtilityProvider, UtilityPurchaseRequest, UtilityPurchaseResponse,
@@ -284,7 +286,7 @@ impl UtilityProvider for RemitaCollectionsClient {
         Ok(ValidateRefResponse {
             is_valid: details.is_payable(),
             customer_name: details.customer_name.clone(),
-            amount_ngn: Some(details.amount_ngn),
+            settlement: Money::from_ngn_whole(details.amount_ngn).ok(),
             biller_name: Some(details.biller_name.clone()),
             product_name: details.product_name.clone(),
             reference: Some(details.rrr.clone()),
@@ -296,8 +298,13 @@ impl UtilityProvider for RemitaCollectionsClient {
         &self,
         request: &UtilityPurchaseRequest,
     ) -> Result<UtilityPurchaseResponse, ProviderError> {
-        let rrr = request.billers_code.clone();
+        let rrr = request.context.billers_code.clone();
         let payment_identifier = request.order_id.to_string();
+        let amount = request.settlement.to_ngn_whole().map_err(|error| {
+            ProviderError::permanent(format!(
+                "remita collections amount is not whole naira: {error}"
+            ))
+        })?;
 
         let details = self.lookup_rrr(&rrr).await?;
         if !details.is_payable() {
@@ -307,9 +314,7 @@ impl UtilityProvider for RemitaCollectionsClient {
             ));
         }
 
-        let status = self
-            .process_rrr(&rrr, &payment_identifier, request.amount_ngn)
-            .await?;
+        let status = self.process_rrr(&rrr, &payment_identifier, amount).await?;
 
         Ok(UtilityPurchaseResponse {
             provider_reference: rrr.clone(),
@@ -334,8 +339,8 @@ impl UtilityProvider for RemitaCollectionsClient {
         })
     }
 
-    fn verify_webhook_signature(&self, _payload: &[u8], _signature: &str) -> bool {
-        false
+    fn verify_webhook(&self, _headers: &HeaderMap, _body: &[u8]) -> bool {
+        true
     }
 
     fn parse_webhook_event(&self, _payload: &[u8]) -> Result<ProviderWebhookEvent, ProviderError> {

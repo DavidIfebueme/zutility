@@ -328,7 +328,8 @@ async fn resolve_order_amount(
     }
 
     let looked_up = details
-        .amount_ngn
+        .settlement
+        .and_then(|settlement| settlement.to_ngn_whole().ok())
         .ok_or_else(|| ApiError::bad_request("could not read the amount on that RRR"))?;
 
     if looked_up <= 0 {
@@ -891,7 +892,9 @@ pub async fn validate_utility_reference(
                 return Ok(Json(UtilityValidateResponse {
                     valid: response.is_valid,
                     customer_name: response.customer_name,
-                    amount_ngn: response.amount_ngn,
+                    amount_ngn: response
+                        .settlement
+                        .and_then(|settlement| settlement.to_ngn_whole().ok()),
                     biller_name: response.biller_name,
                     product_name: response.product_name,
                     reference: response.reference,
@@ -1165,13 +1168,7 @@ pub async fn webhook_inlomax(
         return Ok(StatusCode::SERVICE_UNAVAILABLE);
     };
 
-    let signature = headers
-        .get("x-inlomax-signature")
-        .or_else(|| headers.get("X-Inlomax-Signature"))
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-
-    if !dispatcher.verify_webhook_signature("airtime", &body, signature) {
+    if !dispatcher.verify_webhook("airtime", &headers, &body) {
         return Err(ApiError::forbidden("invalid webhook signature"));
     }
 
@@ -1259,13 +1256,7 @@ pub async fn webhook_vtpass(
         return Ok(StatusCode::SERVICE_UNAVAILABLE);
     };
 
-    let signature = headers
-        .get("x-vtpass-signature")
-        .or_else(|| headers.get("X-Vtpass-Signature"))
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-
-    if !dispatcher.verify_webhook_signature("vtpass", &body, signature) {
+    if !dispatcher.verify_webhook("vtpass", &headers, &body) {
         return Err(ApiError::forbidden("invalid webhook signature"));
     }
 
