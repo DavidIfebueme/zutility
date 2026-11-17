@@ -3,6 +3,7 @@ import type {
   CatalogueCountry,
   CatalogueProduct,
   CatalogueResponse,
+  CatalogueVariationItem,
 } from '@/lib/types'
 
 export const CATEGORY_ORDER = [
@@ -139,6 +140,35 @@ export function billerBySlug(
   slug: string
 ): CatalogueBiller | null {
   return billerFromProduct(findProductBySlug(catalogue, slug))
+}
+
+export interface LiveVariationRow {
+  variation_code: string
+  name: string
+  amount: number | null
+}
+
+export function needsLiveVariations(product: CatalogueProduct | null): boolean {
+  return Boolean(product && product.amount_kind === 'variation' && product.variations.length === 0)
+}
+
+export function variationsFromLive(rows: unknown): CatalogueVariationItem[] {
+  if (!Array.isArray(rows)) return []
+  const seen = new Set<string>()
+  const items: CatalogueVariationItem[] = []
+  for (const row of rows as LiveVariationRow[]) {
+    const code = typeof row?.variation_code === 'string' ? row.variation_code.trim() : ''
+    if (!code || seen.has(code)) continue
+    const amount = Number(row?.amount)
+    if (!Number.isFinite(amount) || amount <= 0) continue
+    seen.add(code)
+    items.push({
+      variation_code: code,
+      name: typeof row?.name === 'string' && row.name.trim() ? row.name.trim() : code,
+      amount: String(amount),
+    })
+  }
+  return items
 }
 
 export interface AmountSelection {

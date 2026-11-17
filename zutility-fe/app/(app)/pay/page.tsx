@@ -36,6 +36,7 @@ import {
 import type {
   CatalogueProduct,
   CatalogueResponse,
+  CatalogueVariationItem,
 } from "@/lib/types"
 import { formatAmount, isCurrencyCode } from "@/lib/currency"
 import {
@@ -46,8 +47,10 @@ import {
   fieldLabel,
   findProduct,
   isPhoneField,
+  needsLiveVariations,
   requiredFieldNames,
   resolveAmount,
+  variationsFromLive,
 } from "@/lib/catalogue"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
@@ -106,6 +109,9 @@ export default function PayPage() {
 
   const [catalogue, setCatalogue] = React.useState<CatalogueResponse | null>(null)
   const [catalogueError, setCatalogueError] = React.useState(false)
+  const [liveVariations, setLiveVariations] = React.useState<
+    Record<string, CatalogueVariationItem[]>
+  >({})
   const [countryIso, setCountryIso] = React.useState<string | null>(null)
   const [activeCategory, setActiveCategory] = React.useState<string | null>(null)
   const [selectedProductId, setSelectedProductId] = React.useState<string | null>(null)
@@ -132,7 +138,12 @@ export default function PayPage() {
   }, [country, isGift])
   const activeCategoryEntry = categories.find((item) => item.category === activeCategory) ?? null
   const selected = findProduct(country, selectedProductId)
-  const product = selected?.product ?? null
+  const catalogueProduct = selected?.product ?? null
+  const liveSlug =
+    catalogueProduct && needsLiveVariations(catalogueProduct) ? catalogueProduct.slug : null
+  const liveRows = liveSlug ? liveVariations[liveSlug] : undefined
+  const product =
+    catalogueProduct && liveRows ? { ...catalogueProduct, variations: liveRows } : catalogueProduct
   const productCategory = selected?.category ?? null
   const isSchoolFees = productCategory === "school"
   const requiredNames = product ? requiredFieldNames(product) : []
@@ -166,6 +177,29 @@ export default function PayPage() {
       cancelled = true
     }
   }, [])
+
+  React.useEffect(() => {
+    if (!liveSlug) return
+    if (liveVariations[liveSlug] !== undefined) return
+    let cancelled = false
+    apiGet<unknown>(`/api/v1/utilities/${encodeURIComponent(liveSlug)}/variations`)
+      .then((rows) => {
+        if (cancelled) return
+        const items = variationsFromLive(rows)
+        setLiveVariations((current) =>
+          current[liveSlug] === undefined ? { ...current, [liveSlug]: items } : current
+        )
+      })
+      .catch(() => {
+        if (cancelled) return
+        setLiveVariations((current) =>
+          current[liveSlug] === undefined ? { ...current, [liveSlug]: [] } : current
+        )
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [liveSlug, liveVariations])
 
   const resetProductState = React.useCallback(() => {
     setSelectedProductId(null)
