@@ -7,20 +7,17 @@ import { SampleReceiptStack } from "@/components/marketing/sample-receipt-stack"
 import { Button } from "@/components/ui/button"
 import { RateTicker } from "@/components/ui/rate-ticker"
 import { Reveal } from "@/components/ui/reveal"
-import { UTILITIES } from "@/lib/constants"
 import {
   CURRENCY_COOKIE,
   DEFAULT_CURRENCY,
-  convertFromNGN,
   currencyFromCountry,
-  fxRatesFromRate,
   isCurrencyCode,
   type CurrencyCode,
-  type FxRates,
 } from "@/lib/currency"
+import { CATEGORY_LABELS, CATEGORY_ORDER } from "@/lib/catalogue"
 import { formatDisplay, type DisplayText } from "@/lib/money"
 import { SAMPLE_ORDERS } from "@/lib/sample-orders"
-import type { RateResponse } from "@/lib/types"
+import type { CatalogueProduct, CatalogueResponse, RateResponse } from "@/lib/types"
 
 const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "http://127.0.0.1:3001"
 
@@ -37,25 +34,49 @@ async function resolveGuestCurrency(): Promise<CurrencyCode | null> {
   return value && isCurrencyCode(value) ? value : null
 }
 
-async function fetchRates(): Promise<FxRates | null> {
+async function fetchRates(): Promise<RateResponse | null> {
   try {
     const response = await fetch(`${apiBase}/api/v1/rates/current`, { next: { revalidate: 60 } })
     if (!response.ok) return null
-    const body = (await response.json()) as RateResponse
-    return fxRatesFromRate(body)
+    return (await response.json()) as RateResponse
   } catch {
     return null
   }
 }
 
-function sampleAmounts(currency: CurrencyCode, rates: FxRates | null): Record<string, DisplayText> {
+async function fetchCatalogue(): Promise<CatalogueResponse | null> {
+  try {
+    const response = await fetch(`${apiBase}/api/v1/catalogue`, { next: { revalidate: 300 } })
+    if (!response.ok) return null
+    return (await response.json()) as CatalogueResponse
+  } catch {
+    return null
+  }
+}
+
+function sampleValue(
+  amountNgn: number,
+  currency: CurrencyCode,
+  rate: RateResponse | null
+): number {
+  if (currency === "NGN") return amountNgn
+  if (!rate) return 0
+  const usdNgn = parseFloat(rate.usd_ngn) || 0
+  if (usdNgn <= 0) return 0
+  if (currency === "USD") return amountNgn / usdNgn
+  const quote = (rate.fx ?? []).find((entry) => entry.quote === currency)
+  const perUsd = quote ? parseFloat(quote.per_usd) || 0 : 0
+  if (perUsd <= 0) return 0
+  return (amountNgn / usdNgn) * perUsd
+}
+
+function sampleAmounts(
+  currency: CurrencyCode,
+  rate: RateResponse | null
+): Record<string, DisplayText> {
   return Object.fromEntries(
     SAMPLE_ORDERS.map((sample) => {
-      const converted = currency === "NGN"
-        ? sample.amountNgn
-        : rates
-          ? convertFromNGN(sample.amountNgn, currency, rates)
-          : 0
+      const converted = sampleValue(sample.amountNgn, currency, rate)
       const available = currency === "NGN" || converted > 0
       return [
         sample.id,
@@ -113,38 +134,50 @@ const FAQ = [
     q: "Can I pay from a shielded address?",
     a: "Yes. The order accepts shielded or transparent ZEC. A shielded payment needs one more confirmation than a transparent one.",
   },
-  {
-    q: "Which utilities are covered?",
-    a: "Airtime and data on MTN, Airtel, Glo, and 9mobile. DSTV, GOtv, Startimes, and Showmax. Prepaid electricity across twelve distribution companies. WAEC, JAMB, and school fees.",
-  },
 ]
 
-const FEATURED_NAMES = [
-  "MTN",
-  "Airtel",
-  "Glo",
-  "9mobile",
-  "DSTV",
-  "GOtv",
-  "Startimes",
-  "Showmax",
-  "Ikeja Electric",
-  "Eko Electric",
-  "Abuja Electric",
-  "WAEC",
-  "JAMB",
-]
+function coverageAnswer(
+  catalogue: CatalogueResponse | null,
+  counts: Record<string, number>
+): string {
+  if (!catalogue || catalogue.countries.length === 0) {
+    return "The catalogue is loading. Check the pay page for the services enabled today."
+  }
+  const countries = catalogue.countries.map((country) => country.name).join(", ")
+  const categories = CATEGORY_ORDER.filter((category) => (counts[category] ?? 0) > 0)
+    .map((category) => CATEGORY_LABELS[category])
+    .join(", ")
+  return `Prepaid bills in ${countries}: ${categories}.`
+}
 
 export default async function HomePage() {
   const guestCurrency = await resolveGuestCurrency()
   const currency = guestCurrency ?? DEFAULT_CURRENCY
-  const rates = currency === "NGN" ? null : await fetchRates()
+  const [catalogue, rates] = await Promise.all([
+    fetchCatalogue(),
+    currency === "NGN" ? Promise.resolve(null) : fetchRates(),
+  ])
   const amounts = sampleAmounts(currency, rates)
 
-  const counts = UTILITIES.reduce<Record<string, number>>((acc, utility) => {
-    acc[utility.type] = (acc[utility.type] ?? 0) + 1
-    return acc
-  }, {})
+  const products: CatalogueProduct[] = (catalogue?.countries ?? []).flatMap((country) =>
+    country.categories.flatMap((category) => category.products)
+  )
+  const counts: Record<string, number> = {}
+  for (const country of catalogue?.countries ?? []) {
+    for (const category of country.categories) {
+      counts[category.category] = (counts[category.category] ?? 0) + category.products.length
+    }
+  }
+  const featuredNames = [
+    ...new Set(products.map((item) => item.operator_name ?? item.name)),
+  ].slice(0, 13)
+  const faq = [
+    ...FAQ,
+    { q: "Which utilities are covered?", a: coverageAnswer(catalogue, counts) },
+  ]
+  const coverage = CATEGORY_ORDER.filter((category) => (counts[category] ?? 0) > 0).map(
+    (category) => ({ label: CATEGORY_LABELS[category], count: counts[category] ?? 0 })
+  )
 
   return (
     <div className="min-h-screen bg-paper">
@@ -200,7 +233,7 @@ export default async function HomePage() {
           <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-3 px-5 py-7">
             <p className="label-xs text-muted">Pay for</p>
             <ul className="flex flex-wrap items-center gap-x-5 gap-y-2">
-              {FEATURED_NAMES.map((name) => (
+              {featuredNames.map((name) => (
                 <li key={name} className="text-[13px] text-ink-2">
                   {name}
                 </li>
@@ -269,9 +302,9 @@ export default async function HomePage() {
 
               <ul className="mt-8 space-y-2.5">
                 {[
-                  "Prepaid tokens from twelve distribution companies",
-                  "Airtime and data on the four major networks",
-                  "TV renewals and exam PINs",
+                  `${counts.electricity ?? 0} prepaid electricity products`,
+                  `${counts.airtime ?? 0} airtime and ${counts.data ?? 0} data products`,
+                  `${counts.television ?? 0} TV renewals and ${counts.education ?? 0} exam PIN products`,
                   "Payment accepted from shielded or transparent addresses",
                 ].map((line) => (
                   <li key={line} className="flex items-start gap-2 text-[14px] text-ink-2">
@@ -286,25 +319,20 @@ export default async function HomePage() {
               <div className="border-b border-line px-5 py-4">
                 <p className="label-xs text-muted">Live coverage</p>
                 <p className="mt-1 text-[13px] text-ink-2">
-                  {UTILITIES.length} services enabled on this deployment.
+                  {catalogue
+                    ? `${products.length} services enabled on this deployment.`
+                    : "The live catalogue is unavailable right now."}
                 </p>
               </div>
               <dl>
-                {[
-                  { label: "Airtime", type: "airtime" },
-                  { label: "Data", type: "data" },
-                  { label: "TV", type: "tv" },
-                  { label: "Electricity", type: "electricity" },
-                  { label: "Education", type: "education" },
-                  { label: "School fees", type: "school" },
-                ].map((row) => (
+                {coverage.map((row) => (
                   <div
-                    key={row.type}
+                    key={row.label}
                     className="flex items-center justify-between border-b border-line px-5 py-3 last:border-b-0 transition-colors hover:bg-paper-2/60"
                   >
                     <dt className="text-[14px] text-ink">{row.label}</dt>
                     <dd className="num text-[13px] text-muted">
-                      {String(counts[row.type] ?? 0).padStart(2, "0")}
+                      {String(row.count).padStart(2, "0")}
                     </dd>
                   </div>
                 ))}
@@ -352,7 +380,7 @@ export default async function HomePage() {
           <div className="mx-auto max-w-3xl px-5 py-16 lg:py-20">
             <p className="label-xs text-muted">Frequently asked questions</p>
             <Reveal className="mt-5 border-t border-line">
-              {FAQ.map((item) => (
+              {faq.map((item) => (
                 <details key={item.q} className="group border-b border-line py-4">
                   <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-[15px] text-ink transition-colors duration-150 hover:text-gold-deep">
                     {item.q}

@@ -301,13 +301,17 @@ async fn catalogue_is_public_with_or_without_a_session() {
 }
 
 #[tokio::test]
-async fn legacy_utilities_endpoint_still_lists_twenty_eight_items() {
+async fn legacy_utilities_endpoint_is_gone() {
     let Some(pool) = support::pool().await else {
         return;
     };
     let app = http::router_with_pool(Some(pool));
 
-    let (status, body) = get_json(&app, "/api/v1/utilities").await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(body.as_array().map(Vec::len), Some(28));
+    let request = Request::builder()
+        .method("GET")
+        .uri("/api/v1/utilities")
+        .body(Body::empty())
+        .expect("build request");
+    let response = app.oneshot(request).await.expect("response");
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }

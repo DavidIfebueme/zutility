@@ -18,6 +18,7 @@ const STATUS: Record<string, StatusMeta> = {
   cancelled: { key: "cancelled", label: "Cancelled", tone: "neutral" },
   failed: { key: "failed", label: "Failed", tone: "error" },
   flagged_for_review: { key: "flagged_for_review", label: "In review", tone: "warning" },
+  reversed: { key: "reversed", label: "Reversed", tone: "error" },
 }
 
 export function normalizeStatus(raw: string): string {
@@ -27,6 +28,18 @@ export function normalizeStatus(raw: string): string {
 export function getStatusMeta(raw: string): StatusMeta {
   const key = normalizeStatus(raw)
   return STATUS[key] ?? { key, label: raw, tone: "neutral" }
+}
+
+const CLOSED_STATUSES = new Set([
+  "completed",
+  "expired",
+  "failed",
+  "cancelled",
+  "reversed",
+])
+
+export function isClosed(raw: string): boolean {
+  return CLOSED_STATUSES.has(normalizeStatus(raw))
 }
 
 export const STATUS_TONE_CLASS: Record<StatusTone, string> = {
