@@ -42,6 +42,7 @@ pub enum WsOrderEvent {
         reason: String,
     },
     Cancelled,
+    Reversed,
 }
 
 #[derive(Clone)]

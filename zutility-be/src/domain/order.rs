@@ -16,6 +16,7 @@ pub enum OrderStatus {
     Failed,
     FlaggedForReview,
     Cancelled,
+    Reversed,
 }
 
 impl OrderStatus {
@@ -31,6 +32,7 @@ impl OrderStatus {
             "failed" => Some(Self::Failed),
             "flagged_for_review" => Some(Self::FlaggedForReview),
             "cancelled" => Some(Self::Cancelled),
+            "reversed" => Some(Self::Reversed),
             _ => None,
         }
     }
@@ -47,6 +49,7 @@ impl OrderStatus {
             Self::Failed => "failed",
             Self::FlaggedForReview => "flagged_for_review",
             Self::Cancelled => "cancelled",
+            Self::Reversed => "reversed",
         }
     }
 
@@ -67,7 +70,11 @@ impl OrderStatus {
                 | (Self::UtilityDispatching, Self::Failed)
                 | (Self::UtilityDispatching, Self::FlaggedForReview)
                 | (Self::Completed, Self::FlaggedForReview)
+                | (Self::Completed, Self::Reversed)
                 | (Self::FlaggedForReview, Self::Completed)
+                | (Self::FlaggedForReview, Self::Failed)
+                | (Self::Failed, Self::Completed)
+                | (Self::Failed, Self::Reversed)
         )
     }
 }

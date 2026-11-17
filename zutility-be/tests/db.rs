@@ -24,10 +24,14 @@ fn order_status_transitions_guard_rules_are_enforced() {
     assert!(OrderStatus::PaymentConfirmed.can_transition_to(OrderStatus::UtilityDispatching));
     assert!(OrderStatus::UtilityDispatching.can_transition_to(OrderStatus::Completed));
     assert!(OrderStatus::UtilityDispatching.can_transition_to(OrderStatus::Failed));
+    assert!(OrderStatus::Completed.can_transition_to(OrderStatus::Reversed));
+    assert!(OrderStatus::Failed.can_transition_to(OrderStatus::Reversed));
+    assert!(OrderStatus::Failed.can_transition_to(OrderStatus::Completed));
+    assert!(OrderStatus::FlaggedForReview.can_transition_to(OrderStatus::Failed));
 
     assert!(!OrderStatus::Completed.can_transition_to(OrderStatus::AwaitingPayment));
-    assert!(!OrderStatus::Failed.can_transition_to(OrderStatus::Completed));
     assert!(!OrderStatus::Expired.can_transition_to(OrderStatus::PaymentDetected));
+    assert!(!OrderStatus::Reversed.can_transition_to(OrderStatus::Completed));
 }
 
 #[test]

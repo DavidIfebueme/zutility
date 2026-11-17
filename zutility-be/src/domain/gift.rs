@@ -108,6 +108,7 @@ pub fn is_giftable_utility(utility_type: &str) -> bool {
             | "gotv"
             | "startimes"
             | "showmax"
+            | "television"
             | "electricity"
             | "waec"
             | "jamb"

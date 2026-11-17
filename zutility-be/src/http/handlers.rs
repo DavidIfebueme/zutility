@@ -22,6 +22,8 @@ use crate::{
     db::{self, CreateOrderInput, OrderRow},
     domain::money::{CurrencyCode, Money},
     domain::order::{OrderStatus, OrderStatusTransition},
+    domain::pricing,
+    domain::service_ref,
     http::auth,
     integrations::provider_dispatcher::ProviderDispatcher,
     integrations::rates::{
@@ -39,7 +41,6 @@ use crate::{
 
 use super::{
     error::ApiError,
-    service_ref,
     types::{
         CancelOrderResponse, CreateOrderRequest, CreateOrderResponse, CurrencyQuery, DisplayMoney,
         FxQuoteResponse, OrderAccessTokenResponse, OrderStatusResponse, OrderTokenQuery,
@@ -47,6 +48,8 @@ use super::{
         UtilityVariationItem,
     },
 };
+
+pub(crate) const DEFAULT_COUNTRY_ISO2: &str = "NG";
 
 #[derive(Clone)]
 pub struct HttpState {
@@ -63,6 +66,7 @@ pub struct HttpState {
     pub zcash_expected_chain: String,
     pub required_confs_transparent: u16,
     pub required_confs_shielded: u16,
+    pub catalogue_max_age_minutes: u32,
     pub provider_dispatcher: Option<ProviderDispatcher>,
     pub jwt_secret: secrecy::SecretString,
     pub access_token_ttl_minutes: i64,
@@ -100,6 +104,7 @@ impl HttpState {
             zcash_expected_chain: String::from("test"),
             required_confs_transparent: 2,
             required_confs_shielded: 2,
+            catalogue_max_age_minutes: 1440,
             provider_dispatcher: None,
             jwt_secret,
             access_token_ttl_minutes,
@@ -122,6 +127,7 @@ impl HttpState {
         self.zcash_expected_chain = config.zcash_network.expected_chain().to_owned();
         self.required_confs_transparent = config.required_confs_transparent;
         self.required_confs_shielded = config.required_confs_shielded;
+        self.catalogue_max_age_minutes = config.catalogue_max_age_minutes;
 
         let vtpass = VtpassClient::from_config(config).ok();
         let remita = RemitaClient::from_config(config).ok();
@@ -208,13 +214,19 @@ pub async fn create_order(
     {
         return Err(ApiError::unauthorized("account is no longer active"));
     }
-    payload.service_ref = service_ref::normalize(
-        &slug_to_utility_type(&payload.utility_slug),
-        &payload.service_ref,
-    )?;
-    enforce_service_ref_velocity(&state, &payload).await?;
 
-    let amount_ngn = resolve_order_amount(&state, &payload).await?;
+    let resolved = resolve_product(&state, &payload).await?;
+    payload.utility_type = resolved.product.utility_type.clone();
+    payload.utility_slug = resolved.product.slug.clone();
+
+    payload.service_ref = service_ref::normalize(
+        &resolved.product.country_iso2,
+        &resolved.product.utility_type,
+        &payload.service_ref,
+    )
+    .map_err(|error| ApiError::bad_request(error.to_string()))?;
+
+    enforce_service_ref_velocity(&state, &payload).await?;
 
     if payload.utility_type == "school_fees"
         && db::active_school_fee_order_exists(&state.pool, payload.service_ref.trim())
@@ -225,6 +237,25 @@ pub async fn create_order(
             "an open order already exists for this RRR",
         ));
     }
+
+    let terms = resolved.product.terms();
+    let settlement = if payload.utility_type == "school_fees" {
+        resolve_school_fee_settlement(&state, &payload).await?
+    } else {
+        let settlement = request_settlement(&payload)?;
+        pricing::validate_settlement(
+            &terms,
+            settlement,
+            resolved
+                .variation
+                .as_ref()
+                .map(|variation| variation.amount),
+        )
+        .map_err(pricing_error)?;
+        settlement
+    };
+
+    let priced = pricing::price(&terms, settlement).map_err(pricing_error)?;
 
     state.observability.metrics().increment_order_creations();
     let order_access_token = generate_token(48);
@@ -249,7 +280,7 @@ pub async fn create_order(
             "the exchange rate is stale, please try again in a moment",
         ));
     }
-    let zec_amount = Decimal::new(amount_ngn, 0) / rate.zec_ngn;
+    let zec_amount = Decimal::new(priced.amount_ngn, 0) / rate.zec_ngn;
     let expires_at = Utc::now() + Duration::minutes(state.order_expiry_minutes);
 
     let rate_snapshot_id = get_or_create_rate_snapshot(&state.pool, &rate)
@@ -261,7 +292,13 @@ pub async fn create_order(
         utility_type: payload.utility_type.clone(),
         utility_slug: payload.utility_slug.clone(),
         service_ref: payload.service_ref.trim().to_owned(),
-        amount_ngn,
+        amount_ngn: priced.amount_ngn,
+        country_iso2: resolved.product.country_iso2.clone(),
+        product_id: Some(resolved.product.id),
+        settlement,
+        cost_amount: priced.cost_amount,
+        inputs: payload.inputs.clone(),
+        fulfilment_kind: Some(resolved.product.fulfilment_kind.clone()),
         address_type: payload.zec_address_type.clone(),
         zec_amount,
         zec_rate_id: rate_snapshot_id,
@@ -272,6 +309,8 @@ pub async fn create_order(
             "utility_slug": payload.utility_slug,
             "variation_code": payload.variation_code,
             "meter_type": payload.meter_type,
+            "country_iso2": resolved.product.country_iso2,
+            "product_id": resolved.product.id,
         }),
         variation_code: payload.variation_code.clone(),
     };
@@ -306,14 +345,96 @@ pub async fn create_order(
     }))
 }
 
-async fn resolve_order_amount(
+pub(crate) struct ResolvedProduct {
+    pub product: db::ProductRow,
+    pub variation: Option<db::ProductVariationRow>,
+}
+
+pub(crate) async fn resolve_product(
     state: &HttpState,
     payload: &CreateOrderRequest,
-) -> Result<i64, ApiError> {
-    if payload.utility_type != "school_fees" {
-        return Ok(payload.amount_ngn);
+) -> Result<ResolvedProduct, ApiError> {
+    let product = match payload.product_id {
+        Some(product_id) => db::find_product_by_id(&state.pool, product_id)
+            .await
+            .map_err(internal_err)?,
+        None => {
+            let country = payload
+                .country_iso2
+                .as_deref()
+                .unwrap_or(DEFAULT_COUNTRY_ISO2);
+            db::find_product_by_country_slug(&state.pool, country, payload.utility_slug.trim())
+                .await
+                .map_err(internal_err)?
+        }
+    };
+
+    let Some(product) = product else {
+        return Err(ApiError::bad_request("product_unavailable"));
+    };
+
+    if !product.enabled || !product.country_enabled {
+        return Err(ApiError::bad_request("product_unavailable"));
     }
 
+    if product.provider == crate::integrations::dtone::PROVIDER_NAME
+        && product.country_iso2 != DEFAULT_COUNTRY_ISO2
+    {
+        let max_age = i64::from(state.catalogue_max_age_minutes);
+        if Utc::now() - product.synced_at > Duration::minutes(max_age) {
+            return Err(ApiError::service_unavailable(
+                "the product price list is stale, try again shortly",
+            ));
+        }
+    }
+
+    let variation = match payload.variation_code.as_deref() {
+        Some(code) => {
+            let variation = db::find_product_variation(&state.pool, product.id, code)
+                .await
+                .map_err(internal_err)?;
+            match variation {
+                Some(variation) if variation.enabled => Some(variation),
+                _ => {
+                    return Err(ApiError::bad_request("that variation is not available"));
+                }
+            }
+        }
+        None => None,
+    };
+
+    Ok(ResolvedProduct { product, variation })
+}
+
+fn request_settlement(payload: &CreateOrderRequest) -> Result<Money, ApiError> {
+    if let Some(settlement) = &payload.settlement {
+        let currency = CurrencyCode::from_iso(&settlement.currency)
+            .ok_or_else(|| ApiError::bad_request("unsupported settlement currency"))?;
+        return Money::from_major(currency, &settlement.amount)
+            .map_err(|error| ApiError::bad_request(error.to_string()));
+    }
+
+    let amount_ngn = payload
+        .amount_ngn
+        .ok_or_else(|| ApiError::bad_request("amount_ngn or settlement is required"))?;
+
+    Money::from_ngn_whole(amount_ngn).map_err(|error| ApiError::bad_request(error.to_string()))
+}
+
+fn pricing_error(error: pricing::PricingError) -> ApiError {
+    match error {
+        pricing::PricingError::ProductUnavailable => ApiError::bad_request("product_unavailable"),
+        pricing::PricingError::CatalogueStale => {
+            ApiError::service_unavailable("the product price list is stale, try again shortly")
+        }
+        other => ApiError::bad_request(other.to_string()),
+    }
+}
+
+async fn resolve_school_fee_settlement(
+    state: &HttpState,
+    payload: &CreateOrderRequest,
+) -> Result<Money, ApiError> {
     let reference = payload.service_ref.trim();
     if !is_rrr(reference) {
         return Err(ApiError::bad_request(
@@ -350,22 +471,24 @@ async fn resolve_order_amount(
         return Err(ApiError::bad_request("that RRR has no amount"));
     }
 
-    if looked_up > MAX_ORDER_AMOUNT_NGN {
+    if looked_up > pricing::MAX_ORDER_AMOUNT_NGN {
         return Err(ApiError::bad_request(format!(
-            "school fees above {MAX_ORDER_AMOUNT_NGN} naira are not supported"
+            "school fees above {} naira are not supported",
+            pricing::MAX_ORDER_AMOUNT_NGN
         )));
     }
 
-    if payload.amount_ngn != looked_up {
+    if let Some(client_amount) = payload.amount_ngn
+        && client_amount != looked_up
+    {
         tracing::info!(
-            client_amount = payload.amount_ngn,
+            client_amount,
             looked_up_amount = looked_up,
-            rrr = reference,
             "school fees amount taken from the RRR lookup"
         );
     }
 
-    Ok(looked_up)
+    Money::from_ngn_whole(looked_up).map_err(internal_err)
 }
 
 fn velocity_key(utility_type: &str, utility_slug: &str, service_ref: &str) -> String {
@@ -491,6 +614,8 @@ pub async fn get_order(
         expires_at: order.expires_at,
         completed_at: order.completed_at,
         delivery_token: order.delivery_token,
+        failure_code: order.failure_code,
+        failure_message: order.failure_message,
         display,
     }))
 }
@@ -923,7 +1048,14 @@ pub async fn validate_utility_reference(
     }
 
     let utility_type = slug_to_utility_type(&slug);
-    let reference = service_ref::normalize(&utility_type, &query.reference)?;
+    let country = db::find_product_by_country_slug(&state.pool, DEFAULT_COUNTRY_ISO2, &slug)
+        .await
+        .ok()
+        .flatten()
+        .map(|product| product.country_iso2)
+        .unwrap_or_else(|| String::from(DEFAULT_COUNTRY_ISO2));
+    let reference = service_ref::normalize(&country, &utility_type, &query.reference)
+        .map_err(|error| ApiError::bad_request(error.to_string()))?;
 
     if utility_type == "school_fees" && !is_rrr(&reference) {
         return Err(ApiError::bad_request(
@@ -1020,7 +1152,6 @@ pub async fn list_utility_variations(
     Ok(Json(Vec::new()))
 }
 
-const MAX_ORDER_AMOUNT_NGN: i64 = 5_000_000;
 const MAX_REMITA_NOTIFICATIONS: usize = 10;
 
 fn validate_create_order_payload(payload: &CreateOrderRequest) -> Result<(), ApiError> {
@@ -1039,6 +1170,10 @@ fn validate_create_order_payload(payload: &CreateOrderRequest) -> Result<(), Api
             | "school_fees"
             | "waec"
             | "jamb"
+            | "television"
+            | "internet"
+            | "landline"
+            | "voip"
     ) {
         return Err(ApiError::bad_request("unsupported utility_type"));
     }
@@ -1048,13 +1183,15 @@ fn validate_create_order_payload(payload: &CreateOrderRequest) -> Result<(), Api
     if payload.service_ref.trim().is_empty() {
         return Err(ApiError::bad_request("service_ref is required"));
     }
-    if payload.amount_ngn <= 0 {
-        return Err(ApiError::bad_request("amount_ngn must be greater than 0"));
+    if payload.amount_ngn.is_some() && payload.settlement.is_some() {
+        return Err(ApiError::bad_request(
+            "send either amount_ngn or settlement, not both",
+        ));
     }
-    if payload.amount_ngn > MAX_ORDER_AMOUNT_NGN {
-        return Err(ApiError::bad_request(format!(
-            "amount_ngn cannot exceed {MAX_ORDER_AMOUNT_NGN}"
-        )));
+    if let Some(amount_ngn) = payload.amount_ngn
+        && amount_ngn <= 0
+    {
+        return Err(ApiError::bad_request("amount_ngn must be greater than 0"));
     }
     if payload.zec_address_type != "shielded" {
         return Err(ApiError::bad_request(
@@ -1066,6 +1203,13 @@ fn validate_create_order_payload(payload: &CreateOrderRequest) -> Result<(), Api
     {
         return Err(ApiError::bad_request(
             "meter_type must be prepaid or postpaid",
+        ));
+    }
+    if let Some(country) = payload.country_iso2.as_deref()
+        && (country.len() != 2 || !country.chars().all(|c| c.is_ascii_alphabetic()))
+    {
+        return Err(ApiError::bad_request(
+            "country_iso2 must be a two letter code",
         ));
     }
     Ok(())
@@ -1181,6 +1325,7 @@ fn map_status_to_event(order: &OrderRow) -> Option<WsOrderEvent> {
             reason: String::from("flagged_for_review"),
         }),
         OrderStatus::Cancelled => Some(WsOrderEvent::Cancelled),
+        OrderStatus::Reversed => Some(WsOrderEvent::Reversed),
     }
 }
 
@@ -1506,14 +1651,7 @@ pub async fn webhook_dtone(
             None,
             detail,
         ),
-        ProviderTxnStatus::Reversed => webhook_transition(
-            &order,
-            OrderStatus::FlaggedForReview,
-            "provider_reversed",
-            None,
-            detail,
-        ),
-        ProviderTxnStatus::Pending => None,
+        ProviderTxnStatus::Reversed | ProviderTxnStatus::Pending => None,
     };
 
     let event_key = format!("{}:{}", transaction.provider_transaction_id, class_id);
@@ -1538,7 +1676,66 @@ pub async fn webhook_dtone(
         "dtone callback processed"
     );
 
-    if outcome == db::WebhookTransitionOutcome::Applied {
+    let mut reversed = false;
+    if transaction.status == ProviderTxnStatus::Failed
+        && outcome == db::WebhookTransitionOutcome::Applied
+    {
+        let message = transaction
+            .raw
+            .pointer("/status/message")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("the provider declined the transaction");
+        db::record_failure(&state.pool, order.id, &class_id.to_string(), message)
+            .await
+            .map_err(internal_err)?;
+    }
+
+    if transaction.status == ProviderTxnStatus::Reversed
+        && outcome != db::WebhookTransitionOutcome::Replayed
+    {
+        reversed = db::mark_order_reversed(&state.pool, order.id, &class_id.to_string(), None)
+            .await
+            .map_err(internal_err)?;
+
+        if !reversed {
+            reversed = db::update_order_status_cas(
+                &state.pool,
+                order.id,
+                &order.status,
+                OrderStatus::FlaggedForReview.as_db(),
+                "provider_reversed",
+                serde_json::json!({
+                    "provider": crate::integrations::dtone::PROVIDER_NAME,
+                    "provider_transaction_id": transaction.provider_transaction_id,
+                    "provider_status_class": class_id,
+                }),
+            )
+            .await
+            .map_err(internal_err)?;
+        }
+
+        if reversed && let Some(user_id) = order.user_id {
+            let _ = db::create_notification(
+                &state.pool,
+                user_id,
+                Some(order.id),
+                "order_reversed",
+                "Order Reversed",
+                &format!(
+                    "Your {} payment was reversed by the provider. Support will refund it to {}.",
+                    order.utility_slug, order.deposit_address
+                ),
+                serde_json::json!({
+                    "utility_slug": order.utility_slug,
+                    "refund_address": order.deposit_address,
+                    "provider_transaction_id": transaction.provider_transaction_id,
+                }),
+            )
+            .await;
+        }
+    }
+
+    if outcome == db::WebhookTransitionOutcome::Applied || reversed {
         let event = match transaction.status {
             ProviderTxnStatus::Delivered => Some(WsOrderEvent::Completed {
                 delivery_token: transaction.token.clone(),
@@ -1547,9 +1744,7 @@ pub async fn webhook_dtone(
             ProviderTxnStatus::Failed => Some(WsOrderEvent::Failed {
                 reason: String::from("provider_failed_webhook"),
             }),
-            ProviderTxnStatus::Reversed => Some(WsOrderEvent::Flagged {
-                reason: String::from("dtone_reversed"),
-            }),
+            ProviderTxnStatus::Reversed => Some(WsOrderEvent::Reversed),
             ProviderTxnStatus::Pending => None,
         };
 
@@ -1899,22 +2094,28 @@ mod tests {
             utility_type: String::from("airtime"),
             utility_slug: String::from("mtn"),
             service_ref: String::from("08000000000"),
-            amount_ngn,
+            amount_ngn: Some(amount_ngn),
             zec_address_type: String::from("shielded"),
             variation_code: None,
             meter_type: None,
+            country_iso2: None,
+            product_id: None,
+            settlement: None,
+            inputs: std::collections::BTreeMap::new(),
         }
     }
 
     #[test]
-    fn accepts_amounts_up_to_the_order_maximum() {
-        assert!(validate_create_order_payload(&payload(MAX_ORDER_AMOUNT_NGN)).is_ok());
-    }
-
-    #[test]
-    fn rejects_amounts_above_the_order_maximum() {
-        let result = validate_create_order_payload(&payload(MAX_ORDER_AMOUNT_NGN + 1));
-        assert!(matches!(result, Err(ApiError::BadRequest(_))));
+    fn rejects_an_amount_and_a_settlement_in_the_same_request() {
+        let mut request = payload(5000);
+        request.settlement = Some(super::super::types::SettlementRequest {
+            currency: String::from("XOF"),
+            amount: String::from("1000"),
+        });
+        assert!(matches!(
+            validate_create_order_payload(&request),
+            Err(ApiError::BadRequest(_))
+        ));
     }
 
     #[test]
@@ -1979,6 +2180,18 @@ mod tests {
             utility_slug: String::from("mtn"),
             service_ref: String::new(),
             amount_ngn: 0,
+            country_iso2: String::from("NG"),
+            product_id: None,
+            provider_external_id: None,
+            provider_transaction_id: None,
+            provider_status: None,
+            failure_code: None,
+            failure_message: None,
+            settlement: None,
+            cost: None,
+            inputs: std::collections::BTreeMap::new(),
+            fulfilment_kind: None,
+            flag_reason: None,
             deposit_address: String::new(),
             address_type: String::from("shielded"),
             zec_amount: Decimal::ZERO,
@@ -2000,6 +2213,14 @@ mod tests {
             customer_name: None,
             user_id: None,
         }
+    }
+
+    #[test]
+    fn maps_a_reversed_order_to_a_reversed_event() {
+        assert_eq!(
+            map_status_to_event(&order_with_status(OrderStatus::Reversed)),
+            Some(WsOrderEvent::Reversed)
+        );
     }
 
     #[test]

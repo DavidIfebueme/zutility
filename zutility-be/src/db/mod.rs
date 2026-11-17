@@ -1,4 +1,4 @@
-use crate::domain::money::CurrencyCode;
+use crate::domain::money::{CurrencyCode, Money};
 use crate::domain::order::{OrderStatus, OrderStatusTransition};
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
@@ -46,6 +46,12 @@ pub struct CreateOrderInput {
     pub utility_slug: String,
     pub service_ref: String,
     pub amount_ngn: i64,
+    pub country_iso2: String,
+    pub product_id: Option<Uuid>,
+    pub settlement: Money,
+    pub cost_amount: Decimal,
+    pub inputs: BTreeMap<String, String>,
+    pub fulfilment_kind: Option<String>,
     pub address_type: String,
     pub zec_amount: Decimal,
     pub zec_rate_id: Uuid,
@@ -65,6 +71,18 @@ pub struct OrderRow {
     pub utility_slug: String,
     pub service_ref: String,
     pub amount_ngn: i64,
+    pub country_iso2: String,
+    pub product_id: Option<Uuid>,
+    pub provider_external_id: Option<String>,
+    pub provider_transaction_id: Option<String>,
+    pub provider_status: Option<String>,
+    pub failure_code: Option<String>,
+    pub failure_message: Option<String>,
+    pub settlement: Option<Money>,
+    pub cost: Option<Money>,
+    pub inputs: BTreeMap<String, String>,
+    pub fulfilment_kind: Option<String>,
+    pub flag_reason: Option<String>,
     pub deposit_address: String,
     pub address_type: String,
     pub zec_amount: Decimal,
@@ -87,6 +105,16 @@ pub struct OrderRow {
     pub user_id: Option<Uuid>,
 }
 
+const ORDER_COLUMNS: &str =
+    "id, status, access_token_hash, utility_type, utility_slug, service_ref,
+            amount_ngn, country_iso2, product_id, provider_external_id, provider_transaction_id,
+            provider_status, failure_code, failure_message, settlement_currency,
+            settlement_amount, cost_currency, cost_amount, inputs, fulfilment_kind, flag_reason,
+            deposit_address, address_type, zec_amount, zec_rate_id,
+            txid, confirmations, required_confs, total_received, created_at,
+            expires_at, confirmed_at, completed_at, vtpass_request_id,
+            delivery_token, ip_hash, metadata, variation_code, provider, customer_name, user_id";
+
 impl OrderRow {
     pub fn status(&self) -> Result<OrderStatus> {
         match self.status.as_str() {
@@ -100,7 +128,22 @@ impl OrderRow {
             "failed" => Ok(OrderStatus::Failed),
             "flagged_for_review" => Ok(OrderStatus::FlaggedForReview),
             "cancelled" => Ok(OrderStatus::Cancelled),
+            "reversed" => Ok(OrderStatus::Reversed),
             other => Err(anyhow!("unknown order status: {other}")),
+        }
+    }
+
+    pub fn settlement(&self) -> Result<Money> {
+        match self.settlement {
+            Some(money) => Ok(money),
+            None => Money::from_ngn_whole(self.amount_ngn).map_err(Into::into),
+        }
+    }
+
+    pub fn cost(&self) -> Result<Money> {
+        match self.cost {
+            Some(money) => Ok(money),
+            None => Money::from_ngn_whole(self.amount_ngn).map_err(Into::into),
         }
     }
 }
@@ -394,6 +437,14 @@ pub async fn insert_order_with_claimed_address(
             utility_slug,
             service_ref,
             amount_ngn,
+            country_iso2,
+            product_id,
+            settlement_currency,
+            settlement_amount,
+            cost_currency,
+            cost_amount,
+            inputs,
+            fulfilment_kind,
             deposit_address,
             address_type,
             zec_amount,
@@ -404,22 +455,8 @@ pub async fn insert_order_with_claimed_address(
             metadata,
             variation_code
          ) VALUES (
-            $1,
-            $2,
-            $3,
-            $4,
-            $5,
-            $6,
-            $7,
-            $8,
-            $9,
-            $10,
-            $11,
-            $12,
-            $13,
-            $14,
-            $15,
-            $16
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
+            $19, $20, $21, $22, $23, $24
          )",
     )
     .bind(order_id)
@@ -429,6 +466,14 @@ pub async fn insert_order_with_claimed_address(
     .bind(&input.utility_slug)
     .bind(&input.service_ref)
     .bind(input.amount_ngn)
+    .bind(&input.country_iso2)
+    .bind(input.product_id)
+    .bind(input.settlement.currency().iso())
+    .bind(input.settlement.amount())
+    .bind(CurrencyCode::Ngn.iso())
+    .bind(input.cost_amount)
+    .bind(serde_json::to_value(&input.inputs)?)
+    .bind(&input.fulfilment_kind)
     .bind(&deposit_address)
     .bind(&input.address_type)
     .bind(input.zec_amount)
@@ -484,17 +529,10 @@ pub async fn apply_order_status_transition(
 }
 
 pub async fn get_order_by_id(pool: &PgPool, order_id: Uuid) -> Result<Option<OrderRow>> {
-    let row = sqlx::query(
-        "SELECT id, status, access_token_hash, utility_type, utility_slug, service_ref,
-                amount_ngn, deposit_address, address_type, zec_amount, zec_rate_id,
-                txid, confirmations, required_confs, total_received, created_at,
-                expires_at, confirmed_at, completed_at, vtpass_request_id,
-                delivery_token, ip_hash, metadata, variation_code, provider, customer_name, user_id
-         FROM orders WHERE id = $1",
-    )
-    .bind(order_id)
-    .fetch_optional(pool)
-    .await?;
+    let row = sqlx::query(&format!("SELECT {ORDER_COLUMNS} FROM orders WHERE id = $1"))
+        .bind(order_id)
+        .fetch_optional(pool)
+        .await?;
 
     row.map(map_order_row).transpose()
 }
@@ -507,13 +545,19 @@ pub async fn update_order_status_cas(
     event: &str,
     detail: Value,
 ) -> Result<bool> {
-    let rows_affected = sqlx::query("UPDATE orders SET status = $1 WHERE id = $2 AND status = $3")
-        .bind(to_status)
-        .bind(order_id)
-        .bind(from_status)
-        .execute(pool)
-        .await?
-        .rows_affected();
+    let rows_affected = sqlx::query(
+        "UPDATE orders
+         SET status = $1,
+             flag_reason = CASE WHEN $1 = 'flagged_for_review' THEN $4 ELSE flag_reason END
+         WHERE id = $2 AND status = $3",
+    )
+    .bind(to_status)
+    .bind(order_id)
+    .bind(from_status)
+    .bind(event)
+    .execute(pool)
+    .await?
+    .rows_affected();
 
     if rows_affected == 0 {
         return Ok(false);
@@ -622,8 +666,11 @@ pub async fn complete_order(
 ) -> Result<bool> {
     let result = sqlx::query(
         "UPDATE orders
-         SET status = 'completed', completed_at = now(), delivery_token = $2, vtpass_request_id = COALESCE($3, vtpass_request_id)
-         WHERE id = $1 AND status = 'utility_dispatching'",
+         SET status = 'completed',
+             completed_at = now(),
+             delivery_token = COALESCE($2, delivery_token),
+             vtpass_request_id = COALESCE($3, vtpass_request_id)
+         WHERE id = $1 AND status IN ('utility_dispatching', 'failed', 'flagged_for_review')",
     )
     .bind(order_id)
     .bind(delivery_token)
@@ -637,21 +684,29 @@ pub async fn complete_order(
 pub async fn fail_order(pool: &PgPool, order_id: Uuid) -> Result<bool> {
     let mut tx = begin_tx(pool).await?;
 
-    let reference: Option<String> = sqlx::query_scalar(
-        "SELECT vtpass_request_id FROM orders
-         WHERE id = $1 AND status = 'utility_dispatching'
+    let current = sqlx::query(
+        "SELECT status, vtpass_request_id FROM orders
+         WHERE id = $1 AND status IN ('utility_dispatching', 'flagged_for_review')
          FOR UPDATE",
     )
     .bind(order_id)
     .fetch_optional(tx.as_mut())
-    .await?
-    .flatten();
+    .await?;
+
+    let Some(current) = current else {
+        tx.commit().await?;
+        return Ok(false);
+    };
+
+    let from_status: String = current.try_get("status")?;
+    let reference: Option<String> = current.try_get("vtpass_request_id")?;
 
     let rows_affected = sqlx::query(
-        "UPDATE orders SET status = 'failed', vtpass_request_id = NULL
-         WHERE id = $1 AND status = 'utility_dispatching'",
+        "UPDATE orders SET status = 'failed'
+         WHERE id = $1 AND status = $2",
     )
     .bind(order_id)
+    .bind(&from_status)
     .execute(tx.as_mut())
     .await?
     .rows_affected();
@@ -659,9 +714,10 @@ pub async fn fail_order(pool: &PgPool, order_id: Uuid) -> Result<bool> {
     if rows_affected > 0 {
         sqlx::query(
             "INSERT INTO audit_log (order_id, event, old_status, new_status, detail)
-             VALUES ($1, 'order_failed', 'utility_dispatching', 'failed', $2)",
+             VALUES ($1, 'order_failed', $2, 'failed', $3)",
         )
         .bind(order_id)
+        .bind(&from_status)
         .bind(serde_json::json!({ "reference": reference }))
         .execute(tx.as_mut())
         .await?;
@@ -676,11 +732,94 @@ pub async fn store_provider_reference(
     order_id: Uuid,
     reference: &str,
 ) -> Result<()> {
-    sqlx::query("UPDATE orders SET vtpass_request_id = $2 WHERE id = $1")
+    sqlx::query(
+        "UPDATE orders
+         SET vtpass_request_id = $2, provider_transaction_id = $2
+         WHERE id = $1",
+    )
+    .bind(order_id)
+    .bind(reference)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn store_provider_transaction_id(
+    pool: &PgPool,
+    order_id: Uuid,
+    transaction_id: &str,
+    provider_status: Option<&str>,
+) -> Result<()> {
+    sqlx::query(
+        "UPDATE orders
+         SET provider_transaction_id = $2,
+             provider_status = COALESCE($3, provider_status)
+         WHERE id = $1",
+    )
+    .bind(order_id)
+    .bind(transaction_id)
+    .bind(provider_status)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn mark_order_reversed(
+    pool: &PgPool,
+    order_id: Uuid,
+    provider_status: &str,
+    failure_code: Option<&str>,
+) -> Result<bool> {
+    let mut tx = begin_tx(pool).await?;
+
+    let rows_affected = sqlx::query(
+        "UPDATE orders
+         SET status = 'reversed',
+             flag_reason = 'dtone_reversed',
+             provider_status = $2,
+             failure_code = COALESCE($3, failure_code)
+         WHERE id = $1 AND status IN ('completed', 'failed')",
+    )
+    .bind(order_id)
+    .bind(provider_status)
+    .bind(failure_code)
+    .execute(tx.as_mut())
+    .await?
+    .rows_affected();
+
+    if rows_affected > 0 {
+        sqlx::query(
+            "INSERT INTO audit_log (order_id, event, old_status, new_status, detail)
+             VALUES ($1, 'provider_reversed', 'completed', 'reversed', $2)",
+        )
         .bind(order_id)
-        .bind(reference)
-        .execute(pool)
+        .bind(serde_json::json!({ "provider_status": provider_status }))
+        .execute(tx.as_mut())
         .await?;
+    }
+
+    tx.commit().await?;
+    Ok(rows_affected > 0)
+}
+
+pub async fn record_failure(
+    pool: &PgPool,
+    order_id: Uuid,
+    failure_code: &str,
+    failure_message: &str,
+) -> Result<()> {
+    sqlx::query(
+        "UPDATE orders
+         SET failure_code = $2, failure_message = $3
+         WHERE id = $1",
+    )
+    .bind(order_id)
+    .bind(failure_code)
+    .bind(failure_message)
+    .execute(pool)
+    .await?;
 
     Ok(())
 }
@@ -695,7 +834,10 @@ pub async fn set_order_dispatching(
 
     let rows_affected = sqlx::query(
         "UPDATE orders
-         SET status = 'utility_dispatching', provider = $2, vtpass_request_id = COALESCE($3, vtpass_request_id)
+         SET status = 'utility_dispatching',
+             provider = $2,
+             vtpass_request_id = COALESCE($3, vtpass_request_id),
+             provider_external_id = COALESCE(provider_external_id, $1::text)
          WHERE id = $1 AND status = 'payment_confirmed'",
     )
     .bind(order_id)
@@ -799,17 +941,19 @@ pub async fn dispatch_started_at(pool: &PgPool, order_id: Uuid) -> Result<Option
 }
 
 pub async fn list_active_orders(pool: &PgPool) -> Result<Vec<OrderRow>> {
-    let rows = sqlx::query(
-        "SELECT id, status, access_token_hash, utility_type, utility_slug, service_ref,
-                amount_ngn, deposit_address, address_type, zec_amount, zec_rate_id,
-                txid, confirmations, required_confs, total_received, created_at,
-                expires_at, confirmed_at, completed_at, vtpass_request_id,
-                delivery_token, ip_hash, metadata, variation_code, provider, customer_name, user_id
+    let rows = sqlx::query(&format!(
+        "SELECT {ORDER_COLUMNS}
          FROM orders
-         WHERE (status IN ('awaiting_payment', 'payment_detected', 'payment_confirmed', 'awaiting_claim', 'utility_dispatching')
-                OR (status = 'flagged_for_review' AND utility_type = 'school_fees'))
-         ORDER BY created_at ASC",
-    )
+         WHERE status IN (
+                'awaiting_payment',
+                'payment_detected',
+                'payment_confirmed',
+                'awaiting_claim',
+                'utility_dispatching',
+                'flagged_for_review'
+             )
+         ORDER BY created_at ASC"
+    ))
     .fetch_all(pool)
     .await?;
 
@@ -820,16 +964,18 @@ pub async fn find_order_by_provider_reference(
     pool: &PgPool,
     reference: &str,
 ) -> Result<Option<OrderRow>> {
-    let rows = sqlx::query(
-        "SELECT id, status, access_token_hash, utility_type, utility_slug, service_ref,
-                amount_ngn, deposit_address, address_type, zec_amount, zec_rate_id,
-                txid, confirmations, required_confs, total_received, created_at,
-                expires_at, confirmed_at, completed_at, vtpass_request_id,
-                delivery_token, ip_hash, metadata, variation_code, provider, customer_name, user_id
+    let rows = sqlx::query(&format!(
+        "SELECT {ORDER_COLUMNS}
          FROM orders
-         WHERE (vtpass_request_id = $1 AND status = 'utility_dispatching')
-            OR (vtpass_request_id = $1 AND status = 'flagged_for_review' AND utility_type = 'school_fees')",
-    )
+         WHERE (
+                 provider_external_id = $1
+                 OR provider_transaction_id = $1
+                 OR vtpass_request_id = $1
+             )
+           AND status IN ('utility_dispatching', 'completed', 'failed', 'reversed')
+         ORDER BY created_at DESC
+         LIMIT 1"
+    ))
     .bind(reference)
     .fetch_all(pool)
     .await?;
@@ -838,17 +984,15 @@ pub async fn find_order_by_provider_reference(
 }
 
 pub async fn find_order_for_webhook(pool: &PgPool, reference: &str) -> Result<Option<OrderRow>> {
-    let row = sqlx::query(
-        "SELECT id, status, access_token_hash, utility_type, utility_slug, service_ref,
-                amount_ngn, deposit_address, address_type, zec_amount, zec_rate_id,
-                txid, confirmations, required_confs, total_received, created_at,
-                expires_at, confirmed_at, completed_at, vtpass_request_id,
-                delivery_token, ip_hash, metadata, variation_code, provider, customer_name, user_id
+    let row = sqlx::query(&format!(
+        "SELECT {ORDER_COLUMNS}
          FROM orders
-         WHERE vtpass_request_id = $1
+         WHERE provider_external_id = $1
+            OR provider_transaction_id = $1
+            OR vtpass_request_id = $1
          ORDER BY created_at DESC
-         LIMIT 1",
-    )
+         LIMIT 1"
+    ))
     .bind(reference)
     .fetch_optional(pool)
     .await?;
@@ -1772,17 +1916,13 @@ pub async fn find_orders_by_user(
     limit: i64,
     offset: i64,
 ) -> Result<Vec<OrderRow>> {
-    let rows = sqlx::query(
-        "SELECT id, status, access_token_hash, utility_type, utility_slug, service_ref,
-                amount_ngn, deposit_address, address_type, zec_amount, zec_rate_id,
-                txid, confirmations, required_confs, total_received, created_at,
-                expires_at, confirmed_at, completed_at, vtpass_request_id,
-                delivery_token, ip_hash, metadata, variation_code, provider, customer_name, user_id
+    let rows = sqlx::query(&format!(
+        "SELECT {ORDER_COLUMNS}
          FROM orders
          WHERE user_id = $1
          ORDER BY created_at DESC
-         LIMIT $2 OFFSET $3",
-    )
+         LIMIT $2 OFFSET $3"
+    ))
     .bind(user_id)
     .bind(limit)
     .bind(offset)
@@ -1831,6 +1971,12 @@ fn map_user_row(row: sqlx::postgres::PgRow) -> Result<UserRow> {
 }
 
 fn map_order_row(row: sqlx::postgres::PgRow) -> Result<OrderRow> {
+    let settlement_currency: Option<String> = row.try_get("settlement_currency")?;
+    let settlement_amount: Option<Decimal> = row.try_get("settlement_amount")?;
+    let cost_currency: Option<String> = row.try_get("cost_currency")?;
+    let cost_amount: Option<Decimal> = row.try_get("cost_amount")?;
+    let inputs: Value = row.try_get("inputs")?;
+
     Ok(OrderRow {
         id: row.try_get("id")?,
         status: row.try_get("status")?,
@@ -1839,6 +1985,18 @@ fn map_order_row(row: sqlx::postgres::PgRow) -> Result<OrderRow> {
         utility_slug: row.try_get("utility_slug")?,
         service_ref: row.try_get("service_ref")?,
         amount_ngn: row.try_get("amount_ngn")?,
+        country_iso2: row.try_get("country_iso2")?,
+        product_id: row.try_get("product_id")?,
+        provider_external_id: row.try_get("provider_external_id")?,
+        provider_transaction_id: row.try_get("provider_transaction_id")?,
+        provider_status: row.try_get("provider_status")?,
+        failure_code: row.try_get("failure_code")?,
+        failure_message: row.try_get("failure_message")?,
+        settlement: decode_money(settlement_currency.as_deref(), settlement_amount),
+        cost: decode_money(cost_currency.as_deref(), cost_amount),
+        inputs: decode_inputs(&inputs),
+        fulfilment_kind: row.try_get("fulfilment_kind")?,
+        flag_reason: row.try_get("flag_reason")?,
         deposit_address: row.try_get("deposit_address")?,
         address_type: row.try_get("address_type")?,
         zec_amount: row.try_get("zec_amount")?,
@@ -1860,6 +2018,22 @@ fn map_order_row(row: sqlx::postgres::PgRow) -> Result<OrderRow> {
         customer_name: row.try_get("customer_name")?,
         user_id: row.try_get("user_id")?,
     })
+}
+
+fn decode_money(currency: Option<&str>, amount: Option<Decimal>) -> Option<Money> {
+    let currency = CurrencyCode::from_iso(currency?)?;
+    Money::new_rounded(currency, amount?).ok()
+}
+
+fn decode_inputs(value: &Value) -> BTreeMap<String, String> {
+    let Some(object) = value.as_object() else {
+        return BTreeMap::new();
+    };
+
+    object
+        .iter()
+        .filter_map(|(key, value)| value.as_str().map(|text| (key.clone(), text.to_owned())))
+        .collect()
 }
 
 #[derive(Debug, Clone)]
@@ -2324,4 +2498,231 @@ pub async fn list_catalogue(
 
 fn catalogue_amount(value: Decimal) -> String {
     value.normalize().to_string()
+}
+
+const PRODUCT_COLUMNS: &str = "p.id, p.provider, p.failover_provider, p.provider_product_id,
+            p.country_iso2, p.utility_type, p.utility_category, p.slug, p.name, p.amount_kind,
+            p.amount_min, p.amount_max, p.amount_increment, p.destination_currency,
+            p.fulfilment_kind, p.wholesale_rate, p.wholesale_fee, p.retail_rate, p.retail_fee,
+            p.required_fields, p.enabled, p.synced_at, p.operator_id,
+            c.enabled AS country_enabled, c.iso3 AS country_iso3";
+
+#[derive(Debug, Clone)]
+pub struct ProductRow {
+    pub id: Uuid,
+    pub provider: String,
+    pub failover_provider: Option<String>,
+    pub provider_product_id: String,
+    pub country_iso2: String,
+    pub country_iso3: String,
+    pub country_enabled: bool,
+    pub utility_type: String,
+    pub utility_category: String,
+    pub slug: String,
+    pub name: String,
+    pub amount_kind: String,
+    pub amount_min: Option<Decimal>,
+    pub amount_max: Option<Decimal>,
+    pub amount_increment: Option<Decimal>,
+    pub destination_currency: String,
+    pub fulfilment_kind: String,
+    pub wholesale_rate: Decimal,
+    pub wholesale_fee: Decimal,
+    pub retail_rate: Option<Decimal>,
+    pub retail_fee: Option<Decimal>,
+    pub required_fields: Value,
+    pub enabled: bool,
+    pub synced_at: DateTime<Utc>,
+    pub operator_id: Option<String>,
+}
+
+impl ProductRow {
+    pub fn terms(&self) -> crate::domain::pricing::ProductTerms {
+        crate::domain::pricing::ProductTerms {
+            amount_kind: self.amount_kind.clone(),
+            amount_min: self.amount_min,
+            amount_max: self.amount_max,
+            amount_increment: self.amount_increment,
+            destination_currency: self.destination_currency.clone(),
+            wholesale_rate: self.wholesale_rate,
+            wholesale_fee: self.wholesale_fee,
+            retail_rate: self.retail_rate,
+            retail_fee: self.retail_fee,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ProductVariationRow {
+    pub id: Uuid,
+    pub product_id: Uuid,
+    pub provider_product_id: String,
+    pub variation_code: String,
+    pub name: String,
+    pub amount: Decimal,
+    pub enabled: bool,
+}
+
+pub async fn find_product_by_id(pool: &PgPool, product_id: Uuid) -> Result<Option<ProductRow>> {
+    let row = sqlx::query(&format!(
+        "SELECT {PRODUCT_COLUMNS}
+         FROM provider_products p
+         JOIN countries c ON c.iso2 = p.country_iso2
+         WHERE p.id = $1"
+    ))
+    .bind(product_id)
+    .fetch_optional(pool)
+    .await?;
+
+    row.map(map_product_row).transpose()
+}
+
+pub async fn find_product_by_country_slug(
+    pool: &PgPool,
+    country_iso2: &str,
+    slug: &str,
+) -> Result<Option<ProductRow>> {
+    let row = sqlx::query(&format!(
+        "SELECT {PRODUCT_COLUMNS}
+         FROM provider_products p
+         JOIN countries c ON c.iso2 = p.country_iso2
+         WHERE p.country_iso2 = $1 AND p.slug = $2"
+    ))
+    .bind(country_iso2)
+    .bind(slug)
+    .fetch_optional(pool)
+    .await?;
+
+    row.map(map_product_row).transpose()
+}
+
+pub async fn find_product_variation(
+    pool: &PgPool,
+    product_id: Uuid,
+    variation_code: &str,
+) -> Result<Option<ProductVariationRow>> {
+    let row = sqlx::query(
+        "SELECT id, product_id, provider_product_id, variation_code, name, amount, enabled
+         FROM provider_product_variations
+         WHERE product_id = $1 AND variation_code = $2",
+    )
+    .bind(product_id)
+    .bind(variation_code)
+    .fetch_optional(pool)
+    .await?;
+
+    row.map(|row| {
+        Ok(ProductVariationRow {
+            id: row.try_get("id")?,
+            product_id: row.try_get("product_id")?,
+            provider_product_id: row.try_get("provider_product_id")?,
+            variation_code: row.try_get("variation_code")?,
+            name: row.try_get("name")?,
+            amount: row.try_get("amount")?,
+            enabled: row.try_get("enabled")?,
+        })
+    })
+    .transpose()
+}
+
+pub async fn list_enabled_products_by_provider(
+    pool: &PgPool,
+    provider: &str,
+) -> Result<Vec<ProductRow>> {
+    let rows = sqlx::query(&format!(
+        "SELECT {PRODUCT_COLUMNS}
+         FROM provider_products p
+         JOIN countries c ON c.iso2 = p.country_iso2
+         WHERE p.provider = $1 AND p.enabled AND c.enabled
+         ORDER BY p.country_iso2, p.slug"
+    ))
+    .bind(provider)
+    .fetch_all(pool)
+    .await?;
+
+    rows.into_iter().map(map_product_row).collect()
+}
+
+pub async fn list_configured_product_providers(
+    pool: &PgPool,
+) -> Result<Vec<(String, Option<String>)>> {
+    let rows = sqlx::query(
+        "SELECT DISTINCT provider, failover_provider
+         FROM provider_products
+         WHERE enabled",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    rows.into_iter()
+        .map(|row| Ok((row.try_get("provider")?, row.try_get("failover_provider")?)))
+        .collect()
+}
+
+pub async fn update_product_rates(
+    pool: &PgPool,
+    product_id: Uuid,
+    wholesale_rate: Decimal,
+    retail_rate: Option<Decimal>,
+    fetched_at: DateTime<Utc>,
+) -> Result<()> {
+    sqlx::query(
+        "UPDATE provider_products
+         SET wholesale_rate = $2,
+             retail_rate = COALESCE($3, retail_rate),
+             synced_at = $4
+         WHERE id = $1",
+    )
+    .bind(product_id)
+    .bind(wholesale_rate)
+    .bind(retail_rate)
+    .bind(fetched_at)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn stamp_product_synced_at(
+    pool: &PgPool,
+    product_id: Uuid,
+    fetched_at: DateTime<Utc>,
+) -> Result<()> {
+    sqlx::query("UPDATE provider_products SET synced_at = $2 WHERE id = $1")
+        .bind(product_id)
+        .bind(fetched_at)
+        .execute(pool)
+        .await?;
+
+    Ok(())
+}
+
+fn map_product_row(row: sqlx::postgres::PgRow) -> Result<ProductRow> {
+    Ok(ProductRow {
+        id: row.try_get("id")?,
+        provider: row.try_get("provider")?,
+        failover_provider: row.try_get("failover_provider")?,
+        provider_product_id: row.try_get("provider_product_id")?,
+        country_iso2: row.try_get("country_iso2")?,
+        country_iso3: row.try_get("country_iso3")?,
+        country_enabled: row.try_get("country_enabled")?,
+        utility_type: row.try_get("utility_type")?,
+        utility_category: row.try_get("utility_category")?,
+        slug: row.try_get("slug")?,
+        name: row.try_get("name")?,
+        amount_kind: row.try_get("amount_kind")?,
+        amount_min: row.try_get("amount_min")?,
+        amount_max: row.try_get("amount_max")?,
+        amount_increment: row.try_get("amount_increment")?,
+        destination_currency: row.try_get("destination_currency")?,
+        fulfilment_kind: row.try_get("fulfilment_kind")?,
+        wholesale_rate: row.try_get("wholesale_rate")?,
+        wholesale_fee: row.try_get("wholesale_fee")?,
+        retail_rate: row.try_get("retail_rate")?,
+        retail_fee: row.try_get("retail_fee")?,
+        required_fields: row.try_get("required_fields")?,
+        enabled: row.try_get("enabled")?,
+        synced_at: row.try_get("synced_at")?,
+        operator_id: row.try_get("operator_id")?,
+    })
 }
