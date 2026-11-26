@@ -264,7 +264,7 @@ async fn unknown_country_returns_empty_countries_array() {
 }
 
 #[tokio::test]
-async fn variations_are_an_empty_array_when_absent() {
+async fn variation_products_carry_their_tiers() {
     let Some(pool) = support::pool().await else {
         return;
     };
@@ -280,13 +280,72 @@ async fn variations_are_an_empty_array_when_absent() {
         .expect("categories")
         .iter()
         .collect();
+
+    let mut variation_count = 0;
     for product in products(&categories) {
+        let slug = product.get("slug").and_then(Value::as_str).expect("slug");
+        let kind = product
+            .get("amount_kind")
+            .and_then(Value::as_str)
+            .expect("amount_kind");
         let variations = product
             .get("variations")
             .and_then(Value::as_array)
             .expect("variations array");
-        assert!(variations.is_empty());
+
+        if kind == "variation" {
+            variation_count += 1;
+            assert!(!variations.is_empty(), "{slug} has no tiers");
+            for variation in variations {
+                let amount = variation
+                    .get("amount")
+                    .and_then(Value::as_str)
+                    .expect("variation amount");
+                let amount: f64 = amount.parse().expect("numeric variation amount");
+                assert!(amount > 0.0, "{slug} has a non-positive tier");
+            }
+        } else {
+            assert!(variations.is_empty(), "{slug} should not carry tiers");
+        }
     }
+
+    assert!(
+        variation_count >= 10,
+        "expected at least ten variation products, got {variation_count}"
+    );
+}
+
+#[tokio::test]
+async fn disabled_product_is_absent_from_its_country() {
+    let Some(pool) = support::pool().await else {
+        return;
+    };
+    reset_catalogue(&pool).await;
+    sqlx::query("UPDATE provider_products SET enabled = false WHERE slug = 'mtn-data'")
+        .execute(&pool)
+        .await
+        .expect("disable product");
+
+    let app = http::router_with_pool(Some(pool.clone()));
+    let (status, body) = get_json(&app, "/api/v1/catalogue?country=NG").await;
+    assert_eq!(status, StatusCode::OK);
+    let countries = countries(&body);
+    let categories: Vec<&Value> = countries[0]
+        .get("categories")
+        .and_then(Value::as_array)
+        .expect("categories")
+        .iter()
+        .collect();
+    let slugs: Vec<&str> = products(&categories)
+        .iter()
+        .filter_map(|product| product.get("slug").and_then(Value::as_str))
+        .collect();
+    assert!(!slugs.contains(&"mtn-data"));
+
+    sqlx::query("UPDATE provider_products SET enabled = true WHERE slug = 'mtn-data'")
+        .execute(&pool)
+        .await
+        .expect("restore product");
 }
 
 #[tokio::test]
