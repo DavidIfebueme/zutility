@@ -5,11 +5,13 @@ use zutility_be::db::{get_waitlist_position, latest_waitlist_token_age_seconds};
 
 async fn test_pool() -> Option<PgPool> {
     let database_url = std::env::var("TEST_DATABASE_URL").ok()?;
-    PgPoolOptions::new()
-        .max_connections(1)
-        .connect(&database_url)
-        .await
-        .ok()
+    Some(
+        PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&database_url)
+            .await
+            .expect("TEST_DATABASE_URL is set but the test database is unreachable"),
+    )
 }
 
 async fn prepare_schema(pool: &PgPool) {
