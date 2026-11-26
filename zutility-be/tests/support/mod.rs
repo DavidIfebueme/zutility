@@ -36,14 +36,15 @@ async fn seed_addresses(pool: &PgPool) {
     let prefix = format!("ztest-{}-", std::process::id());
     for index in 0..200 {
         let address = format!("{prefix}{index}");
-        let _ = sqlx::query(
+        sqlx::query(
             "INSERT INTO deposit_addresses (address, address_type, network, used)
              VALUES ($1, 'shielded', 'testnet', false)
              ON CONFLICT (address) DO NOTHING",
         )
         .bind(address)
         .execute(pool)
-        .await;
+        .await
+        .expect("seed test deposit addresses");
     }
 }
 
