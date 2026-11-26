@@ -4,6 +4,7 @@ use utoipa::OpenApi;
 use crate::{
     domain::order::OrderStatus,
     http::{
+        catalogue::{self, CatalogueResponse},
         error::ErrorEnvelope,
         handlers,
         types::{
@@ -23,6 +24,7 @@ use crate::{
         handlers::list_utilities,
         handlers::validate_utility_reference,
         handlers::health_live,
+        catalogue::get_catalogue,
     ),
     components(
         schemas(
@@ -33,6 +35,7 @@ use crate::{
             RateResponse,
             UtilityItem,
             UtilityValidateResponse,
+            CatalogueResponse,
             ErrorEnvelope,
             OrderStatus,
         )
