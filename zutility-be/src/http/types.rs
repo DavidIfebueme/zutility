@@ -122,6 +122,8 @@ pub struct OrderStatusResponse {
     pub delivery_token: Option<String>,
     pub failure_code: Option<String>,
     pub failure_message: Option<String>,
+    pub settlement: Option<MoneyDto>,
+    pub fulfilment_kind: String,
     pub display: DisplayMoney,
 }
 
@@ -148,14 +150,6 @@ pub struct RateResponse {
     pub valid_until: DateTime<Utc>,
     pub fx: Vec<FxQuoteResponse>,
     pub display: DisplayMoney,
-}
-
-#[derive(Debug, Clone, Serialize, ToSchema)]
-pub struct UtilityItem {
-    pub slug: String,
-    pub utility_type: String,
-    pub name: String,
-    pub field_config: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]

@@ -2,41 +2,74 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { useForm } from "react-hook-form"
-import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
-import { Check, Gift, Info, Loader2, Search, ShieldCheck } from "lucide-react"
-import { BrandMark } from "@/components/ui/brand-mark"
-import { BRAND_TILE_BACKGROUND } from "@/lib/brand-logo"
+import {
+  Check,
+  Gift,
+  GraduationCap,
+  Info,
+  Loader2,
+  Receipt,
+  School,
+  Search,
+  ShieldCheck,
+  Smartphone,
+  Tv,
+  Wifi,
+  Zap,
+  type LucideIcon,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { UTILITIES, UTILITY_CATEGORIES, type UtilityType } from "@/lib/constants"
+import { CountryPicker } from "@/components/pay/country-picker"
+import { ProductFields } from "@/components/pay/product-fields"
+import { AmountControl } from "@/components/pay/amount-control"
 import { useOrderStore } from "@/store/order"
 import { useAuthStore } from "@/store/auth"
 import { useRate } from "@/lib/hooks/useRate"
 import { apiGet, apiPost } from "@/lib/api"
-import { CreateGiftResponse, CreateOrderResponse, UtilityVariationResponse, UtilityValidateResponse } from "@/lib/types"
-import { useCurrency } from "@/lib/hooks/useCurrency"
 import {
-  CURRENCIES,
-  convertFromNGN,
-  convertToNGN,
-  formatCurrency,
-  formatLocalAmount,
-  fxRatesFromRate,
-  type FxRates,
-} from "@/lib/currency"
+  CreateGiftResponse,
+  CreateOrderResponse,
+  UtilityValidateResponse,
+} from "@/lib/types"
+import type {
+  CatalogueProduct,
+  CatalogueResponse,
+  CatalogueVariationItem,
+} from "@/lib/types"
+import { formatAmount, isCurrencyCode } from "@/lib/currency"
+import {
+  categoriesWithProducts,
+  categoryLabel,
+  categoryUtilityType,
+  countriesWithProducts,
+  fieldLabel,
+  findProduct,
+  isPhoneField,
+  needsLiveVariations,
+  requiredFieldNames,
+  resolveAmount,
+  variationsFromLive,
+} from "@/lib/catalogue"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { networkWarning } from "@/lib/network"
 import { INVALID_PHONE_MESSAGE, normalizePhone } from "@/lib/phone"
 
-const orderSchema = z.object({
-  utilityId: z.string().min(1, "Select a service"),
-  serviceRef: z.string(),
-  amountNgn: z.number().min(100, "Minimum is 100").max(5000000, "Maximum is 5,000,000"),
-  addressType: z.enum(["shielded", "transparent"]),
-  variationCode: z.string().optional(),
+const createOrderSchema = z.object({
+  utility_type: z.string().min(1),
+  utility_slug: z.string().min(1),
+  service_ref: z.string().min(1),
+  zec_address_type: z.literal("shielded"),
+  product_id: z.string().min(1),
+  country_iso2: z.string().length(2),
+  variation_code: z.string().optional(),
+  settlement: z.object({
+    currency: z.string().length(3),
+    amount: z.string().min(1),
+  }),
+  inputs: z.record(z.string(), z.string()),
 })
 
 const GIFT_MAX_NGN = 100_000
@@ -47,21 +80,25 @@ const GIFT_WINDOWS = [
   { hours: 168, label: "7 days" },
 ]
 
-type OrderFormValues = z.infer<typeof orderSchema>
+const CATEGORY_ICONS: Record<string, LucideIcon> = {
+  airtime: Smartphone,
+  data: Wifi,
+  television: Tv,
+  electricity: Zap,
+  education: GraduationCap,
+  school: School,
+}
 
-function BrandTile({ brandIcon, selected }: { brandIcon: string; selected: boolean }) {
-  const id = brandIcon as never
-  return (
-    <span
-      className={cn(
-        "flex h-10 w-10 shrink-0 items-center justify-center rounded-md",
-        selected ? "bg-paper-3" : "bg-paper-2"
-      )}
-      style={BRAND_TILE_BACKGROUND[id] ? { backgroundColor: BRAND_TILE_BACKGROUND[id] } : undefined}
-    >
-      <BrandMark id={id} size={26} />
-    </span>
-  )
+function categoryIcon(category: string): LucideIcon {
+  return CATEGORY_ICONS[category] ?? Receipt
+}
+
+function formatMoney(amount: string, currency: string): string {
+  const value = Number(amount)
+  if (isCurrencyCode(currency) && Number.isFinite(value)) {
+    return formatAmount(value, currency)
+  }
+  return `${amount} ${currency}`
 }
 
 export default function PayPage() {
@@ -69,188 +106,191 @@ export default function PayPage() {
   const { setActiveOrder } = useOrderStore()
   const { user } = useAuthStore()
   const { rate } = useRate()
-  const currency = useCurrency()
-  const currencySymbol = CURRENCIES[currency]?.symbol || "₦"
-  const [isLoading, setIsLoading] = React.useState(false)
-  const [activeCategory, setActiveCategory] = React.useState<UtilityType | "school">("airtime")
+
+  const [catalogue, setCatalogue] = React.useState<CatalogueResponse | null>(null)
+  const [catalogueError, setCatalogueError] = React.useState(false)
+  const [liveVariations, setLiveVariations] = React.useState<
+    Record<string, CatalogueVariationItem[]>
+  >({})
+  const [countryIso, setCountryIso] = React.useState<string | null>(null)
+  const [activeCategory, setActiveCategory] = React.useState<string | null>(null)
+  const [selectedProductId, setSelectedProductId] = React.useState<string | null>(null)
   const [query, setQuery] = React.useState("")
-  const [variations, setVariations] = React.useState<UtilityVariationResponse[]>([])
-  const [loadingVariations, setLoadingVariations] = React.useState(false)
-  const [variationsError, setVariationsError] = React.useState(false)
-  const [variationsReloadKey, setVariationsReloadKey] = React.useState(0)
+  const [serviceRef, setServiceRef] = React.useState("")
+  const [inputs, setInputs] = React.useState<Record<string, string>>({})
+  const [variationCode, setVariationCode] = React.useState<string | null>(null)
+  const [amountInput, setAmountInput] = React.useState("")
+  const [amountError, setAmountError] = React.useState<string | null>(null)
   const [validating, setValidating] = React.useState(false)
   const [validated, setValidated] = React.useState<UtilityValidateResponse | null>(null)
-  const [validatedReference, setValidatedReference] = React.useState<string | null>(null)
-  const [displayAmount, setDisplayAmount] = React.useState<string>("1000")
-  const [meterType, setMeterType] = React.useState<"prepaid" | "postpaid">("prepaid")
+  const [isLoading, setIsLoading] = React.useState(false)
   const [isGift, setIsGift] = React.useState(false)
+  const [giftMessage, setGiftMessage] = React.useState("")
+  const [giftFallbackRef, setGiftFallbackRef] = React.useState("")
+  const [giftWindowHours, setGiftWindowHours] = React.useState(168)
+  const [giftHideName, setGiftHideName] = React.useState(false)
+
+  const countries = React.useMemo(() => countriesWithProducts(catalogue), [catalogue])
+  const country = countries.find((item) => item.iso2 === countryIso) ?? null
+  const categories = React.useMemo(() => {
+    const list = categoriesWithProducts(country)
+    return isGift ? list.filter((item) => item.category !== "school") : list
+  }, [country, isGift])
+  const activeCategoryEntry = categories.find((item) => item.category === activeCategory) ?? null
+  const selected = findProduct(country, selectedProductId)
+  const catalogueProduct = selected?.product ?? null
+  const liveSlug =
+    catalogueProduct && needsLiveVariations(catalogueProduct) ? catalogueProduct.slug : null
+  const liveRows = liveSlug ? liveVariations[liveSlug] : undefined
+  const product =
+    catalogueProduct && liveRows ? { ...catalogueProduct, variations: liveRows } : catalogueProduct
+  const productCategory = selected?.category ?? null
+  const isSchoolFees = productCategory === "school"
+  const requiredNames = product ? requiredFieldNames(product) : []
+  const usesRequiredFields = requiredNames.length > 0
+  const primaryReference = usesRequiredFields ? inputs[requiredNames[0]] ?? "" : serviceRef
 
   React.useEffect(() => {
     if (new URLSearchParams(window.location.search).get("gift") !== "1") return
     const timer = window.setTimeout(() => setIsGift(true), 0)
     return () => window.clearTimeout(timer)
   }, [])
-  const [giftMessage, setGiftMessage] = React.useState("")
-  const [giftFallbackRef, setGiftFallbackRef] = React.useState("")
-  const [giftWindowHours, setGiftWindowHours] = React.useState(168)
-  const [giftHideName, setGiftHideName] = React.useState(false)
 
-  const fxRates: FxRates | null = React.useMemo(
-    () => (rate ? fxRatesFromRate(rate) : null),
-    [rate]
-  )
+  React.useEffect(() => {
+    let cancelled = false
+    apiGet<CatalogueResponse>("/api/v1/catalogue")
+      .then((data) => {
+        if (cancelled) return
+        setCatalogue(data)
+        const list = countriesWithProducts(data)
+        const first = list.find((item) => item.iso2 === "NG") ?? list[0] ?? null
+        if (first) {
+          setCountryIso(first.iso2)
+          const nextCategories = categoriesWithProducts(first)
+          setActiveCategory(nextCategories[0]?.category ?? null)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setCatalogueError(true)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
-  const ngnFromDisplay = React.useCallback(
-    (localAmount: number): number => {
-      if (!fxRates) return localAmount
-      return convertToNGN(localAmount, currency, fxRates)
-    },
-    [currency, fxRates]
-  )
+  React.useEffect(() => {
+    if (!liveSlug) return
+    if (liveVariations[liveSlug] !== undefined) return
+    let cancelled = false
+    apiGet<unknown>(`/api/v1/utilities/${encodeURIComponent(liveSlug)}/variations`)
+      .then((rows) => {
+        if (cancelled) return
+        const items = variationsFromLive(rows)
+        setLiveVariations((current) =>
+          current[liveSlug] === undefined ? { ...current, [liveSlug]: items } : current
+        )
+      })
+      .catch(() => {
+        if (cancelled) return
+        setLiveVariations((current) =>
+          current[liveSlug] === undefined ? { ...current, [liveSlug]: [] } : current
+        )
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [liveSlug, liveVariations])
 
-  const localFromNgn = React.useCallback(
-    (ngnAmount: number): number => {
-      if (!fxRates) return ngnAmount
-      return convertFromNGN(ngnAmount, currency, fxRates)
-    },
-    [currency, fxRates]
-  )
+  const resetProductState = React.useCallback(() => {
+    setSelectedProductId(null)
+    setServiceRef("")
+    setInputs({})
+    setVariationCode(null)
+    setAmountInput("")
+    setAmountError(null)
+    setValidated(null)
+  }, [])
 
-  const {
-    register,
-    handleSubmit,
-    watch,
-    setValue,
-    formState: { errors },
-  } = useForm<OrderFormValues>({
-    resolver: zodResolver(orderSchema),
-    defaultValues: {
-      addressType: "shielded",
-      amountNgn: 1000,
-      variationCode: "",
-    },
-  })
+  const chooseCountry = (iso2: string) => {
+    setCountryIso(iso2)
+    resetProductState()
+    const next = categoriesWithProducts(countries.find((item) => item.iso2 === iso2) ?? null)
+    setActiveCategory(next[0]?.category ?? null)
+  }
 
-  const selectedUtilityId = watch("utilityId")
-  const amountNgn = watch("amountNgn")
-  const addressType = watch("addressType")
-  const variationCode = watch("variationCode")
-  const serviceRef = watch("serviceRef")
+  const chooseCategory = (category: string) => {
+    setActiveCategory(category)
+    resetProductState()
+  }
 
-  const selectedUtility = UTILITIES.find((utility) => utility.id === selectedUtilityId)
-  const isSchoolFees = selectedUtility?.type === "school"
+  const chooseProduct = (next: CatalogueProduct) => {
+    setSelectedProductId(next.id)
+    setServiceRef("")
+    setInputs({})
+    setVariationCode(null)
+    setValidated(null)
+    setAmountError(null)
+    if (next.amount_kind === "fixed") {
+      setAmountInput(next.amount_min ?? "")
+    } else if (next.amount_kind === "ranged") {
+      setAmountInput(next.amount_min ?? "")
+    } else {
+      setAmountInput("")
+    }
+  }
 
-  const filteredUtilities = UTILITIES.filter((utility) => {
-    if (isGift && utility.type === "school") return false
-    if (utility.type !== activeCategory) return false
+  const toggleGift = (next: boolean) => {
+    setIsGift(next)
+    if (next) {
+      const nigeria = countries.find((item) => item.iso2 === "NG")
+      if (nigeria) {
+        setCountryIso(nigeria.iso2)
+        resetProductState()
+      }
+    }
+    router.replace(next ? "/pay?gift=1" : "/pay")
+  }
+
+  const filteredProducts = (activeCategoryEntry?.products ?? []).filter((item) => {
     if (!query.trim()) return true
-    const haystack = [utility.name, utility.descriptor, ...(utility.keywords ?? [])]
+    const haystack = [item.name, item.descriptor, item.operator_name ?? ""]
       .join(" ")
       .toLowerCase()
     return haystack.includes(query.trim().toLowerCase())
   })
 
-  const effectiveAmount = React.useMemo(() => {
-    if (!selectedUtility) return amountNgn
-    if (selectedUtility.fixedAmountKobo) return selectedUtility.fixedAmountKobo / 100
-    if (selectedUtility.hasVariations && variationCode) {
-      const variation = variations.find((item) => item.variation_code === variationCode)
-      if (variation?.amount) return variation.amount
-    }
-    return amountNgn
-  }, [selectedUtility, amountNgn, variationCode, variations])
+  const selection = resolveAmount(product, variationCode, amountInput)
 
-  const estimatedZec = React.useMemo(() => {
-    if (!rate || !effectiveAmount) return "0.00000000"
-    const zecNgn = parseFloat(rate.zec_ngn)
-    if (zecNgn <= 0) return "0.00000000"
-    return (effectiveAmount / zecNgn).toFixed(8)
-  }, [rate, effectiveAmount])
+  const zecNgn = rate ? parseFloat(rate.zec_ngn) : 0
+  const estimatedZec =
+    product && selection.amount && product.currency === "NGN" && zecNgn > 0
+      ? (Number(selection.amount) / zecNgn).toFixed(8)
+      : null
 
-  React.useEffect(() => {
-    if (currency === "NGN" || !fxRates) {
-      setDisplayAmount(String(amountNgn))
-    } else {
-      setDisplayAmount(localFromNgn(amountNgn).toFixed(2))
-    }
-  }, [amountNgn, currency, fxRates, localFromNgn])
+  const refWarning = product ? networkWarning(primaryReference, product.slug) : null
 
-  const handleDisplayAmountChange = React.useCallback(
-    (raw: string) => {
-      setDisplayAmount(raw)
-      const parsed = parseFloat(raw)
-      if (isNaN(parsed) || parsed <= 0) {
-        setValue("amountNgn", 0, { shouldValidate: true })
-        return
-      }
-      if (currency === "NGN" || !fxRates) {
-        setValue("amountNgn", Math.round(parsed), { shouldValidate: true })
-      } else {
-        setValue("amountNgn", Math.round(ngnFromDisplay(parsed)), { shouldValidate: true })
-      }
-    },
-    [currency, fxRates, ngnFromDisplay, setValue]
-  )
-
-  React.useEffect(() => {
-    setValidated(null)
-    setVariations([])
-    setValue("variationCode", "")
-    if (selectedUtility?.fixedAmountKobo) {
-      setValue("amountNgn", selectedUtility.fixedAmountKobo / 100)
-    }
-  }, [selectedUtilityId, selectedUtility, setValue])
-
-  React.useEffect(() => {
-    if (!selectedUtility?.hasVariations) {
-      setVariations([])
-      return
-    }
-    setLoadingVariations(true)
-    apiGet<UtilityVariationResponse[]>(`/api/v1/utilities/${selectedUtility.slug}/variations`)
-      .then((data) => {
-        setVariations(data)
-        setVariationsError(false)
-      })
-      .catch(() => {
-        setVariations([])
-        setVariationsError(true)
-      })
-      .finally(() => setLoadingVariations(false))
-  }, [selectedUtility, variationsReloadKey])
-
-  const handleValidate = React.useCallback(async () => {
-    if (!selectedUtility || !serviceRef || serviceRef.trim().length < 5) return
-    const queriedReference =
-      selectedUtility.serviceRefKind === "phone" ? normalizePhone(serviceRef) : serviceRef.trim()
-    if (!queriedReference) {
+  const handleValidate = async () => {
+    if (!product || !primaryReference.trim()) return
+    const reference = isPhoneField(product) ? normalizePhone(primaryReference) : primaryReference.trim()
+    if (!reference) {
       toast.error(INVALID_PHONE_MESSAGE)
       return
     }
     setValidating(true)
     try {
-      const meterQuery =
-        selectedUtility.type === "electricity" ? `&meter_type=${meterType}` : ""
       const result = await apiGet<UtilityValidateResponse>(
-        `/api/v1/utilities/${selectedUtility.slug}/validate?ref=${encodeURIComponent(queriedReference)}${meterQuery}`
+        `/api/v1/utilities/${product.slug}/validate?ref=${encodeURIComponent(reference)}`
       )
       setValidated(result)
-      setValidatedReference(queriedReference)
       if (!result.valid) {
-        toast.error(
-          selectedUtility.type === "school"
-            ? "That RRR is not payable"
-            : "That account number did not validate"
-        )
+        toast.error(isSchoolFees ? "That RRR is not payable" : "That account did not validate")
         return
       }
-
       if (result.amount_ngn) {
-        setValue("amountNgn", result.amount_ngn, { shouldValidate: true })
+        setAmountInput(String(result.amount_ngn))
       }
-
       toast.success(
-        selectedUtility.type === "school"
+        isSchoolFees
           ? result.customer_name ?? "RRR found"
           : result.customer_name
             ? `Account name: ${result.customer_name}`
@@ -261,114 +301,100 @@ export default function PayPage() {
     } finally {
       setValidating(false)
     }
-  }, [selectedUtility, serviceRef, setValue, meterType])
+  }
 
-  React.useEffect(() => {
-    setValidated(null)
-    setValidatedReference(null)
-  }, [serviceRef, selectedUtilityId, meterType])
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!product || !country || !productCategory) {
+      toast.error("Select a service first")
+      return
+    }
 
-  const refWarning = React.useMemo(
-    () => (selectedUtility ? networkWarning(serviceRef ?? "", selectedUtility.slug) : null),
-    [selectedUtility, serviceRef]
-  )
+    const selection = resolveAmount(product, variationCode, amountInput)
+    if (selection.error || !selection.amount) {
+      setAmountError(selection.error)
+      toast.error(selection.error ?? "Enter an amount")
+      return
+    }
 
-  const giftCapLabel = fxRates
-    ? formatLocalAmount(GIFT_MAX_NGN, currency, fxRates)
-    : "the configured limit"
+    if (isSchoolFees && !validated?.valid) {
+      toast.error("Look up the RRR first")
+      return
+    }
 
-  const onSubmit = async (data: OrderFormValues) => {
-    if (!selectedUtility) return
+    const missing = requiredFieldNames(product).find((name) => !inputs[name]?.trim())
+    if (missing) {
+      toast.error(`Enter ${fieldLabel(product, missing)}`)
+      return
+    }
 
-    const amountNgn = Math.round(effectiveAmount)
-    const rawReference = data.serviceRef || ""
+    const rawReference = primaryReference.trim()
     const reference =
-      !isGift && selectedUtility.serviceRefKind === "phone"
-        ? normalizePhone(rawReference)
-        : rawReference.trim()
-
-    if (isSchoolFees && (!validated?.valid || validatedReference !== reference)) {
-      toast.error("Look up the RRR again")
+      !usesRequiredFields && isPhoneField(product) ? normalizePhone(rawReference) : rawReference
+    if (!reference) {
+      toast.error(isPhoneField(product) ? INVALID_PHONE_MESSAGE : "Enter the account number")
       return
     }
 
-    if (!isGift && !reference) {
-      toast.error(
-        selectedUtility.serviceRefKind === "phone"
-          ? INVALID_PHONE_MESSAGE
-          : "Enter the account number"
-      )
+    if (isGift && Number(selection.amount) > GIFT_MAX_NGN) {
+      toast.error(`Gifts are capped at ${formatAmount(GIFT_MAX_NGN, "NGN")}`)
       return
     }
 
-    if (isGift && selectedUtility.type === "school") {
-      toast.error("School fees cannot be gifted yet")
-      return
-    }
-
-    if (isGift && amountNgn > GIFT_MAX_NGN) {
-      toast.error(`Gifts are capped at ${giftCapLabel}`)
-      return
-    }
-
-    if (isGift && selectedUtility.type === "electricity" && !giftFallbackRef.trim()) {
+    if (isGift && productCategory === "electricity" && !giftFallbackRef.trim()) {
       toast.error("Electricity gifts need a fallback meter number")
       return
     }
 
     let fallbackReference = giftFallbackRef.trim() || undefined
-    if (fallbackReference && selectedUtility.serviceRefKind === "phone") {
+    if (fallbackReference && isPhoneField(product)) {
       const normalized = normalizePhone(fallbackReference)
       if (!normalized) {
-        toast.error("Enter a valid Nigerian mobile number for the backup account")
+        toast.error("Enter a valid mobile number for the backup account")
         return
       }
       fallbackReference = normalized
     }
 
+    const trimmedInputs = Object.fromEntries(
+      Object.entries(inputs)
+        .map(([name, value]) => [name, value.trim()])
+        .filter(([, value]) => value.length > 0)
+    )
+
     setIsLoading(true)
     try {
-      const utilityType =
-        selectedUtility.type === "school"
-          ? "school_fees"
-          : selectedUtility.type === "tv"
-            ? selectedUtility.slug
-            : selectedUtility.slug === "waec-registration" ||
-                selectedUtility.slug === "waec-result-checker"
-              ? "waec"
-              : selectedUtility.slug === "jamb"
-                ? "jamb"
-                : selectedUtility.type
-
       if (isGift) {
         const gift = await apiPost<CreateGiftResponse>("/api/v1/gifts", {
-          utility_type: utilityType,
-          utility_slug: selectedUtility.slug,
-          amount_ngn: amountNgn,
-          zec_address_type: data.addressType,
-          variation_code: data.variationCode || undefined,
+          utility_type: categoryUtilityType(productCategory),
+          utility_slug: product.slug,
+          amount_ngn: Math.round(Number(selection.amount)),
+          zec_address_type: "shielded",
+          variation_code: variationCode ?? undefined,
           message: giftMessage.trim() || undefined,
           fallback_service_ref: fallbackReference,
           claim_window_hours: giftWindowHours,
           hide_sender_name: giftHideName,
         })
-
         setActiveOrder(gift.order, user?.id ?? null)
         toast.success("Gift created")
         router.push(`/pay/${gift.order.order_id}?gift=${gift.gift_code}`)
         return
       }
 
-      const order = await apiPost<CreateOrderResponse>("/api/v1/orders/create", {
-        utility_type: utilityType,
-        utility_slug: selectedUtility.slug,
+      const payload = createOrderSchema.parse({
+        utility_type: categoryUtilityType(productCategory),
+        utility_slug: product.slug,
         service_ref: reference,
-        amount_ngn: amountNgn,
-        zec_address_type: data.addressType,
-        variation_code: data.variationCode || undefined,
-        meter_type: selectedUtility.type === "electricity" ? meterType : undefined,
+        zec_address_type: "shielded",
+        product_id: product.id,
+        country_iso2: country.iso2,
+        variation_code: variationCode ?? undefined,
+        settlement: { currency: product.currency, amount: selection.amount },
+        inputs: trimmedInputs,
       })
 
+      const order = await apiPost<CreateOrderResponse>("/api/v1/orders/create", payload)
       setActiveOrder(order, user?.id ?? null)
       toast.success("Order created")
       router.push(`/pay/${order.order_id}`)
@@ -386,8 +412,8 @@ export default function PayPage() {
   }
 
   const canSubmit =
-    Boolean(selectedUtilityId) &&
-    effectiveAmount > 0 &&
+    Boolean(product) &&
+    Boolean(selection.amount) &&
     (!isSchoolFees || Boolean(validated?.valid))
 
   return (
@@ -397,17 +423,14 @@ export default function PayPage() {
         <h1 className="mt-2 text-3xl text-ink">{isGift ? "Send a utility gift" : "Pay a bill"}</h1>
         <p className="mt-1.5 max-w-lg text-[14px] leading-relaxed text-muted">
           {isGift
-            ? "Pick the utility and the amount, then share one link. The recipient enters their own account, so you never need their number."
-            : "Choose the service, enter the account, and send the quoted ZEC amount. No identity documents are needed."}
+            ? "Pick the bill and the amount, then share one link. The recipient enters their own account, so you never need their number."
+            : "Choose the country and the service, enter the account, and send the quoted ZEC amount. No identity documents are needed."}
         </p>
 
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <button
             type="button"
-            onClick={() => {
-              setIsGift(false)
-              router.replace("/pay")
-            }}
+            onClick={() => toggleGift(false)}
             className={cn(
               "rounded-md border px-3 py-1.5 text-[12px] transition-colors",
               !isGift ? "border-ink bg-cream text-ink" : "border-line text-muted hover:text-ink"
@@ -417,13 +440,7 @@ export default function PayPage() {
           </button>
           <button
             type="button"
-            onClick={() => {
-              setIsGift(true)
-              router.replace("/pay?gift=1")
-              if (selectedUtility?.type === "school") {
-                setValue("utilityId", "", { shouldValidate: true })
-              }
-            }}
+            onClick={() => toggleGift(true)}
             className={cn(
               "flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-[12px] transition-colors",
               isGift ? "border-ink bg-cream text-ink" : "border-line text-muted hover:text-ink"
@@ -435,124 +452,147 @@ export default function PayPage() {
         </div>
       </header>
 
-      <form onSubmit={handleSubmit(onSubmit)} className="grid gap-8 lg:grid-cols-[1fr_280px]">
+      <form onSubmit={submit} className="grid gap-8 lg:grid-cols-[1fr_280px]">
         <div className="min-w-0 space-y-8">
           <section>
             <div className="flex items-baseline justify-between border-b border-line pb-2">
+              <h2 className="text-lg text-ink">Country</h2>
+              <span className="num text-[11px] text-muted">Step 1 of 4</span>
+            </div>
+            <div className="mt-4 space-y-2">
+              <CountryPicker
+                countries={countries}
+                value={countryIso}
+                onChange={chooseCountry}
+                disabled={isGift}
+              />
+              {isGift && (
+                <p className="text-[11px] leading-relaxed text-muted">
+                  Gifts are available in Nigeria only.
+                </p>
+              )}
+              {catalogueError && (
+                <p className="text-[12px] text-rust">
+                  Could not load the catalogue. Reload the page to try again.
+                </p>
+              )}
+            </div>
+          </section>
+
+          <section>
+            <div className="flex items-baseline justify-between border-b border-line pb-2">
               <h2 className="text-lg text-ink">Service</h2>
-              <span className="num text-[11px] text-muted">Step 1 of 3</span>
+              <span className="num text-[11px] text-muted">Step 2 of 4</span>
             </div>
 
             <div className="mt-4 flex flex-wrap items-center gap-1">
-              {UTILITY_CATEGORIES.map((category) => (
+              {categories.map((category) => (
                 <button
-                  key={category.type}
+                  key={category.category}
                   type="button"
-                  onClick={() => setActiveCategory(category.type)}
+                  onClick={() => chooseCategory(category.category)}
                   className={cn(
                     "rounded-md px-2.5 py-1 text-[12px] transition-colors",
-                    activeCategory === category.type
+                    activeCategory === category.category
                       ? "bg-ink text-cream"
                       : "text-muted hover:bg-paper-3/60 hover:text-ink"
                   )}
                 >
-                  {category.label}
+                  {categoryLabel(category.category)}
                 </button>
               ))}
             </div>
 
-            <div className="relative mt-4">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-              <Input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search this category"
-                leftIcon={<Search className="h-4 w-4" />}
-                className="pl-9"
-              />
-            </div>
+            {!activeCategoryEntry && categories.length > 0 && (
+              <p className="mt-3 rounded-md border border-dashed border-line-strong px-3 py-2.5 text-[12px] leading-relaxed text-muted">
+                {country?.name ?? "This country"} has{" "}
+                {categories.map((category) => categoryLabel(category.category)).join(", ")}. Pick
+                one above to continue.
+              </p>
+            )}
 
-            <div className="mt-3 grid gap-2 sm:grid-cols-2">
-              {filteredUtilities.map((utility) => {
-                const isSelected = selectedUtilityId === utility.id
-                return (
-                  <button
-                    key={utility.id}
-                    type="button"
-                    onClick={() => setValue("utilityId", utility.id, { shouldValidate: true })}
-                    className={cn(
-                      "group/utility flex items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-[transform,border-color,background-color] duration-200 ease-out hover:-translate-y-0.5 hover:border-line-strong",
-                      isSelected
-                        ? "border-ink bg-cream"
-                        : "border-line bg-cream/50 hover:border-line-strong"
-                    )}
-                  >
-                    <span className="transition-transform duration-200 ease-out group-hover/utility:scale-110">
-                      <BrandTile brandIcon={utility.brandIcon} selected={isSelected} />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[13px] font-medium text-ink">
-                        {utility.name}
-                      </span>
-                      <span className="block truncate text-[11px] text-muted">
-                        {utility.descriptor}
-                      </span>
-                    </span>
-                    {isSelected && <Check className="h-4 w-4 shrink-0 text-gold-deep" />}
-                  </button>
-                )
-              })}
-              {filteredUtilities.length === 0 && (
-                <p className="col-span-full rounded-lg border border-dashed border-line-strong px-3 py-6 text-center text-[13px] text-muted">
-                  Nothing matches that search.
-                </p>
-              )}
-            </div>
-            {errors.utilityId && (
-              <p className="mt-2 text-[12px] text-rust">{errors.utilityId.message}</p>
+            {activeCategoryEntry && (
+              <>
+                <div className="relative mt-4">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+                  <Input
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder="Search this category"
+                    leftIcon={<Search className="h-4 w-4" />}
+                    className="pl-9"
+                  />
+                </div>
+
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {filteredProducts.map((item) => {
+                    const Icon = categoryIcon(activeCategoryEntry.category)
+                    const isSelected = selectedProductId === item.id
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => chooseProduct(item)}
+                        className={cn(
+                          "group/utility flex items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-[transform,border-color,background-color] duration-200 ease-out hover:-translate-y-0.5 hover:border-line-strong",
+                          isSelected
+                            ? "border-ink bg-cream"
+                            : "border-line bg-cream/50 hover:border-line-strong"
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "flex h-10 w-10 shrink-0 items-center justify-center rounded-md transition-transform duration-200 ease-out group-hover/utility:scale-110",
+                            isSelected ? "bg-paper-3" : "bg-paper-2"
+                          )}
+                        >
+                          <Icon className="h-5 w-5 text-ink-2" strokeWidth={1.6} />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[13px] font-medium text-ink">
+                            {item.name}
+                          </span>
+                          <span className="block truncate text-[11px] text-muted">
+                            {item.descriptor}
+                          </span>
+                        </span>
+                        {isSelected && <Check className="h-4 w-4 shrink-0 text-gold-deep" />}
+                      </button>
+                    )
+                  })}
+                  {filteredProducts.length === 0 && (
+                    <p className="col-span-full rounded-lg border border-dashed border-line-strong px-3 py-6 text-center text-[13px] text-muted">
+                      Nothing matches that search.
+                    </p>
+                  )}
+                </div>
+              </>
             )}
           </section>
 
-          <section className={cn(!selectedUtilityId && "opacity-55")}>
+          <section className={cn(!product && "opacity-55")}>
             <div className="flex items-baseline justify-between border-b border-line pb-2">
               <h2 className="text-lg text-ink">Account</h2>
-              <span className="num text-[11px] text-muted">Step 2 of 3</span>
+              <span className="num text-[11px] text-muted">Step 3 of 4</span>
             </div>
 
             <div className="mt-4 space-y-4">
-              {isGift ? (
+              {!product && (
+                <p className="text-[13px] text-muted">Pick a service to see its fields.</p>
+              )}
+
+              {product && isGift && (
                 <p className="rounded-md border border-dashed border-line-strong px-3 py-2.5 text-[12px] leading-relaxed text-muted">
-                  The recipient enters {selectedUtility?.serviceRefLabel?.toLowerCase() ?? "their account"} when they claim the link.
+                  You send the gift. The recipient enters{" "}
+                  {product.service_ref_label.toLowerCase()} when they claim the link.
                 </p>
-              ) : (
-                <div className="space-y-1.5">
-                  {selectedUtility?.type === "electricity" && (
-                    <div className="pb-1">
-                      <p className="text-[13px] font-medium text-ink">Meter type</p>
-                      <div className="mt-1.5 flex gap-2">
-                        {(["prepaid", "postpaid"] as const).map((option) => (
-                          <button
-                            key={option}
-                            type="button"
-                            onClick={() => setMeterType(option)}
-                            className={cn(
-                              "rounded-md border px-3 py-1.5 text-[12px] capitalize transition-colors",
-                              meterType === option
-                                ? "border-ink bg-cream text-ink"
-                                : "border-line text-muted hover:text-ink"
-                            )}
-                          >
-                            {option}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+              )}
+
+              {product && !isGift && (
+                <div className="space-y-2">
                   <div className="flex items-baseline justify-between">
-                    <label htmlFor="serviceRef" className="text-[13px] font-medium text-ink">
-                      {selectedUtility?.serviceRefLabel || "Account number"}
-                    </label>
-                    {serviceRef && serviceRef.length >= 5 && (
+                    <span className="text-[13px] font-medium text-ink">Check the account</span>
+                    {country?.iso2 === "NG" && primaryReference.trim().length >= 5 && (
                       <button
                         type="button"
                         onClick={handleValidate}
@@ -564,18 +604,18 @@ export default function PayPage() {
                       </button>
                     )}
                   </div>
-                  <Input
-                    id="serviceRef"
-                    {...register("serviceRef", {
-                      onBlur: (event) => {
-                        if (selectedUtility?.serviceRefKind !== "phone") return
-                        const normalized = normalizePhone(event.target.value)
-                        if (normalized) setValue("serviceRef", normalized)
-                      },
-                    })}
-                    placeholder={selectedUtility?.serviceRefPlaceholder || "Enter the number"}
-                    error={errors.serviceRef?.message}
-                    disabled={!selectedUtilityId}
+                  <ProductFields
+                    product={product}
+                    serviceRef={serviceRef}
+                    onServiceRefChange={(value) => {
+                      setServiceRef(value)
+                      setValidated(null)
+                      if (isSchoolFees) setAmountInput("")
+                    }}
+                    inputs={inputs}
+                    onInputChange={(name, value) =>
+                      setInputs((current) => ({ ...current, [name]: value }))
+                    }
                   />
                   {refWarning && (
                     <p className="flex items-start gap-1.5 text-[12px] text-gold-deep">
@@ -594,7 +634,6 @@ export default function PayPage() {
                       {isSchoolFees ? "That RRR is not payable" : "That number did not validate"}
                     </p>
                   )}
-
                   {validated?.valid && isSchoolFees && (
                     <div className="rounded-md border border-line bg-paper px-3 py-3">
                       <p className="label-xs text-muted">RRR details</p>
@@ -608,11 +647,10 @@ export default function PayPage() {
                         <p className="mt-1 text-[12px] text-ink-2">{validated.customer_name}</p>
                       )}
                       <p className="num mt-2 text-lg text-ink">
-                        {fxRates ? formatLocalAmount(validated.amount_ngn ?? 0, currency, fxRates) : "—"}
+                        {formatAmount(validated.amount_ngn ?? 0, "NGN")}
                       </p>
                     </div>
                   )}
-
                   {validated?.valid && !isSchoolFees && (
                     <p className="flex items-center gap-1.5 text-[12px] text-green">
                       <Check className="h-3.5 w-3.5" />
@@ -624,175 +662,52 @@ export default function PayPage() {
                 </div>
               )}
 
-              {selectedUtility?.hasVariations && (
-                <div className="space-y-1.5">
-                  <p className="text-[13px] font-medium text-ink">Plan</p>
-                  {loadingVariations ? (
-                    <p className="flex items-center gap-2 text-[13px] text-muted">
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      Loading plans
-                    </p>
-                  ) : variations.length > 0 ? (
-                    <div className="max-h-64 space-y-1.5 overflow-y-auto pr-1">
-                      {variations.map((variation) => {
-                        const isSelected = variationCode === variation.variation_code
-                        return (
-                          <button
-                            key={variation.variation_code}
-                            type="button"
-                            onClick={() => {
-                              setValue("variationCode", variation.variation_code, {
-                                shouldValidate: true,
-                              })
-                              if (variation.amount) {
-                                setValue("amountNgn", variation.amount, { shouldValidate: true })
-                              }
-                            }}
-                            className={cn(
-                              "flex w-full items-baseline justify-between gap-3 rounded-md border px-3 py-2 text-left transition-[border-color,background-color] duration-150",
-                              isSelected
-                                ? "border-ink bg-cream"
-                                : "border-line bg-cream/50 hover:border-line-strong hover:bg-cream"
-                            )}
-                          >
-                            <span className="text-[13px] text-ink">{variation.name}</span>
-                            {variation.amount && (
-                              <span className="num text-[12px] text-muted">
-                                {fxRates
-                                  ? formatLocalAmount(variation.amount, currency, fxRates)
-                                  : "—"}
-                              </span>
-                            )}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <p className="text-[13px] text-muted">
-                        {variationsError
-                          ? "Could not load plans."
-                          : "No plans returned for this service."}
-                      </p>
-                      {variationsError && (
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => setVariationsReloadKey((key) => key + 1)}
-                        >
-                          Try again
-                        </Button>
-                      )}
-                    </div>
-                  )}
-                </div>
+              {product && !isGift && !isSchoolFees && (
+                <AmountControl
+                  product={product}
+                  variationCode={variationCode}
+                  onVariationChange={(code) => {
+                    setVariationCode(code)
+                    setAmountError(null)
+                  }}
+                  amount={amountInput}
+                  onAmountChange={(value) => {
+                    setAmountInput(value)
+                    setAmountError(null)
+                  }}
+                  error={amountError}
+                />
               )}
 
-              {selectedUtility?.hasAmountPicker && !selectedUtility.fixedAmountKobo && (
-                <div className="space-y-1.5">
-                  <label htmlFor="amount" className="text-[13px] font-medium text-ink">
-                    Amount
-                  </label>
-                  <Input
-                    id="amount"
-                    type="number"
-                    value={displayAmount}
-                    onChange={(event) => handleDisplayAmountChange(event.target.value)}
-                    leftIcon={<span className="num text-[13px] text-muted">{currencySymbol}</span>}
-                    error={errors.amountNgn?.message}
-                    disabled={!selectedUtilityId}
-                  />
-                  {selectedUtility.quickAmounts && (
-                    <div className="flex flex-wrap gap-1.5 pt-1">
-                      {selectedUtility.quickAmounts.map((quickAmount) => (
-                        <button
-                          key={quickAmount}
-                          type="button"
-                          onClick={() =>
-                            setValue("amountNgn", quickAmount, { shouldValidate: true })
-                          }
-                          className={cn(
-                            "num rounded-md border px-2.5 py-1 text-[12px] transition-colors",
-                            amountNgn === quickAmount
-                              ? "border-ink bg-cream text-ink"
-                              : "border-line text-muted hover:text-ink"
-                          )}
-                        >
-                          {fxRates
-                            ? formatLocalAmount(quickAmount, currency, fxRates)
-                            : "—"}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {isSchoolFees && errors.amountNgn && (
-                <p className="text-[12px] text-rust">{errors.amountNgn.message}</p>
-              )}
-
-              {selectedUtility?.fixedAmountKobo && (
-                <div className="rounded-md border border-line bg-paper px-3 py-2.5">
-                  <p className="label-xs text-muted">Fixed amount</p>
-                  <p className="num mt-1 text-xl text-ink">
-                    {fxRates
-                      ? formatLocalAmount(selectedUtility.fixedAmountKobo / 100, currency, fxRates)
-                      : "—"}
-                  </p>
-                </div>
+              {product && isSchoolFees && (
+                <p className="text-[11px] leading-relaxed text-muted">
+                  The amount comes from the RRR. Look it up to see the exact total.
+                </p>
               )}
             </div>
           </section>
 
-          <section className={cn(!selectedUtilityId && "opacity-55")}>
+          <section>
             <div className="flex items-baseline justify-between border-b border-line pb-2">
               <h2 className="text-lg text-ink">Payment address</h2>
-              <span className="num text-[11px] text-muted">Step 3 of 3</span>
+              <span className="num text-[11px] text-muted">Step 4 of 4</span>
             </div>
 
-            <div className="mt-4 grid gap-2 sm:grid-cols-1">
-              {[
-                {
-                  value: "shielded" as const,
-                  title: "Shielded",
-                  hint: "z-address. Confirms in about a minute.",
-                  icon: ShieldCheck,
-                },
-              ].map((option) => {
-                const isSelected = addressType === option.value
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    disabled={!selectedUtilityId}
-                    onClick={() => setValue("addressType", option.value)}
-                    className={cn(
-                      "rounded-lg border px-3 py-3 text-left transition-[border-color,background-color,transform] duration-200 hover:-translate-y-0.5",
-                      isSelected ? "border-ink bg-cream" : "border-line bg-cream/50 hover:border-line-strong"
-                    )}
-                  >
-                    <span className="flex items-center justify-between">
-                      <span className="flex items-center gap-1.5 text-[13px] font-medium text-ink">
-                        {option.icon && <option.icon className="h-3.5 w-3.5 text-gold-deep" />}
-                        {option.title}
-                      </span>
-                      <span
-                        className={cn(
-                          "flex h-3.5 w-3.5 items-center justify-center rounded-full border",
-                          isSelected ? "border-ink" : "border-line-strong"
-                        )}
-                      >
-                        {isSelected && <span className="h-1.5 w-1.5 rounded-full bg-ink" />}
-                      </span>
-                    </span>
-                    <span className="mt-1 block text-[11px] leading-relaxed text-muted">
-                      {option.hint}
-                    </span>
-                  </button>
-                )
-              })}
+            <div className="mt-4">
+              <div className="rounded-lg border border-ink bg-cream px-3 py-3 text-left">
+                <span className="flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-[13px] font-medium text-ink">
+                    <ShieldCheck className="h-3.5 w-3.5 text-gold-deep" />
+                    Shielded
+                  </span>
+                  <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full border border-ink">
+                    <span className="h-1.5 w-1.5 rounded-full bg-ink" />
+                  </span>
+                </span>
+                <span className="mt-1 block text-[11px] leading-relaxed text-muted">
+                  z-address. Confirms in about a minute.
+                </span>
+              </div>
             </div>
           </section>
 
@@ -848,13 +763,13 @@ export default function PayPage() {
                 <div className="space-y-1.5">
                   <label htmlFor="giftFallback" className="text-[13px] font-medium text-ink">
                     If nobody claims it{" "}
-                    {selectedUtility?.type === "electricity" ? "(required)" : "(optional)"}
+                    {productCategory === "electricity" ? "(required)" : "(optional)"}
                   </label>
                   <Input
                     id="giftFallback"
                     value={giftFallbackRef}
                     onChange={(event) => setGiftFallbackRef(event.target.value)}
-                    placeholder={selectedUtility?.serviceRefPlaceholder ?? "Your own number"}
+                    placeholder="Your own number"
                   />
                   <p className="text-[11px] leading-relaxed text-muted">
                     We deliver the utility here on the deadline if the gift is still unclaimed.
@@ -872,7 +787,7 @@ export default function PayPage() {
                 </label>
 
                 <p className="text-[11px] leading-relaxed text-muted">
-                  Gifts are capped at {giftCapLabel}. A gift link can be
+                  Gifts are capped at {formatAmount(GIFT_MAX_NGN, "NGN")}. A gift link can be
                   claimed once, by the first person who opens it.
                 </p>
               </div>
@@ -887,24 +802,28 @@ export default function PayPage() {
             </div>
             <div className="space-y-3 px-4 py-4">
               <div className="flex items-baseline justify-between gap-3">
+                <span className="text-[13px] text-muted">Country</span>
+                <span className="truncate text-right text-[13px] text-ink">
+                  {country?.name ?? "Not selected"}
+                </span>
+              </div>
+              <div className="flex items-baseline justify-between gap-3">
                 <span className="text-[13px] text-muted">Service</span>
                 <span className="truncate text-right text-[13px] text-ink">
-                  {selectedUtility?.name ?? "Not selected"}
+                  {product?.name ?? "Not selected"}
                 </span>
               </div>
               <div className="flex items-baseline justify-between gap-3">
                 <span className="text-[13px] text-muted">Amount</span>
                 <span className="num text-[13px] text-ink">
-                  {selectedUtility && effectiveAmount > 0
-                    ? fxRates
-                      ? formatLocalAmount(effectiveAmount, currency, fxRates)
-                      : "—"
+                  {product && selection.amount
+                    ? formatMoney(selection.amount, product.currency)
                     : "---"}
                 </span>
               </div>
               <div className="flex items-baseline justify-between gap-3">
                 <span className="text-[13px] text-muted">Address</span>
-                <span className="text-[13px] capitalize text-ink">{addressType}</span>
+                <span className="text-[13px] capitalize text-ink">shielded</span>
               </div>
 
               {isGift && (
@@ -919,10 +838,10 @@ export default function PayPage() {
               <div className="border-t border-line pt-3">
                 <p className="text-[13px] text-muted">You send</p>
                 <p className="num mt-1 text-2xl text-ink">
-                  {selectedUtility ? `${estimatedZec} ZEC` : "---"}
+                  {estimatedZec ? `${estimatedZec} ZEC` : "Quoted on the order"}
                 </p>
                 <p className="mt-1 text-[11px] leading-relaxed text-muted">
-                  The order page shows the exact amount and the deposit address. The quote is
+                  The order page shows the exact ZEC amount and the deposit address. The quote is
                   fixed when the order is created.
                 </p>
               </div>

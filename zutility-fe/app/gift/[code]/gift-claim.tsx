@@ -7,10 +7,9 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { CopyField } from "@/components/ui/copy-field"
-import { BrandMark } from "@/components/ui/brand-mark"
 import { WordmarkLink } from "@/components/ui/wordmark"
 import { getApiBaseUrl } from "@/lib/api"
-import { UTILITIES } from "@/lib/constants"
+import type { CatalogueBiller } from "@/lib/catalogue"
 import { formatZEC } from "@/lib/utils"
 import { formatDisplay } from "@/lib/money"
 import { INVALID_PHONE_MESSAGE, normalizePhone } from "@/lib/phone"
@@ -43,6 +42,7 @@ const TERMINAL_ORDER_STATUSES: OrderStatus[] = [
   "expired",
   "cancelled",
   "flagged_for_review",
+  "reversed",
 ]
 
 function deliveryHeadline(status: OrderStatus | null): string {
@@ -64,18 +64,27 @@ function deliveryHeadline(status: OrderStatus | null): string {
       return "The sender did not pay in time"
     case "cancelled":
       return "This order was cancelled"
+    case "reversed":
+      return "The payment was reversed"
     default:
       return "Claimed"
   }
 }
 
-export function GiftClaim({ code, initialGift }: { code: string; initialGift: GiftView | null }) {
+export function GiftClaim({
+  code,
+  initialGift,
+  biller,
+}: {
+  code: string
+  initialGift: GiftView | null
+  biller: CatalogueBiller | null
+}) {
   const [gift, setGift] = React.useState<GiftView | null>(initialGift)
   const [serviceRef, setServiceRef] = React.useState("")
   const [claiming, setClaiming] = React.useState(false)
   const [missing, setMissing] = React.useState(initialGift === null)
 
-  const utility = gift ? UTILITIES.find((item) => item.slug === gift.utility_slug) : undefined
   const amount = gift
     ? gift.zec_amount
       ? { text: `${formatZEC(gift.zec_amount)} ZEC`, marker: null }
@@ -103,11 +112,11 @@ export function GiftClaim({ code, initialGift }: { code: string; initialGift: Gi
   const claim = async (event: React.FormEvent) => {
     event.preventDefault()
     const reference =
-      utility?.serviceRefKind === "phone" ? normalizePhone(serviceRef) : serviceRef.trim()
+      biller?.isPhone ? normalizePhone(serviceRef) : serviceRef.trim()
 
     if (!reference || reference.length < 5) {
       toast.error(
-        utility?.serviceRefKind === "phone"
+        biller?.isPhone
           ? INVALID_PHONE_MESSAGE
           : "Enter a valid account number"
       )
@@ -168,7 +177,7 @@ export function GiftClaim({ code, initialGift }: { code: string; initialGift: Gi
                 ) : null}
               </h1>
               <p className="mt-1 text-[13px] text-muted">
-                {utility?.name ?? gift.utility_slug}
+                {biller?.name ?? gift.utility_slug}
               </p>
             </div>
 
@@ -178,10 +187,10 @@ export function GiftClaim({ code, initialGift }: { code: string; initialGift: Gi
                   className="flex h-12 w-12 items-center justify-center rounded-lg bg-paper-2"
                   aria-hidden
                 >
-                  {utility ? <BrandMark id={utility.brandIcon as never} size={30} /> : <Gift className="h-6 w-6 text-gold-deep" />}
+                  <Gift className="h-6 w-6 text-gold-deep" />
                 </span>
                 <div className="min-w-0">
-                  <p className="text-[13px] font-medium text-ink">{utility?.name ?? gift.utility_slug}</p>
+                  <p className="text-[13px] font-medium text-ink">{biller?.name ?? gift.utility_slug}</p>
                   <p className="num text-[12px] text-muted">
                     {amount.text}
                     {amount.marker ? (
@@ -200,7 +209,7 @@ export function GiftClaim({ code, initialGift }: { code: string; initialGift: Gi
               {gift.status === "open" && (
                 <form onSubmit={claim} className="mt-6 space-y-3">
                   <label htmlFor="serviceRef" className="block text-[13px] font-medium text-ink">
-                    {utility?.serviceRefLabel ?? "Account number"}
+                    {biller?.serviceRefLabel ?? "Account number"}
                   </label>
                   <Input
                     id="serviceRef"
@@ -208,10 +217,10 @@ export function GiftClaim({ code, initialGift }: { code: string; initialGift: Gi
                     onChange={(event) => {
                       const raw = event.target.value
                       const normalized =
-                        utility?.serviceRefKind === "phone" ? normalizePhone(raw) : null
+                        biller?.isPhone ? normalizePhone(raw) : null
                       setServiceRef(normalized ?? raw)
                     }}
-                    placeholder={utility?.serviceRefPlaceholder ?? "Enter the account number"}
+                    placeholder={biller?.serviceRefPlaceholder ?? "Enter the account number"}
                     autoComplete="off"
                   />
                   <Button type="submit" className="w-full" size="lg" loading={claiming}>
@@ -230,7 +239,7 @@ export function GiftClaim({ code, initialGift }: { code: string; initialGift: Gi
                       <span className="flex h-7 w-7 items-center justify-center rounded-full bg-green/10">
                         <Check className="h-4 w-4 text-green" />
                       </span>
-                    ) : gift.order_status === "failed" || gift.order_status === "flagged_for_review" ? (
+                    ) : gift.order_status === "failed" || gift.order_status === "flagged_for_review" || gift.order_status === "reversed" ? (
                       <span className="flex h-7 w-7 items-center justify-center rounded-full bg-rust/10">
                         <AlertTriangle className="h-4 w-4 text-rust" />
                       </span>
@@ -248,7 +257,9 @@ export function GiftClaim({ code, initialGift }: { code: string; initialGift: Gi
                               ? "The order closed before delivery. Ask the sender to send a new gift."
                               : gift.order_status === "flagged_for_review"
                                 ? "This order is being reviewed. Support will follow up."
-                                : "Keep this page open. It updates on its own."}
+                                : gift.order_status === "reversed"
+                                  ? "The provider reversed this payment. Ask the sender to contact support."
+                                  : "Keep this page open. It updates on its own."}
                       </p>
                     </div>
                   </div>

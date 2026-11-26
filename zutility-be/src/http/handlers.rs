@@ -43,9 +43,8 @@ use super::{
     error::ApiError,
     types::{
         CancelOrderResponse, CreateOrderRequest, CreateOrderResponse, CurrencyQuery, DisplayMoney,
-        FxQuoteResponse, OrderAccessTokenResponse, OrderStatusResponse, OrderTokenQuery,
-        RateResponse, UtilityItem, UtilityValidateQuery, UtilityValidateResponse,
-        UtilityVariationItem,
+        FxQuoteResponse, MoneyDto, OrderAccessTokenResponse, OrderStatusResponse, OrderTokenQuery,
+        RateResponse, UtilityValidateQuery, UtilityValidateResponse, UtilityVariationItem,
     },
 };
 
@@ -616,6 +615,8 @@ pub async fn get_order(
         delivery_token: order.delivery_token,
         failure_code: order.failure_code,
         failure_message: order.failure_message,
+        settlement: order.settlement.map(MoneyDto::from_money),
+        fulfilment_kind: order.fulfilment_kind.unwrap_or_default(),
         display,
     }))
 }
@@ -842,187 +843,6 @@ pub async fn alerts(State(state): State<HttpState>) -> Json<Vec<AlertState>> {
         .evaluate_alerts(&readiness, rate_last_updated)
         .await;
     Json(alerts)
-}
-
-#[utoipa::path(
-    get,
-    path = "/api/v1/utilities",
-    responses(
-        (status = 200, description = "List supported utilities", body = [UtilityItem]),
-        (status = 500, description = "Internal error", body = super::error::ErrorEnvelope)
-    )
-)]
-pub async fn list_utilities() -> Result<Json<Vec<UtilityItem>>, ApiError> {
-    Ok(Json(vec![
-        UtilityItem {
-            slug: String::from("mtn"),
-            utility_type: String::from("airtime"),
-            name: String::from("MTN Airtime"),
-            field_config: serde_json::json!({"service_ref_label":"Phone Number","service_ref_placeholder":"08012345678","has_variations":false,"has_amount_picker":true,"amount_min_kobo":5000,"amount_max_kobo":5000000,"icon_type":"airtime"}),
-        },
-        UtilityItem {
-            slug: String::from("airtel"),
-            utility_type: String::from("airtime"),
-            name: String::from("Airtel Airtime"),
-            field_config: serde_json::json!({"service_ref_label":"Phone Number","service_ref_placeholder":"08012345678","has_variations":false,"has_amount_picker":true,"amount_min_kobo":5000,"amount_max_kobo":5000000,"icon_type":"airtime"}),
-        },
-        UtilityItem {
-            slug: String::from("glo"),
-            utility_type: String::from("airtime"),
-            name: String::from("Glo Airtime"),
-            field_config: serde_json::json!({"service_ref_label":"Phone Number","service_ref_placeholder":"08012345678","has_variations":false,"has_amount_picker":true,"amount_min_kobo":5000,"amount_max_kobo":5000000,"icon_type":"airtime"}),
-        },
-        UtilityItem {
-            slug: String::from("9mobile"),
-            utility_type: String::from("airtime"),
-            name: String::from("9mobile Airtime"),
-            field_config: serde_json::json!({"service_ref_label":"Phone Number","service_ref_placeholder":"08012345678","has_variations":false,"has_amount_picker":true,"amount_min_kobo":5000,"amount_max_kobo":5000000,"icon_type":"airtime"}),
-        },
-        UtilityItem {
-            slug: String::from("mtn-data"),
-            utility_type: String::from("data"),
-            name: String::from("MTN Data"),
-            field_config: serde_json::json!({"service_ref_label":"Phone Number","service_ref_placeholder":"08012345678","has_variations":true,"has_amount_picker":false,"icon_type":"data"}),
-        },
-        UtilityItem {
-            slug: String::from("airtel-data"),
-            utility_type: String::from("data"),
-            name: String::from("Airtel Data"),
-            field_config: serde_json::json!({"service_ref_label":"Phone Number","service_ref_placeholder":"08012345678","has_variations":true,"has_amount_picker":false,"icon_type":"data"}),
-        },
-        UtilityItem {
-            slug: String::from("glo-data"),
-            utility_type: String::from("data"),
-            name: String::from("Glo Data"),
-            field_config: serde_json::json!({"service_ref_label":"Phone Number","service_ref_placeholder":"08012345678","has_variations":true,"has_amount_picker":false,"icon_type":"data"}),
-        },
-        UtilityItem {
-            slug: String::from("9mobile-data"),
-            utility_type: String::from("data"),
-            name: String::from("9mobile Data"),
-            field_config: serde_json::json!({"service_ref_label":"Phone Number","service_ref_placeholder":"08012345678","has_variations":true,"has_amount_picker":false,"icon_type":"data"}),
-        },
-        UtilityItem {
-            slug: String::from("dstv"),
-            utility_type: String::from("dstv"),
-            name: String::from("DSTV"),
-            field_config: serde_json::json!({"service_ref_label":"Smartcard Number","service_ref_placeholder":"e.g. 2012345678","has_variations":true,"has_amount_picker":false,"icon_type":"tv"}),
-        },
-        UtilityItem {
-            slug: String::from("gotv"),
-            utility_type: String::from("gotv"),
-            name: String::from("GOtv"),
-            field_config: serde_json::json!({"service_ref_label":"Smartcard Number","service_ref_placeholder":"e.g. 2012345678","has_variations":true,"has_amount_picker":false,"icon_type":"tv"}),
-        },
-        UtilityItem {
-            slug: String::from("startimes"),
-            utility_type: String::from("startimes"),
-            name: String::from("Startimes"),
-            field_config: serde_json::json!({"service_ref_label":"Smartcard Number","service_ref_placeholder":"e.g. 2012345678","has_variations":true,"has_amount_picker":false,"icon_type":"tv"}),
-        },
-        UtilityItem {
-            slug: String::from("showmax"),
-            utility_type: String::from("showmax"),
-            name: String::from("Showmax"),
-            field_config: serde_json::json!({"service_ref_label":"Email or Phone","service_ref_placeholder":"you@email.com","has_variations":true,"has_amount_picker":false,"icon_type":"tv"}),
-        },
-        UtilityItem {
-            slug: String::from("ikeja-electric"),
-            utility_type: String::from("electricity"),
-            name: String::from("Ikeja Electric (IKEDC)"),
-            field_config: serde_json::json!({"service_ref_label":"Meter Number","service_ref_placeholder":"e.g. 54012345678","has_variations":false,"has_amount_picker":true,"amount_min_kobo":50000,"amount_max_kobo":50000000,"icon_type":"electricity"}),
-        },
-        UtilityItem {
-            slug: String::from("eko-electric"),
-            utility_type: String::from("electricity"),
-            name: String::from("Eko Electric (EKEDC)"),
-            field_config: serde_json::json!({"service_ref_label":"Meter Number","service_ref_placeholder":"e.g. 54012345678","has_variations":false,"has_amount_picker":true,"amount_min_kobo":50000,"amount_max_kobo":50000000,"icon_type":"electricity"}),
-        },
-        UtilityItem {
-            slug: String::from("abuja-electric"),
-            utility_type: String::from("electricity"),
-            name: String::from("Abuja Electric (AEDC)"),
-            field_config: serde_json::json!({"service_ref_label":"Meter Number","service_ref_placeholder":"e.g. 54012345678","has_variations":false,"has_amount_picker":true,"amount_min_kobo":50000,"amount_max_kobo":50000000,"icon_type":"electricity"}),
-        },
-        UtilityItem {
-            slug: String::from("ibadan-electric"),
-            utility_type: String::from("electricity"),
-            name: String::from("Ibadan Electric (IBEDC)"),
-            field_config: serde_json::json!({"service_ref_label":"Meter Number","service_ref_placeholder":"e.g. 54012345678","has_variations":false,"has_amount_picker":true,"amount_min_kobo":50000,"amount_max_kobo":50000000,"icon_type":"electricity"}),
-        },
-        UtilityItem {
-            slug: String::from("kano-electric"),
-            utility_type: String::from("electricity"),
-            name: String::from("Kano Electric (KEDCO)"),
-            field_config: serde_json::json!({"service_ref_label":"Meter Number","service_ref_placeholder":"e.g. 54012345678","has_variations":false,"has_amount_picker":true,"amount_min_kobo":50000,"amount_max_kobo":50000000,"icon_type":"electricity"}),
-        },
-        UtilityItem {
-            slug: String::from("phed-electric"),
-            utility_type: String::from("electricity"),
-            name: String::from("Port Harcourt Electric (PHED)"),
-            field_config: serde_json::json!({"service_ref_label":"Meter Number","service_ref_placeholder":"e.g. 54012345678","has_variations":false,"has_amount_picker":true,"amount_min_kobo":50000,"amount_max_kobo":50000000,"icon_type":"electricity"}),
-        },
-        UtilityItem {
-            slug: String::from("jos-electric"),
-            utility_type: String::from("electricity"),
-            name: String::from("Jos Electric (JED)"),
-            field_config: serde_json::json!({"service_ref_label":"Meter Number","service_ref_placeholder":"e.g. 54012345678","has_variations":false,"has_amount_picker":true,"amount_min_kobo":50000,"amount_max_kobo":50000000,"icon_type":"electricity"}),
-        },
-        UtilityItem {
-            slug: String::from("kaduna-electric"),
-            utility_type: String::from("electricity"),
-            name: String::from("Kaduna Electric (KAEDCO)"),
-            field_config: serde_json::json!({"service_ref_label":"Meter Number","service_ref_placeholder":"e.g. 54012345678","has_variations":false,"has_amount_picker":true,"amount_min_kobo":50000,"amount_max_kobo":50000000,"icon_type":"electricity"}),
-        },
-        UtilityItem {
-            slug: String::from("enugu-electric"),
-            utility_type: String::from("electricity"),
-            name: String::from("Enugu Electric (EEDC)"),
-            field_config: serde_json::json!({"service_ref_label":"Meter Number","service_ref_placeholder":"e.g. 54012345678","has_variations":false,"has_amount_picker":true,"amount_min_kobo":50000,"amount_max_kobo":50000000,"icon_type":"electricity"}),
-        },
-        UtilityItem {
-            slug: String::from("benin-electric"),
-            utility_type: String::from("electricity"),
-            name: String::from("Benin Electric (BEDC)"),
-            field_config: serde_json::json!({"service_ref_label":"Meter Number","service_ref_placeholder":"e.g. 54012345678","has_variations":false,"has_amount_picker":true,"amount_min_kobo":50000,"amount_max_kobo":50000000,"icon_type":"electricity"}),
-        },
-        UtilityItem {
-            slug: String::from("yola-electric"),
-            utility_type: String::from("electricity"),
-            name: String::from("Yola Electric (YEDC)"),
-            field_config: serde_json::json!({"service_ref_label":"Meter Number","service_ref_placeholder":"e.g. 54012345678","has_variations":false,"has_amount_picker":true,"amount_min_kobo":50000,"amount_max_kobo":50000000,"icon_type":"electricity"}),
-        },
-        UtilityItem {
-            slug: String::from("aba-electric"),
-            utility_type: String::from("electricity"),
-            name: String::from("Aba Electric (ABA)"),
-            field_config: serde_json::json!({"service_ref_label":"Meter Number","service_ref_placeholder":"e.g. 54012345678","has_variations":false,"has_amount_picker":true,"amount_min_kobo":50000,"amount_max_kobo":50000000,"icon_type":"electricity"}),
-        },
-        UtilityItem {
-            slug: String::from("waec-registration"),
-            utility_type: String::from("waec"),
-            name: String::from("WAEC Registration"),
-            field_config: serde_json::json!({"service_ref_label":"Phone Number","service_ref_placeholder":"08012345678","has_variations":true,"has_amount_picker":false,"icon_type":"education"}),
-        },
-        UtilityItem {
-            slug: String::from("waec-result-checker"),
-            utility_type: String::from("waec"),
-            name: String::from("WAEC Result Checker"),
-            field_config: serde_json::json!({"service_ref_label":"Phone Number","service_ref_placeholder":"08012345678","has_variations":true,"has_amount_picker":false,"icon_type":"education"}),
-        },
-        UtilityItem {
-            slug: String::from("jamb"),
-            utility_type: String::from("jamb"),
-            name: String::from("JAMB Pin"),
-            field_config: serde_json::json!({"service_ref_label":"Phone Number","service_ref_placeholder":"08012345678","has_variations":false,"has_amount_picker":false,"fixed_amount_kobo":650000,"icon_type":"education"}),
-        },
-        UtilityItem {
-            slug: String::from("school-fees"),
-            utility_type: String::from("school_fees"),
-            name: String::from("School Fees"),
-            field_config: serde_json::json!({"service_ref_label":"Remita RRR","service_ref_placeholder":"Enter the 12 digit RRR","has_variations":false,"has_amount_picker":false,"icon_type":"school"}),
-        },
-    ]))
 }
 
 #[utoipa::path(

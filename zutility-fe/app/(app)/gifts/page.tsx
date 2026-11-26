@@ -5,11 +5,10 @@ import Link from "next/link"
 import { Copy, Gift, Loader2, Share2, X } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
-import { BrandMark } from "@/components/ui/brand-mark"
 import { apiGet, apiPost } from "@/lib/api"
-import { UTILITIES } from "@/lib/constants"
+import { findProductBySlug } from "@/lib/catalogue"
 import { DisplayAmount } from "@/components/ui/display-amount"
-import type { GiftSummary } from "@/lib/types"
+import type { CatalogueResponse, GiftSummary } from "@/lib/types"
 
 function giftState(gift: GiftSummary): { label: string; tone: string } {
   if (gift.status === "cancelled") return { label: "Cancelled", tone: "border-line text-muted" }
@@ -43,6 +42,8 @@ function giftState(gift: GiftSummary): { label: string; tone: string } {
       return { label: "Failed", tone: "border-rust/40 text-rust" }
     case "flagged_for_review":
       return { label: "Under review", tone: "border-rust/40 text-rust" }
+    case "reversed":
+      return { label: "Reversed", tone: "border-rust/40 text-rust" }
     default:
       return { label: "Claimed", tone: "border-line text-ink-2" }
   }
@@ -54,6 +55,13 @@ export default function GiftsPage() {
   const [loadError, setLoadError] = React.useState(false)
   const [working, setWorking] = React.useState<string | null>(null)
   const [reloadKey, setReloadKey] = React.useState(0)
+  const [catalogue, setCatalogue] = React.useState<CatalogueResponse | null>(null)
+
+  React.useEffect(() => {
+    apiGet<CatalogueResponse>("/api/v1/catalogue")
+      .then(setCatalogue)
+      .catch(() => setCatalogue(null))
+  }, [])
 
   React.useEffect(() => {
     apiGet<GiftSummary[]>("/api/v1/gifts")
@@ -146,7 +154,7 @@ export default function GiftsPage() {
 
       <div className="space-y-2">
         {gifts.map((gift) => {
-          const utility = UTILITIES.find((item) => item.slug === gift.utility_slug)
+          const biller = findProductBySlug(catalogue, gift.utility_slug)
           const state = giftState(gift)
           const canShare = gift.status === "open"
           const canCancel =
@@ -154,9 +162,14 @@ export default function GiftsPage() {
           const canPay = Boolean(gift.order_id) && gift.order_status === "awaiting_payment"
           const isTerminalOrder =
             !gift.order_status ||
-            ["completed", "failed", "cancelled", "expired", "flagged_for_review"].includes(
-              gift.order_status
-            )
+            [
+              "completed",
+              "failed",
+              "cancelled",
+              "expired",
+              "flagged_for_review",
+              "reversed",
+            ].includes(gift.order_status)
           const canOpen = Boolean(gift.order_id) && !isTerminalOrder
           const busy = working === gift.gift_id
 
@@ -166,17 +179,13 @@ export default function GiftsPage() {
               className="flex flex-col gap-3 rounded-lg border border-line bg-cream px-4 py-3 sm:flex-row sm:items-center"
             >
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-paper-2">
-                {utility ? (
-                  <BrandMark id={utility.brandIcon as never} size={24} />
-                ) : (
-                  <Gift className="h-5 w-5 text-gold-deep" />
-                )}
+                <Gift className="h-5 w-5 text-gold-deep" />
               </span>
 
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                   <p className="truncate text-[14px] font-medium text-ink">
-                    {utility?.name ?? gift.utility_slug}
+                    {biller?.name ?? gift.utility_slug}
                   </p>
                   <span className={`rounded-full border px-2 py-0.5 text-[10px] ${state.tone}`}>
                     {state.label}

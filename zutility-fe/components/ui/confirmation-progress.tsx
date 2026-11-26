@@ -6,13 +6,11 @@ import { cn } from "@/lib/utils"
 interface ConfirmationProgressProps extends React.HTMLAttributes<HTMLDivElement> {
   current: number
   required: number
-  addressType: 'shielded' | 'transparent'
 }
 
 export function ConfirmationProgress({
   current,
   required,
-  addressType,
   className,
   ...props
 }: ConfirmationProgressProps) {
@@ -39,9 +37,7 @@ export function ConfirmationProgress({
         ))}
       </div>
       <p className="mt-2 text-[12px] text-muted">
-        {addressType === "shielded"
-          ? "Shielded payment. One extra confirmation over a transparent send."
-          : "Transparent payment."}
+        Shielded payment. {resolved} of {segments} confirmations.
       </p>
     </div>
   )

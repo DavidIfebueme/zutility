@@ -4,7 +4,7 @@ import * as React from "react"
 import Link from "next/link"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { QRCodeSVG } from "qrcode.react"
-import { AlertTriangle, ArrowLeft, Check, Clock, Gift, Loader2, Share2, TimerOff, X } from "lucide-react"
+import { AlertTriangle, ArrowLeft, Check, Clock, Gift, Loader2, RotateCcw, Share2, TimerOff, X } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { CopyField } from "@/components/ui/copy-field"
@@ -16,66 +16,93 @@ import { useAuthStore } from "@/store/auth"
 import { useOrderStream } from "@/lib/hooks/useOrderStream"
 import { apiGet, apiPost } from "@/lib/api"
 import { cn, formatZEC } from "@/lib/utils"
-import { UTILITIES } from "@/lib/constants"
-import { getStatusMeta, STATUS_TONE_CLASS } from "@/lib/order-status"
-import type { CreateOrderResponse, OrderStatus, OrderStatusResponse } from "@/lib/types"
+import { formatAmount, formatDisplay, isCurrencyCode } from "@/lib/currency"
+import { getStatusMeta, isClosed as isClosedStatus, STATUS_TONE_CLASS } from "@/lib/order-status"
+import type {
+  CatalogueResponse,
+  CreateOrderResponse,
+  OrderStatus,
+  OrderStatusResponse,
+  SettlementCurrency,
+} from "@/lib/types"
+import { findProductBySlug } from "@/lib/catalogue"
 
-function getCompletionInfo(slug: string): { title: string; description: string; tokenLabel: string } {
-  const utility = UTILITIES.find((item) => item.slug === slug)
-  if (!utility) {
-    return {
-      title: "Order delivered",
-      description: "The utility has been delivered.",
-      tokenLabel: "Token or PIN",
-    }
-  }
-
-  switch (utility.type) {
+function getCompletionInfo(
+  utilityType: string,
+  fulfilmentKind: string
+): { title: string; description: string; tokenLabel: string; showsToken: boolean } {
+  const showsToken = fulfilmentKind === "pin" || utilityType === "electricity"
+  switch (utilityType) {
     case "airtime":
       return {
         title: "Airtime delivered",
         description: "The phone number has been topped up.",
         tokenLabel: "Reference",
+        showsToken,
       }
     case "data":
       return {
         title: "Data bundle activated",
         description: "The bundle is active on the number you provided.",
         tokenLabel: "Reference",
+        showsToken,
       }
-    case "tv":
+    case "dstv":
+    case "gotv":
+    case "startimes":
+    case "showmax":
+    case "television":
       return {
         title: "Subscription renewed",
         description: "The TV subscription has been renewed.",
         tokenLabel: "Reference",
+        showsToken,
       }
     case "electricity":
       return {
         title: "Meter token ready",
         description: "Enter the token on the meter to load the units.",
         tokenLabel: "Meter token",
+        showsToken,
       }
-    case "education":
+    case "waec":
+    case "jamb":
       return {
         title: "PIN delivered",
-        description: utility.name.includes("JAMB")
-          ? "The JAMB registration PIN has been delivered."
-          : "The exam PIN has been delivered. Use it on the official portal.",
+        description: "Use the PIN on the official portal.",
         tokenLabel: "PIN",
+        showsToken,
       }
-    case "school":
+    case "school_fees":
       return {
         title: "School fees paid",
         description: "The school fees payment has been confirmed.",
         tokenLabel: "Payment reference",
+        showsToken,
       }
     default:
       return {
         title: "Order delivered",
         description: "The utility has been delivered.",
         tokenLabel: "Token or PIN",
+        showsToken,
       }
   }
+}
+
+function billerName(slug: string): string {
+  return slug
+    .replace(/[-_]+/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+function formatSettlement(settlement: SettlementCurrency | null): string | null {
+  if (!settlement) return null
+  const amount = Number(settlement.amount)
+  if (isCurrencyCode(settlement.currency) && Number.isFinite(amount)) {
+    return formatAmount(amount, settlement.currency)
+  }
+  return `${settlement.amount} ${settlement.currency}`
 }
 
 function fromStatus(status: OrderStatusResponse, token: string): CreateOrderResponse {
@@ -122,7 +149,14 @@ function OrderPageContent() {
   const [recoveredOrder, setRecoveredOrder] = React.useState<CreateOrderResponse | null>(null)
   const [recoveredToken, setRecoveredToken] = React.useState<string | null>(null)
   const [orderSnapshot, setOrderSnapshot] = React.useState<OrderStatusResponse | null>(null)
+  const [catalogue, setCatalogue] = React.useState<CatalogueResponse | null>(null)
   const requestedOrder = React.useRef(false)
+
+  React.useEffect(() => {
+    apiGet<CatalogueResponse>("/api/v1/catalogue")
+      .then(setCatalogue)
+      .catch(() => {})
+  }, [])
 
   const isCurrentOrder = activeOrder?.order_id === orderId && activeOrderUserId === user?.id
   const order = isCurrentOrder ? activeOrder : recoveredOrder
@@ -204,6 +238,22 @@ function OrderPageContent() {
     : currentSnapshot?.confirmations ?? streamConfirmations
   const totalReceived = currentSnapshot?.total_received ?? null
 
+  React.useEffect(() => {
+    if (!order || !latestEvent) return
+    if (!["completed", "failed", "reversed", "flagged"].includes(latestEvent.event)) return
+    let cancelled = false
+    apiGet<OrderStatusResponse>(
+      `/api/v1/orders/${orderId}?token=${encodeURIComponent(order.order_access_token)}`
+    )
+      .then((next) => {
+        if (!cancelled) setOrderSnapshot(next)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [latestEvent, order, orderId])
+
   if (!order) {
     return (
       <div className="flex flex-col items-center py-24 text-center">
@@ -220,7 +270,8 @@ function OrderPageContent() {
     )
   }
 
-  const utility = UTILITIES.find((item) => item.slug === order.utility_slug)
+  const biller =
+    findProductBySlug(catalogue, order.utility_slug)?.name ?? billerName(order.utility_slug)
   const meta = getStatusMeta(status)
   const steps =
     status === "flagged_for_review"
@@ -230,12 +281,19 @@ function OrderPageContent() {
           { label: "Dispatching" },
           { label: "In review" },
         ]
-      : [
-          { label: "Awaiting payment" },
-          { label: "Confirming" },
-          { label: "Dispatching" },
-          { label: "Delivered" },
-        ]
+      : status === "reversed"
+        ? [
+            { label: "Awaiting payment" },
+            { label: "Confirming" },
+            { label: "Dispatching" },
+            { label: "Reversed" },
+          ]
+        : [
+            { label: "Awaiting payment" },
+            { label: "Confirming" },
+            { label: "Dispatching" },
+            { label: "Delivered" },
+          ]
 
   const stepIndex = (() => {
     switch (status) {
@@ -259,6 +317,8 @@ function OrderPageContent() {
         return -1
       case "cancelled":
         return -1
+      case "reversed":
+        return -1
       default: {
         const unhandled: never = status
         return unhandled
@@ -267,7 +327,11 @@ function OrderPageContent() {
   })()
 
   const addressType = order.address_type
-  const isClosed = ["completed", "expired", "failed", "cancelled"].includes(status)
+  const isClosed = isClosedStatus(status)
+  const settlementLabel = formatSettlement(currentSnapshot?.settlement ?? null)
+  const displayText = currentSnapshot
+    ? formatDisplay(currentSnapshot.display, currentSnapshot.amount_ngn)
+    : null
   const giftLocked = status === "awaiting_payment" || status === "payment_detected"
   const showGiftPanel =
     Boolean(giftPath) &&
@@ -304,7 +368,7 @@ function OrderPageContent() {
         <div className="flex flex-col gap-3 border-b border-line px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="label-xs text-muted">Receipt</p>
-            <h1 className="mt-1 text-2xl text-ink">{utility?.name ?? order.utility_slug}</h1>
+            <h1 className="mt-1 text-2xl text-ink">{biller}</h1>
             <p className="num mt-0.5 text-[11px] text-muted">{order.order_id}</p>
           </div>
           <div className="flex flex-col items-start gap-1 sm:items-end">
@@ -323,6 +387,38 @@ function OrderPageContent() {
         <div className="border-b border-line px-5 py-4">
           <Stepper steps={steps} currentStep={stepIndex} />
         </div>
+
+        <div className="grid gap-3 border-b border-line px-5 py-4 sm:grid-cols-3">
+          <div>
+            <p className="label-xs text-muted">Settlement</p>
+            <p className="num mt-1 text-[13px] text-ink">{settlementLabel ?? "—"}</p>
+          </div>
+          <div>
+            <p className="label-xs text-muted">Charged</p>
+            <p className="num mt-1 text-[13px] text-ink">
+              {displayText ? displayText.text : "—"}
+              {displayText?.marker ? (
+                <span className="ml-1 text-[10px] text-muted">{displayText.marker}</span>
+              ) : null}
+            </p>
+          </div>
+          <div>
+            <p className="label-xs text-muted">You send</p>
+            <p className="num mt-1 text-[13px] text-ink">{formatZEC(order.zec_amount)} ZEC</p>
+          </div>
+        </div>
+
+        {currentSnapshot?.failure_code && (
+          <div className="border-b border-line px-5 py-3">
+            <p className="label-xs text-muted">Failure code</p>
+            <p className="num mt-1 text-[13px] text-ink">{currentSnapshot.failure_code}</p>
+            {currentSnapshot.failure_message && (
+              <p className="mt-1 text-[12px] leading-relaxed text-muted">
+                {currentSnapshot.failure_message}
+              </p>
+            )}
+          </div>
+        )}
 
         {showGiftPanel && giftPath && (
           <div className="border-b border-line bg-paper-2/60 px-5 py-4">
@@ -419,7 +515,6 @@ function OrderPageContent() {
             <ConfirmationProgress
               current={confirmations}
               required={order.required_confirmations}
-              addressType={addressType}
             />
             {totalReceived && (
               <p className="text-[12px] text-muted">
@@ -468,11 +563,15 @@ function OrderPageContent() {
         )}
 
         {status === "completed" && (() => {
-          const info = getCompletionInfo(order.utility_slug || "")
-          const completionToken =
-            latestEvent?.event === "completed"
+          const info = getCompletionInfo(
+            currentSnapshot?.utility_type ?? "",
+            currentSnapshot?.fulfilment_kind ?? ""
+          )
+          const completionToken = info.showsToken
+            ? latestEvent?.event === "completed"
               ? latestEvent.delivery_token ?? recoveredToken
               : recoveredToken
+            : null
           return (
             <div className="space-y-5 p-6">
               <div className="flex items-start gap-2.5">
@@ -557,6 +656,37 @@ function OrderPageContent() {
                 <p className="mt-1 max-w-lg text-[13px] leading-relaxed text-ink-2">
                   The utility could not be delivered. If ZEC left your wallet, open a support
                   request with the order ID and the transaction ID.
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2 border-t border-line pt-4">
+              <Button asChild>
+                <Link href="/support">Contact support</Link>
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  clearActiveOrder()
+                  router.push("/pay")
+                }}
+              >
+                Try another order
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {status === "reversed" && (
+          <div className="space-y-5 p-6">
+            <div className="flex items-start gap-2.5">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-rust/10">
+                <RotateCcw className="h-4 w-4 text-rust" />
+              </span>
+              <div>
+                <p className="text-lg text-ink">Payment reversed</p>
+                <p className="mt-1 max-w-lg text-[13px] leading-relaxed text-ink-2">
+                  The provider reversed this order after it was delivered. The utility is no longer
+                  active. Support will refund the ZEC you sent to the deposit address.
                 </p>
               </div>
             </div>

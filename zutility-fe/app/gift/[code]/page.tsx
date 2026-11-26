@@ -1,7 +1,8 @@
 import type { Metadata } from "next"
 import { cache } from "react"
 import { formatZEC } from "@/lib/utils"
-import type { GiftView } from "@/lib/types"
+import { billerBySlug } from "@/lib/catalogue"
+import type { CatalogueResponse, GiftView } from "@/lib/types"
 import { GiftClaim } from "./gift-claim"
 
 const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "http://127.0.0.1:3001"
@@ -13,6 +14,16 @@ const fetchGift = cache(async (code: string): Promise<GiftView | null> => {
     })
     if (!response.ok) return null
     return (await response.json()) as GiftView
+  } catch {
+    return null
+  }
+})
+
+const fetchCatalogue = cache(async (): Promise<CatalogueResponse | null> => {
+  try {
+    const response = await fetch(`${apiBase}/api/v1/catalogue`, { next: { revalidate: 300 } })
+    if (!response.ok) return null
+    return (await response.json()) as CatalogueResponse
   } catch {
     return null
   }
@@ -44,6 +55,7 @@ export async function generateMetadata({
 
 export default async function GiftPage({ params }: { params: Promise<{ code: string }> }) {
   const { code } = await params
-  const gift = await fetchGift(code)
-  return <GiftClaim code={code} initialGift={gift} />
+  const [gift, catalogue] = await Promise.all([fetchGift(code), fetchCatalogue()])
+  const biller = gift ? billerBySlug(catalogue, gift.utility_slug) : null
+  return <GiftClaim code={code} initialGift={gift} biller={biller} />
 }

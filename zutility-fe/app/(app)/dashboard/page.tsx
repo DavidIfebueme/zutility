@@ -10,16 +10,10 @@ import { useRate } from "@/lib/hooks/useRate"
 import { useCurrency } from "@/lib/hooks/useCurrency"
 import { apiGet } from "@/lib/api"
 import { formatZEC } from "@/lib/utils"
-import { convertFromNGN, formatCurrency, fxRatesFromRate, type CurrencyCode } from "@/lib/currency"
+import { formatAmount, zecPriceInCurrency } from "@/lib/currency"
 import { DisplayAmount } from "@/components/ui/display-amount"
-import type { OrderHistoryItem, RateResponse } from "@/lib/types"
+import type { OrderHistoryItem } from "@/lib/types"
 import { getStatusMeta, STATUS_TONE_CLASS } from "@/lib/order-status"
-
-function rateForCurrency(rate: RateResponse, currency: CurrencyCode): number {
-  if (currency === "NGN") return parseFloat(rate.zec_ngn)
-  if (currency === "USD") return parseFloat(rate.zec_usd)
-  return convertFromNGN(parseFloat(rate.zec_ngn), currency, fxRatesFromRate(rate))
-}
 
 export default function DashboardPage() {
   const { user } = useAuthStore()
@@ -45,6 +39,7 @@ export default function DashboardPage() {
     : "awaiting_payment"
   const activeMeta = getStatusMeta(activeStatus)
   const activeIsPaid = activeStatus !== "awaiting_payment"
+  const zecPrice = rate ? zecPriceInCurrency(rate, currency) : null
 
   return (
     <div className="space-y-9">
@@ -211,7 +206,7 @@ export default function DashboardPage() {
           <div className="rounded-lg border border-line bg-cream p-4">
             <p className="label-xs text-muted">ZEC / {currency}</p>
             <p className="num mt-2 text-xl text-ink">
-              {rate ? formatCurrency(rateForCurrency(rate, currency), currency) : "---"}
+              {zecPrice !== null ? formatAmount(zecPrice, currency) : "---"}
             </p>
             <p className="mt-1 text-[11px] text-muted">
               {rate?.updated_at
