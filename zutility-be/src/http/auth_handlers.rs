@@ -831,15 +831,14 @@ pub async fn update_profile(
         ),
     };
 
-    db::update_user_display_name(&state.pool, user.user_id, display_name)
-        .await
-        .map_err(internal_err)?;
-
-    if let Some(code) = preferred_currency {
-        db::update_user_preferred_currency(&state.pool, user.user_id, code)
-            .await
-            .map_err(internal_err)?;
-    }
+    db::update_user_profile(
+        &state.pool,
+        user.user_id,
+        display_name,
+        preferred_currency.as_deref(),
+    )
+    .await
+    .map_err(internal_err)?;
 
     let db_user = db::find_user_by_id(&state.pool, user.user_id)
         .await

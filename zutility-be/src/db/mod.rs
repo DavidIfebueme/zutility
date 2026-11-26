@@ -1384,6 +1384,38 @@ pub async fn update_user_password(pool: &PgPool, user_id: Uuid, password_hash: &
     Ok(())
 }
 
+pub async fn update_user_profile(
+    pool: &PgPool,
+    user_id: Uuid,
+    display_name: Option<&str>,
+    preferred_currency: Option<&str>,
+) -> Result<()> {
+    let mut tx = pool.begin().await?;
+
+    if let Some(name) = display_name {
+        sqlx::query(
+            "UPDATE users SET display_name = $2, updated_at = now() WHERE id = $1 AND deleted_at IS NULL",
+        )
+        .bind(user_id)
+        .bind(name)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    if let Some(code) = preferred_currency {
+        sqlx::query(
+            "UPDATE users SET preferred_currency = $2, updated_at = now() WHERE id = $1 AND deleted_at IS NULL",
+        )
+        .bind(user_id)
+        .bind(code)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    tx.commit().await?;
+    Ok(())
+}
+
 pub async fn update_user_display_name(
     pool: &PgPool,
     user_id: Uuid,
