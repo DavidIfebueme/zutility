@@ -174,7 +174,7 @@ fn conversion_returns_none_instead_of_panicking_on_an_overflowing_rate() {
     let ngn = Money::from_ngn_whole(1000).expect("naira");
     let tiny = Decimal::new(1, 28);
     assert_eq!(
-        ngn.convert_from_ngn(CurrencyCode::Xof, tiny, Decimal::ONE),
+        ngn.display_in(CurrencyCode::Xof, tiny, Decimal::ONE),
         None
     );
 }
