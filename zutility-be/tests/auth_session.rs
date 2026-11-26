@@ -19,7 +19,10 @@ async fn test_pool() -> Option<PgPool> {
         .connect(&database_url)
         .await
         .expect("TEST_DATABASE_URL is set but the test database is unreachable");
-    sqlx::migrate!("./migrations").run(&pool).await.ok()?;
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .expect("test database migrations failed");
     Some(pool)
 }
 
