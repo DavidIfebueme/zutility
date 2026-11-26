@@ -197,6 +197,7 @@ async fn readiness_probe_decodes_select_one() -> Result<(), sqlx::Error> {
     let Some(pool) = test_pool().await else {
         return Ok(());
     };
+    prepare_schema(&pool).await;
 
     let value = sqlx::query_scalar::<_, i32>("SELECT 1")
         .fetch_one(&pool)
