@@ -122,6 +122,27 @@ fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool
         auth_routes
     };
 
+    let waitlist_routes = Router::new()
+        .route("/api/v1/waitlist/join", post(waitlist_join))
+        .route("/api/v1/waitlist/verify", post(waitlist_verify))
+        .route("/api/v1/waitlist/resend", post(waitlist_resend))
+        .route("/api/v1/waitlist/stats", get(waitlist_stats));
+
+    let waitlist_routes = if enable_rate_limits {
+        match GovernorConfigBuilder::default()
+            .per_second(6)
+            .burst_size(5)
+            .key_extractor(ClientIpKeyExtractor)
+            .use_headers()
+            .finish()
+        {
+            Some(config) => waitlist_routes.layer(GovernorLayer::new(config)),
+            None => waitlist_routes,
+        }
+    } else {
+        waitlist_routes
+    };
+
     let public_routes = Router::new()
         .route("/api/v1/auth/refresh", post(refresh))
         .route("/api/v1/auth/logout", post(logout))
@@ -154,11 +175,8 @@ fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool
         .route("/ops/docs", get(docs_ui))
         .route("/ops/metrics", get(metrics))
         .route("/ops/alerts", get(alerts))
-        .route("/api/v1/waitlist/join", post(waitlist_join))
-        .route("/api/v1/waitlist/verify", post(waitlist_verify))
-        .route("/api/v1/waitlist/resend", post(waitlist_resend))
-        .route("/api/v1/waitlist/stats", get(waitlist_stats))
         .route("/api/v1/support", post(support_contact))
+        .merge(waitlist_routes)
         .merge(auth_routes)
         .with_state(state.clone());
 
