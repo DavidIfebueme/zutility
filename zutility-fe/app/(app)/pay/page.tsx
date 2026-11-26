@@ -757,7 +757,7 @@ export default function PayPage() {
                 {
                   value: "shielded" as const,
                   title: "Shielded",
-                  hint: "z-address. 2 confirmations, about a minute.",
+                  hint: "z-address. Confirms in about a minute.",
                   icon: ShieldCheck,
                 },
               ].map((option) => {
@@ -940,7 +940,7 @@ export default function PayPage() {
               <p className="text-[11px] leading-relaxed text-muted">
                 {isGift
                   ? "After payment you get one link. Share it. The recipient claims the gift with their own account."
-                  : "Delivery follows the network confirmations. Shielded and transparent payments confirm in about the same time."}
+                  : "Delivery follows the network confirmations. A shielded payment confirms in about a minute."}
               </p>
             </div>
           </div>

@@ -23,8 +23,13 @@ pub async fn pool() -> Option<PgPool> {
         .with_env_filter(tracing_subscriber::EnvFilter::new("zutility_be=debug"))
         .try_init();
     let url = std::env::var("TEST_DATABASE_URL").ok()?;
-    let pool = PgPool::connect(&url).await.ok()?;
-    sqlx::migrate!("./migrations").run(&pool).await.ok()?;
+    let pool = PgPool::connect(&url)
+        .await
+        .expect("TEST_DATABASE_URL is set but the test database is unreachable");
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .expect("test database migrations failed");
     SEED.get_or_init(|| seed_addresses(&pool)).await;
     Some(pool)
 }

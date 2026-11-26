@@ -201,7 +201,7 @@ fn parse_rrr_details(data: Value) -> Result<RrrDetails, ProviderError> {
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_owned();
-    let amount_ngn = amount_from_value(data.get("amount")).unwrap_or(0);
+    let amount_ngn = amount_from(&data, &["amountDue", "amount", "rrrAmount"]).unwrap_or(0);
 
     if rrr.is_empty() || amount_ngn <= 0 {
         return Err(ProviderError::new(
@@ -222,9 +222,9 @@ fn parse_rrr_details(data: Value) -> Result<RrrDetails, ProviderError> {
         biller_name: string_field(&data, "billerName")
             .unwrap_or_else(|| String::from("Remita biller")),
         product_name: string_field(&data, "productName"),
-        customer_name: string_field(&data, "name"),
+        customer_name: string_field(&data, "payerName").or_else(|| string_field(&data, "name")),
         amount_ngn,
-        fee_ngn: amount_from_value(data.get("fee")).unwrap_or(0),
+        fee_ngn: amount_from(&data, &["chargeFee", "fee"]).unwrap_or(0),
         rrr,
         status,
         receipt_url: data
@@ -235,6 +235,15 @@ fn parse_rrr_details(data: Value) -> Result<RrrDetails, ProviderError> {
         description: string_field(&data, "description"),
         raw: data,
     })
+}
+
+fn amount_from(data: &Value, keys: &[&str]) -> Option<i64> {
+    for key in keys {
+        if let Some(value) = data.get(*key) {
+            return amount_from_value(Some(value));
+        }
+    }
+    None
 }
 
 fn string_field(data: &Value, key: &str) -> Option<String> {
@@ -313,8 +322,19 @@ impl UtilityProvider for RemitaCollectionsClient {
                 format!("RRR {rrr} is not payable ({})", details.status),
             ));
         }
+        if amount != details.amount_ngn {
+            return Err(ProviderError::new(
+                ProviderErrorKind::Permanent,
+                format!(
+                    "RRR {rrr} is for {} naira but the order settles {amount} naira",
+                    details.amount_ngn
+                ),
+            ));
+        }
 
-        let status = self.process_rrr(&rrr, &payment_identifier, amount).await?;
+        let status = self
+            .process_rrr(&rrr, &payment_identifier, details.amount_ngn)
+            .await?;
 
         Ok(UtilityPurchaseResponse {
             provider_reference: rrr.clone(),
@@ -389,6 +409,24 @@ mod tests {
         );
         assert!(details.is_payable());
         assert_eq!(details.transaction_status(), ProviderTxnStatus::Pending);
+    }
+
+    #[test]
+    fn parses_the_documented_field_names() {
+        let fixture = json!({
+            "rrr": "141523991664",
+            "amountDue": 7500,
+            "chargeFee": 100,
+            "rrrAmount": 7400,
+            "payerName": "Test Payer",
+            "billerName": "WAEC",
+            "status": "pending"
+        });
+        let details = parse_rrr_details(fixture).expect("details");
+
+        assert_eq!(details.amount_ngn, 7500);
+        assert_eq!(details.fee_ngn, 100);
+        assert_eq!(details.customer_name.as_deref(), Some("Test Payer"));
     }
 
     #[test]

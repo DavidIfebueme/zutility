@@ -74,7 +74,7 @@ function sampleAmounts(currency: CurrencyCode, rates: FxRates | null): Record<st
 
 const HERO_FACTS = [
   { icon: Clock, label: "Settlement", value: "About a minute or two" },
-  { icon: Wallet, label: "Payment", value: "Shielded or transparent ZEC" },
+  { icon: Wallet, label: "Payment", value: "Shielded ZEC" },
   { icon: Lock, label: "Identity", value: "No documents, no account approval" },
 ]
 
@@ -87,7 +87,7 @@ const STEPS = [
   {
     number: "02",
     title: "Send the exact amount",
-    body: "The order gets one Zcash deposit address and one ZEC amount, quoted at the current rate. Pay from any Zcash wallet, shielded or transparent.",
+    body: "The order gets one Zcash deposit address and one ZEC amount, quoted at the current rate. Pay from any Zcash wallet.",
   },
   {
     number: "03",
@@ -111,7 +111,7 @@ const FAQ = [
   },
   {
     q: "Can I pay from a shielded address?",
-    a: "Yes. The order accepts shielded or transparent ZEC. A shielded payment needs one more confirmation than a transparent one.",
+    a: "Yes. The order accepts shielded ZEC. A payment needs 3 confirmations.",
   },
   {
     q: "Which utilities are covered?",
@@ -272,7 +272,7 @@ export default async function HomePage() {
                   "Prepaid tokens from twelve distribution companies",
                   "Airtime and data on the four major networks",
                   "TV renewals and exam PINs",
-                  "Payment accepted from shielded or transparent addresses",
+                  "Payment accepted from shielded addresses",
                 ].map((line) => (
                   <li key={line} className="flex items-start gap-2 text-[14px] text-ink-2">
                     <Check className="mt-0.5 h-4 w-4 shrink-0 text-green" strokeWidth={2} />
