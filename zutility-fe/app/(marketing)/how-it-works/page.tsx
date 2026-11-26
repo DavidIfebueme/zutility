@@ -15,13 +15,13 @@ const STEPS = [
     id: "step-2",
     number: "02",
     title: "Send the exact amount",
-    body: "The order gets one Zcash deposit address and one ZEC amount, quoted at the current rate. Pay from any Zcash wallet. Shielded and transparent both work. Copy the address or scan the code on the order page.",
+    body: "The order gets one Zcash deposit address and one ZEC amount, quoted at the current rate. Pay from any Zcash wallet. Copy the address or scan the code on the order page.",
   },
   {
     id: "step-3",
     number: "03",
     title: "Wait for confirmations",
-    body: "We watch that address for a payment that matches the order. A transparent payment needs 2 confirmations. A shielded payment needs 3. Blocks arrive about every 25 seconds, so the wait is roughly a minute.",
+    body: "We watch that address for a payment that matches the order. A payment needs 3 confirmations. Blocks arrive about every 25 seconds, so the wait is roughly a minute.",
   },
   {
     id: "step-4",
@@ -95,7 +95,7 @@ export default function HowItWorksPage() {
                   <ShieldCheck className="h-4 w-4" strokeWidth={1.6} />
                   Payment
                 </dt>
-                <dd className="mt-1.5 text-[13px] text-ink">Shielded or transparent ZEC</dd>
+                <dd className="mt-1.5 text-[13px] text-ink">Shielded ZEC</dd>
               </div>
               <div>
                 <dt className="label-xs flex items-center gap-1.5 text-muted">
@@ -172,11 +172,7 @@ export default function HowItWorksPage() {
                       <td className="num py-3 text-[13px] text-ink-2">about 25 seconds</td>
                     </tr>
                     <tr className="border-b border-line">
-                      <td className="py-3 pr-4 text-[14px] text-ink">Transparent payment</td>
-                      <td className="num py-3 text-[13px] text-ink-2">2 confirmations</td>
-                    </tr>
-                    <tr className="border-b border-line">
-                      <td className="py-3 pr-4 text-[14px] text-ink">Shielded payment</td>
+                      <td className="py-3 pr-4 text-[14px] text-ink">Payment</td>
                       <td className="num py-3 text-[13px] text-ink-2">3 confirmations</td>
                     </tr>
                     <tr className="border-b border-line">

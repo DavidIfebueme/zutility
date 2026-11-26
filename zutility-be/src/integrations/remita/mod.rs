@@ -215,7 +215,6 @@ impl RemitaClient {
         })?;
 
         if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
-            self.breaker.on_failure().await;
             return Err(ProviderError::new(
                 ProviderErrorKind::Unauthorized,
                 "remita authentication failed",
@@ -271,7 +270,6 @@ impl RemitaClient {
         })?;
 
         if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
-            self.breaker.on_failure().await;
             return Err(ProviderError::new(
                 ProviderErrorKind::Unauthorized,
                 "remita authentication failed",
@@ -367,17 +365,25 @@ impl UtilityProvider for RemitaClient {
         request: &UtilityPurchaseRequest,
     ) -> Result<UtilityPurchaseResponse, ProviderError> {
         let hash = self.compute_hash(&request.order_id.to_string(), request.amount_ngn);
-        let payload = json!({
+        let mut payload = json!({
             "merchantId": self.merchant_id,
             "serviceTypeId": self.service_type_id,
             "orderId": request.order_id.to_string(),
             "amount": request.amount_ngn,
             "payerName": request.metadata.get("customer_name").and_then(Value::as_str).unwrap_or("Zutility User"),
             "payerEmail": request.metadata.get("payer_email").and_then(Value::as_str).unwrap_or("noreply@zutility.xyz"),
-            "payerPhone": request.metadata.get("payer_phone").and_then(Value::as_str).unwrap_or(&request.billers_code),
             "description": format!("Zutility: {} for {}", request.service_id, request.billers_code),
             "hash": hash,
         });
+        if let Some(phone) = request
+            .metadata
+            .get("payer_phone")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            payload["payerPhone"] = Value::String(phone.to_owned());
+        }
 
         let response = self.post_json("billpayment/pay", payload).await?;
 

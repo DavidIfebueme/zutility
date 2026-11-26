@@ -15,7 +15,6 @@ interface SampleOrder {
   detail: string
   amountNgn: number
   zec: string
-  address: string
   brand: BrandIconId
 }
 
@@ -26,7 +25,6 @@ const SAMPLES: SampleOrder[] = [
     detail: "0803 555 0142",
     amountNgn: 2000,
     zec: "0.00153524",
-    address: "utest1q9x4v7k2m8p3n6r5t0w1y2z3a4b5c6d7e8f9g0h",
     brand: "mtn",
   },
   {
@@ -35,7 +33,6 @@ const SAMPLES: SampleOrder[] = [
     detail: "Meter 0412 3456 789",
     amountNgn: 10000,
     zec: "0.00767618",
-    address: "utest1h7k2m8p3n6r5t0w1y2z3a4b5c6d7e8f9g0h1j2k3l4m5n6",
     brand: "ikeja-electric",
   },
   {
@@ -44,7 +41,6 @@ const SAMPLES: SampleOrder[] = [
     detail: "UNN · RRR 141523991664",
     amountNgn: 52000,
     zec: "0.03991616",
-    address: "utest1m8p3n6r5t0w1y2z3a4b5c6d7e8f9g0h1j2k3l4m5n6p7q",
     brand: "unn",
   },
   {
@@ -53,7 +49,6 @@ const SAMPLES: SampleOrder[] = [
     detail: "Smartcard 7021 345 678",
     amountNgn: 19000,
     zec: "0.01458475",
-    address: "utest1n6r5t0w1y2z3a4b5c6d7e8f9g0h1j2k3l4m5n6p7q8r9s",
     brand: "dstv",
   },
   {
@@ -62,7 +57,6 @@ const SAMPLES: SampleOrder[] = [
     detail: "10GB · 0802 555 0142",
     amountNgn: 5000,
     zec: "0.00383809",
-    address: "utest1p3n6r5t0w1y2z3a4b5c6d7e8f9g0h1j2k3l4m5n6p7q8r9t",
     brand: "airtel",
   },
 ]
@@ -103,7 +97,7 @@ function ReceiptCard({ sample, stacked }: { sample: SampleOrder; stacked: boolea
         <div className="rounded-md border border-line bg-paper px-4 py-3">
           <p className="label-xs text-muted">Send exactly</p>
           <p className="num mt-1 text-2xl text-ink">{sample.zec} ZEC</p>
-          <p className="num mt-1 truncate text-[12px] text-muted">{sample.address}</p>
+          <p className="mt-1 text-[12px] text-muted">Address generated per order</p>
         </div>
 
         <dl className="space-y-2 text-[13px]">

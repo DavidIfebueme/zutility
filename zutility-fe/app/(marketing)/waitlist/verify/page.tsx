@@ -174,7 +174,7 @@ function WaitlistVerifyContent() {
           {resent && (
             <p className="mt-3 flex items-center gap-1.5 text-[12px] text-green">
               <Check className="h-4 w-4" strokeWidth={1.8} />
-              A new link is on the way.
+              If that address is on the list, a new link is on the way.
             </p>
           )}
           {resendError && (

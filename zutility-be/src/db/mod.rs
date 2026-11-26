@@ -1806,12 +1806,46 @@ pub async fn verify_waitlist_email(pool: &PgPool, entry_id: Uuid) -> Result<()> 
 
 pub async fn get_waitlist_position(pool: &PgPool, entry_id: Uuid) -> Result<i64> {
     let row = sqlx::query(
-        "SELECT COUNT(*) AS pos FROM waitlist_entries WHERE created_at <= (SELECT created_at FROM waitlist_entries WHERE id = $1)",
+        "WITH me AS (
+            SELECT id, created_at, referral_code
+            FROM waitlist_entries
+            WHERE id = $1
+         ),
+         ahead AS (
+            SELECT COUNT(*) AS n
+            FROM waitlist_entries v, me
+            WHERE v.email_verified = true
+              AND v.id <> me.id
+              AND (v.created_at < me.created_at OR (v.created_at = me.created_at AND v.id < me.id))
+         ),
+         referrals AS (
+            SELECT COUNT(*) AS n
+            FROM waitlist_entries r, me
+            WHERE r.referred_by = me.referral_code
+              AND r.email_verified = true
+              AND r.id <> me.id
+         )
+         SELECT GREATEST(1, (SELECT n FROM ahead) + 1 - (SELECT n FROM referrals)) AS pos",
     )
     .bind(entry_id)
     .fetch_one(pool)
     .await?;
     Ok(row.try_get("pos")?)
+}
+
+pub async fn latest_waitlist_token_age_seconds(
+    pool: &PgPool,
+    entry_id: Uuid,
+) -> Result<Option<i64>> {
+    let row = sqlx::query_scalar::<_, Option<i64>>(
+        "SELECT EXTRACT(EPOCH FROM (now() - MAX(created_at)))::bigint
+         FROM waitlist_verify_tokens
+         WHERE entry_id = $1",
+    )
+    .bind(entry_id)
+    .fetch_one(pool)
+    .await?;
+    Ok(row)
 }
 
 pub async fn count_waitlist_entries(pool: &PgPool) -> Result<(i64, i64)> {
