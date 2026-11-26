@@ -121,55 +121,50 @@ fn display_includes_the_currency() {
 
 #[tokio::test]
 async fn user_currency_round_trips_through_every_query() {
-    let Ok(url) = std::env::var("TEST_DATABASE_URL") else {
+    let Some(url) = std::env::var("TEST_DATABASE_URL").ok() else {
         return;
     };
-    let Ok(pool) = sqlx::PgPool::connect(&url).await else {
-        return;
-    };
-    if sqlx::migrate!("./migrations").run(&pool).await.is_err() {
-        return;
-    }
+    let pool = sqlx::PgPool::connect(&url)
+        .await
+        .expect("TEST_DATABASE_URL is set but the test database is unreachable");
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .expect("test database migrations failed");
 
     let email = format!("money-{}@example.com", uuid::Uuid::new_v4());
-    let Ok(created) =
-        zutility_be::db::create_user(&pool, &email, Some("probe"), "hash", "XOF").await
-    else {
-        return;
-    };
+    let created = zutility_be::db::create_user(&pool, &email, Some("probe"), "hash", "XOF")
+        .await
+        .expect("create user");
     assert_eq!(created.preferred_currency, "XOF");
 
     let by_email = zutility_be::db::find_user_by_email(&pool, &email)
         .await
-        .ok()
-        .flatten()
+        .expect("find by email")
         .map(|user| user.preferred_currency);
     assert_eq!(by_email.as_deref(), Some("XOF"));
 
     let by_id = zutility_be::db::find_user_by_id(&pool, created.id)
         .await
-        .ok()
-        .flatten()
+        .expect("find by id")
         .map(|user| user.preferred_currency);
     assert_eq!(by_id.as_deref(), Some("XOF"));
 
     zutility_be::db::update_user_preferred_currency(&pool, created.id, "GHS")
         .await
-        .ok();
+        .expect("update currency");
     let updated = zutility_be::db::find_user_by_id(&pool, created.id)
         .await
-        .ok()
-        .flatten()
+        .expect("find updated")
         .map(|user| user.preferred_currency);
     assert_eq!(updated.as_deref(), Some("GHS"));
 
     zutility_be::db::update_user_display_name(&pool, created.id, None)
         .await
-        .ok();
+        .expect("preserve display name");
     let preserved = zutility_be::db::find_user_by_id(&pool, created.id)
         .await
-        .ok()
-        .flatten()
+        .expect("find preserved")
         .and_then(|user| user.display_name);
     assert_eq!(preserved.as_deref(), Some("probe"));
 }
