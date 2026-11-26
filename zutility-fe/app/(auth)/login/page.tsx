@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input"
 import { AuthFooterLink, AuthShell } from "@/components/auth/auth-shell"
 import { useAuthStore, type AuthUser } from "@/store/auth"
 import { apiPostRaw, getApiBaseUrl, markSessionFresh } from "@/lib/api"
+import { persistDisplayCurrency } from "@/lib/currency"
 import { useShake } from "@/lib/hooks/useShake"
 import { toast } from "sonner"
 
@@ -62,6 +63,7 @@ export default function LoginPage() {
         const account = (await me.json()) as AuthUser
         if (!active) return
         setUser(account)
+        if (account.preferred_currency) persistDisplayCurrency(account.preferred_currency)
         router.replace(next)
       } catch {}
     }
@@ -86,6 +88,7 @@ export default function LoginPage() {
           return
         }
         setUser(result)
+        if (result.preferred_currency) persistDisplayCurrency(result.preferred_currency)
         markSessionFresh()
         toast.success("Signed in")
         const next = new URLSearchParams(window.location.search).get("next")

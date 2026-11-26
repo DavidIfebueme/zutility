@@ -19,11 +19,13 @@ import { cn, formatZEC } from "@/lib/utils"
 import { formatAmount, formatDisplay, isCurrencyCode } from "@/lib/currency"
 import { getStatusMeta, isClosed as isClosedStatus, STATUS_TONE_CLASS } from "@/lib/order-status"
 import type {
+  CatalogueResponse,
   CreateOrderResponse,
   OrderStatus,
   OrderStatusResponse,
   SettlementCurrency,
 } from "@/lib/types"
+import { findProductBySlug } from "@/lib/catalogue"
 
 function getCompletionInfo(
   utilityType: string,
@@ -147,7 +149,14 @@ function OrderPageContent() {
   const [recoveredOrder, setRecoveredOrder] = React.useState<CreateOrderResponse | null>(null)
   const [recoveredToken, setRecoveredToken] = React.useState<string | null>(null)
   const [orderSnapshot, setOrderSnapshot] = React.useState<OrderStatusResponse | null>(null)
+  const [catalogue, setCatalogue] = React.useState<CatalogueResponse | null>(null)
   const requestedOrder = React.useRef(false)
+
+  React.useEffect(() => {
+    apiGet<CatalogueResponse>("/api/v1/catalogue")
+      .then(setCatalogue)
+      .catch(() => {})
+  }, [])
 
   const isCurrentOrder = activeOrder?.order_id === orderId && activeOrderUserId === user?.id
   const order = isCurrentOrder ? activeOrder : recoveredOrder
@@ -261,7 +270,8 @@ function OrderPageContent() {
     )
   }
 
-  const biller = billerName(order.utility_slug)
+  const biller =
+    findProductBySlug(catalogue, order.utility_slug)?.name ?? billerName(order.utility_slug)
   const meta = getStatusMeta(status)
   const steps =
     status === "flagged_for_review"
@@ -505,7 +515,6 @@ function OrderPageContent() {
             <ConfirmationProgress
               current={confirmations}
               required={order.required_confirmations}
-              addressType={addressType}
             />
             {totalReceived && (
               <p className="text-[12px] text-muted">

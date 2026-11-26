@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { useAuthStore } from "@/store/auth"
 import { apiPost } from "@/lib/api"
-import { CURRENCIES, type CurrencyCode } from "@/lib/currency"
+import { CURRENCIES, persistDisplayCurrency, type CurrencyCode } from "@/lib/currency"
 import { ThemePicker } from "@/components/theme-provider"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
@@ -109,6 +109,7 @@ export default function SettingsPage() {
         display_name: data.display_name.trim(),
       })
       setUser(updated)
+      persistDisplayCurrency(updated.preferred_currency)
       profileForm.reset({ display_name: updated.display_name || "" })
       toast.success("Profile updated")
     } catch {
@@ -126,6 +127,7 @@ export default function SettingsPage() {
         preferred_currency: code,
       })
       setUser(updated)
+      persistDisplayCurrency(updated.preferred_currency)
       toast.success(`Display currency set to ${CURRENCIES[code].name}`)
     } catch {
       toast.error("Failed to save the display currency")

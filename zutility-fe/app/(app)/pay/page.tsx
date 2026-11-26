@@ -214,10 +214,8 @@ export default function PayPage() {
   const chooseCountry = (iso2: string) => {
     setCountryIso(iso2)
     resetProductState()
-    if (!activeCategory) {
-      const next = categoriesWithProducts(countries.find((item) => item.iso2 === iso2) ?? null)
-      setActiveCategory(next[0]?.category ?? null)
-    }
+    const next = categoriesWithProducts(countries.find((item) => item.iso2 === iso2) ?? null)
+    setActiveCategory(next[0]?.category ?? null)
   }
 
   const chooseCategory = (category: string) => {

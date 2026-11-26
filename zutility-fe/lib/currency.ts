@@ -86,6 +86,11 @@ export function readCurrencyCookie(): CurrencyCode | null {
   return isCurrencyCode(value) ? value : null
 }
 
+export function persistDisplayCurrency(code: CurrencyCode) {
+  if (typeof document === 'undefined') return
+  document.cookie = `${CURRENCY_COOKIE}=${code}; path=/; max-age=${60 * 60 * 24 * 365}; samesite=lax`
+}
+
 export function detectCurrency(): CurrencyCode {
   if (typeof window === 'undefined') return DEFAULT_CURRENCY
   try {

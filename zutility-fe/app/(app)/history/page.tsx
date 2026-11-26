@@ -24,7 +24,7 @@ function matchesFilter(status: string, filter: FilterId): boolean {
   const key = getStatusMeta(status).key
   if (filter === "all") return true
   if (filter === "delivered") return key === "completed"
-  if (filter === "failed") return ["failed", "expired", "cancelled"].includes(key)
+  if (filter === "failed") return ["failed", "expired", "cancelled", "reversed"].includes(key)
   return ["awaiting_payment", "payment_detected", "payment_confirmed", "awaiting_claim", "utility_dispatching", "pending"].includes(key)
 }
 

@@ -42,6 +42,8 @@ function giftState(gift: GiftSummary): { label: string; tone: string } {
       return { label: "Failed", tone: "border-rust/40 text-rust" }
     case "flagged_for_review":
       return { label: "Under review", tone: "border-rust/40 text-rust" }
+    case "reversed":
+      return { label: "Reversed", tone: "border-rust/40 text-rust" }
     default:
       return { label: "Claimed", tone: "border-line text-ink-2" }
   }
@@ -160,9 +162,14 @@ export default function GiftsPage() {
           const canPay = Boolean(gift.order_id) && gift.order_status === "awaiting_payment"
           const isTerminalOrder =
             !gift.order_status ||
-            ["completed", "failed", "cancelled", "expired", "flagged_for_review"].includes(
-              gift.order_status
-            )
+            [
+              "completed",
+              "failed",
+              "cancelled",
+              "expired",
+              "flagged_for_review",
+              "reversed",
+            ].includes(gift.order_status)
           const canOpen = Boolean(gift.order_id) && !isTerminalOrder
           const busy = working === gift.gift_id
 
