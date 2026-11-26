@@ -279,10 +279,7 @@ async fn remita_pay_sends_recorded_hash_and_context() {
     assert_eq!(path, "/remita/billpayment/pay");
     assert_eq!(body.get("amount").and_then(Value::as_i64), Some(1000));
     assert_eq!(body.get("hash").and_then(Value::as_str), Some(REMITA_HASH));
-    assert_eq!(
-        body.get("payerPhone").and_then(Value::as_str),
-        Some("141523991664")
-    );
+    assert!(body.get("payerPhone").is_none());
     assert_eq!(
         body.get("description").and_then(Value::as_str),
         Some("Zutility: school-fees for 141523991664")

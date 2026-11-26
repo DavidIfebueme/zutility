@@ -6,6 +6,7 @@ use axum::{
 };
 use chrono::{Duration, Utc};
 use rand::RngExt;
+use secrecy::ExposeSecret;
 use sqlx::Row as _;
 
 use crate::{
@@ -65,6 +66,9 @@ pub async fn waitlist_join(
         let body = WaitlistJoinResponse {
             referral_code: existing.referral_code,
             position,
+            verification_pending: !existing.email_verified,
+            email_sent: false,
+            created: false,
         };
         let json = serde_json::to_string(&body).unwrap_or_default();
         return Ok(
@@ -120,7 +124,9 @@ pub async fn waitlist_join(
         .map_err(internal_err)?;
 
     let verification_token = auth::generate_verification_token();
-    let token_hash = auth::hash_verification_token(&verification_token).map_err(internal_err)?;
+    let token_hash =
+        auth::hash_waitlist_token(state.order_token_hmac_secret.expose_secret(), &verification_token)
+            .map_err(internal_err)?;
     let expires_at = Utc::now() + Duration::hours(24);
 
     db::invalidate_waitlist_verify_tokens(&state.pool, entry.id)
@@ -130,17 +136,19 @@ pub async fn waitlist_join(
         .await
         .map_err(internal_err)?;
 
+    let mut email_sent = false;
     if let Some(ref email_client) = state.email_client {
         let verification_link = format!(
             "{}/waitlist/verify?token={}",
             state.app_base_url.trim_end_matches('/'),
             verification_token
         );
-        if let Err(e) = email_client
+        match email_client
             .send_waitlist_verification_email(&email, &verification_link)
             .await
         {
-            tracing::warn!(error = %e, "failed to send waitlist verification email");
+            Ok(()) => email_sent = true,
+            Err(e) => tracing::warn!(error = %e, "failed to send waitlist verification email"),
         }
     } else {
         tracing::warn!(
@@ -153,6 +161,9 @@ pub async fn waitlist_join(
     let body = WaitlistJoinResponse {
         referral_code,
         position,
+        verification_pending: true,
+        email_sent,
+        created: true,
     };
     let json = serde_json::to_string(&body).unwrap_or_default();
     Ok(
@@ -165,7 +176,9 @@ pub async fn waitlist_verify(
     State(state): State<HttpState>,
     Json(payload): Json<WaitlistVerifyRequest>,
 ) -> Result<Json<WaitlistVerifyResponse>, ApiError> {
-    let token_hash = auth::hash_verification_token(&payload.token).map_err(internal_err)?;
+    let token_hash =
+        auth::hash_waitlist_token(state.order_token_hmac_secret.expose_secret(), &payload.token)
+            .map_err(internal_err)?;
 
     let token_record = db::find_waitlist_verify_token(&state.pool, &token_hash)
         .await
@@ -209,17 +222,29 @@ pub async fn waitlist_resend(
     let email = payload.email.trim().to_lowercase();
     validate_email(&email)?;
 
-    let entry = db::find_waitlist_entry_by_email(&state.pool, &email)
+    let Some(entry) = db::find_waitlist_entry_by_email(&state.pool, &email)
         .await
         .map_err(internal_err)?
-        .ok_or_else(|| ApiError::bad_request("email not found on waitlist"))?;
+    else {
+        return Ok(StatusCode::NO_CONTENT);
+    };
 
     if entry.email_verified {
-        return Err(ApiError::bad_request("email already verified"));
+        return Ok(StatusCode::NO_CONTENT);
+    }
+
+    if let Some(age) = db::latest_waitlist_token_age_seconds(&state.pool, entry.id)
+        .await
+        .map_err(internal_err)?
+        && age < 60
+    {
+        return Ok(StatusCode::NO_CONTENT);
     }
 
     let verification_token = auth::generate_verification_token();
-    let token_hash = auth::hash_verification_token(&verification_token).map_err(internal_err)?;
+    let token_hash =
+        auth::hash_waitlist_token(state.order_token_hmac_secret.expose_secret(), &verification_token)
+            .map_err(internal_err)?;
     let expires_at = Utc::now() + Duration::hours(24);
 
     db::invalidate_waitlist_verify_tokens(&state.pool, entry.id)

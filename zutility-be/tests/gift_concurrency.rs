@@ -7,11 +7,13 @@ use zutility_be::db;
 
 async fn test_pool() -> Option<PgPool> {
     let database_url = std::env::var("TEST_DATABASE_URL").ok()?;
-    PgPoolOptions::new()
-        .max_connections(24)
-        .connect(&database_url)
-        .await
-        .ok()
+    Some(
+        PgPoolOptions::new()
+            .max_connections(24)
+            .connect(&database_url)
+            .await
+            .expect("TEST_DATABASE_URL is set but the test database is unreachable"),
+    )
 }
 
 struct Fixture {
