@@ -1485,6 +1485,16 @@ pub async fn webhook_dtone(
     )
     .await
     .map_err(internal_err)?;
+
+    let mut reversed = false;
+    if transaction.status == ProviderTxnStatus::Reversed
+        && outcome != db::WebhookTransitionOutcome::Replayed
+    {
+        reversed = db::mark_order_reversed_tx(&mut tx, order.id, &class_id.to_string(), None)
+            .await
+            .map_err(internal_err)?;
+    }
+
     tx.commit().await.map_err(internal_err)?;
 
     tracing::info!(
@@ -1496,7 +1506,6 @@ pub async fn webhook_dtone(
         "dtone callback processed"
     );
 
-    let mut reversed = false;
     if transaction.status == ProviderTxnStatus::Failed
         && outcome == db::WebhookTransitionOutcome::Applied
     {
@@ -1510,49 +1519,24 @@ pub async fn webhook_dtone(
             .map_err(internal_err)?;
     }
 
-    if transaction.status == ProviderTxnStatus::Reversed
-        && outcome != db::WebhookTransitionOutcome::Replayed
-    {
-        reversed = db::mark_order_reversed(&state.pool, order.id, &class_id.to_string(), None)
-            .await
-            .map_err(internal_err)?;
-
-        if !reversed {
-            reversed = db::update_order_status_cas(
-                &state.pool,
-                order.id,
-                &order.status,
-                OrderStatus::FlaggedForReview.as_db(),
-                "provider_reversed",
-                serde_json::json!({
-                    "provider": crate::integrations::dtone::PROVIDER_NAME,
-                    "provider_transaction_id": transaction.provider_transaction_id,
-                    "provider_status_class": class_id,
-                }),
-            )
-            .await
-            .map_err(internal_err)?;
-        }
-
-        if reversed && let Some(user_id) = order.user_id {
-            let _ = db::create_notification(
-                &state.pool,
-                user_id,
-                Some(order.id),
-                "order_reversed",
-                "Order Reversed",
-                &format!(
-                    "Your {} payment was reversed by the provider. Support will refund it to {}.",
-                    order.utility_slug, order.deposit_address
-                ),
-                serde_json::json!({
-                    "utility_slug": order.utility_slug,
-                    "refund_address": order.deposit_address,
-                    "provider_transaction_id": transaction.provider_transaction_id,
-                }),
-            )
-            .await;
-        }
+    if reversed && let Some(user_id) = order.user_id {
+        let _ = db::create_notification(
+            &state.pool,
+            user_id,
+            Some(order.id),
+            "order_reversed",
+            "Order Reversed",
+            &format!(
+                "Your {} payment was reversed by the provider. Support will refund it to {}.",
+                order.utility_slug, order.deposit_address
+            ),
+            serde_json::json!({
+                "utility_slug": order.utility_slug,
+                "refund_address": order.deposit_address,
+                "provider_transaction_id": transaction.provider_transaction_id,
+            }),
+        )
+        .await;
     }
 
     if outcome == db::WebhookTransitionOutcome::Applied || reversed {
@@ -1598,10 +1582,7 @@ fn callback_address_allowed(
 }
 
 fn is_trusted_proxy(address: IpAddr) -> bool {
-    match address {
-        IpAddr::V4(address) => address.is_loopback() || address.is_private(),
-        IpAddr::V6(address) => address.is_loopback() || address.is_unique_local(),
-    }
+    address.is_loopback()
 }
 
 fn webhook_transition(
@@ -1613,13 +1594,17 @@ fn webhook_transition(
 ) -> Option<db::WebhookTransition> {
     let from = OrderStatus::from_db(&order.status)?;
     let transition = OrderStatusTransition::new(from, to).ok()?;
+    let provider_reference = detail
+        .get("provider_transaction_id")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned);
 
     Some(db::WebhookTransition {
         from_status: transition.from.as_db().to_owned(),
         to_status: transition.to.as_db().to_owned(),
         event: event.to_owned(),
         delivery_token,
-        provider_reference: None,
+        provider_reference,
         detail,
     })
 }

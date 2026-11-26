@@ -54,11 +54,11 @@ pub async fn session(pool: &PgPool) -> Option<Session> {
     let email = format!("test-{}@example.com", Uuid::new_v4());
     let user = zutility_be::db::create_user(pool, &email, Some("probe"), "hash", "NGN")
         .await
-        .ok()?;
+        .expect("create test user");
     let csrf = zutility_be::http::auth::generate_csrf_token();
     let secret = SecretString::from(http::DEV_JWT_SECRET.to_string());
     let jwt = zutility_be::http::auth::create_access_jwt(user.id, &user.email, &csrf, &secret, 15)
-        .ok()?;
+        .expect("create test jwt");
     Some(Session { jwt, csrf })
 }
 

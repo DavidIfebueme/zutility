@@ -22,7 +22,10 @@ struct Fixture {
 }
 
 async fn fixture(pool: &PgPool) -> Option<Fixture> {
-    sqlx::migrate!("./migrations").run(pool).await.ok()?;
+    sqlx::migrate!("./migrations")
+        .run(pool)
+        .await
+        .expect("test database migrations failed");
 
     let user_id = Uuid::new_v4();
     sqlx::query("INSERT INTO users (id, email, password_hash) VALUES ($1, $2, 'x')")

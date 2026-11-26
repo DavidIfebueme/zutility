@@ -23,9 +23,10 @@ async fn test_pool() -> Option<PgPool> {
 }
 
 async fn prepare_schema(pool: &PgPool) {
-    if sqlx::migrate!("./migrations").run(pool).await.is_err() {
-        return;
-    }
+    sqlx::migrate!("./migrations")
+        .run(pool)
+        .await
+        .expect("test database migrations failed");
 
     let _ =
         sqlx::query("TRUNCATE TABLE audit_log, orders, deposit_addresses, rate_snapshots CASCADE")
