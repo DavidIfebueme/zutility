@@ -5,23 +5,11 @@ import Link from "next/link"
 import { ArrowRight, Download, Loader2, Receipt } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { apiGet } from "@/lib/api"
-import { useCurrency } from "@/lib/hooks/useCurrency"
-import { useFxRates } from "@/lib/hooks/useFxRates"
-import { formatLocalAmount } from "@/lib/currency"
 import { formatZEC } from "@/lib/utils"
+import { DisplayAmount } from "@/components/ui/display-amount"
+import type { OrderHistoryItem } from "@/lib/types"
 import { getStatusMeta, STATUS_TONE_CLASS } from "@/lib/order-status"
 import { cn } from "@/lib/utils"
-
-interface OrderHistoryItem {
-  order_id: string
-  utility_slug: string
-  utility_type: string
-  amount_ngn: number
-  zec_amount: string
-  status: string
-  created_at: string
-  completed_at: string | null
-}
 
 const FILTERS = [
   { id: "all", label: "All" },
@@ -41,8 +29,6 @@ function matchesFilter(status: string, filter: FilterId): boolean {
 }
 
 export default function HistoryPage() {
-  const currency = useCurrency()
-  const fxRates = useFxRates()
   const [orders, setOrders] = React.useState<OrderHistoryItem[]>([])
   const [loading, setLoading] = React.useState(true)
   const [filter, setFilter] = React.useState<FilterId>("all")
@@ -158,7 +144,7 @@ export default function HistoryPage() {
                     </td>
                     <td className="px-4 py-3 text-right">
                       <span className="num block text-[13px] text-ink">
-                        {fxRates ? formatLocalAmount(order.amount_ngn, currency, fxRates) : "—"}
+                        <DisplayAmount display={order.display} nairaAmount={order.amount_ngn} />
                       </span>
                       <span className="num block text-[11px] text-muted">
                         {formatZEC(order.zec_amount)} ZEC

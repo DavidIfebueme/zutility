@@ -1,3 +1,5 @@
+import type { DisplayMoney } from '@/lib/money'
+
 export type OrderStatus =
   | 'awaiting_payment' | 'payment_detected' | 'payment_confirmed' | 'awaiting_claim'
   | 'utility_dispatching' | 'completed' | 'expired' | 'failed' | 'flagged_for_review' | 'cancelled'
@@ -41,6 +43,25 @@ export interface OrderStatusResponse {
   expires_at: string
   completed_at: string | null
   delivery_token: string | null
+  display: DisplayMoney
+}
+
+export interface OrderHistoryItem {
+  order_id: string
+  utility_slug: string
+  utility_type: string
+  amount_ngn: number
+  zec_amount: string
+  status: OrderStatus
+  created_at: string
+  completed_at: string | null
+  display: DisplayMoney
+}
+
+export interface FxQuote {
+  quote: string
+  per_usd: string
+  fetched_at: string
 }
 
 export interface RateResponse {
@@ -53,6 +74,8 @@ export interface RateResponse {
   usd_egp: string
   updated_at: string
   valid_until: string
+  fx: FxQuote[]
+  display: DisplayMoney
 }
 
 export interface UtilityVariationResponse {
@@ -68,6 +91,7 @@ export interface UtilityValidateResponse {
   biller_name: string | null
   product_name: string | null
   reference: string | null
+  display: DisplayMoney
 }
 
 export type OrderStreamEvent =
@@ -119,6 +143,7 @@ export interface GiftView {
   confirmations: number
   required_confirmations: number
   delivery_token: string | null
+  display: DisplayMoney
 }
 
 export interface GiftSummary {
@@ -133,4 +158,5 @@ export interface GiftSummary {
   claim_window_hours: number
   claim_expires_at: string | null
   created_at: string
+  display: DisplayMoney
 }

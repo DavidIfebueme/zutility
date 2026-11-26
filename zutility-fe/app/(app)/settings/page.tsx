@@ -5,13 +5,12 @@ import { useRouter } from "next/navigation"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
-import { Check, Globe, Lock, TriangleAlert, User } from "lucide-react"
+import { Check, Globe, Loader2, Lock, TriangleAlert, User } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { useAuthStore } from "@/store/auth"
 import { apiPost } from "@/lib/api"
-import { useCurrency } from "@/lib/hooks/useCurrency"
 import { CURRENCIES, type CurrencyCode } from "@/lib/currency"
 import { ThemePicker } from "@/components/theme-provider"
 import { cn } from "@/lib/utils"
@@ -25,6 +24,14 @@ const profileSchema = z.object({
 })
 
 type ProfileFormValues = z.infer<typeof profileSchema>
+
+interface AccountResponse {
+  id: string
+  email: string
+  display_name: string | null
+  email_verified: boolean
+  preferred_currency: CurrencyCode
+}
 
 const changePasswordSchema = z
   .object({
@@ -58,8 +65,7 @@ const CURRENCY_CODES = Object.keys(CURRENCIES) as CurrencyCode[]
 
 export default function SettingsPage() {
   const router = useRouter()
-  const { user, setUser, logout, setPreferredCurrency } = useAuthStore()
-  const activeCurrency = useCurrency()
+  const { user, setUser, logout } = useAuthStore()
 
   const [section, setSection] = React.useState<SectionId>("profile")
   const [profileLoading, setProfileLoading] = React.useState(false)
@@ -67,6 +73,7 @@ export default function SettingsPage() {
   const [deleteLoading, setDeleteLoading] = React.useState(false)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = React.useState(false)
   const [resendLoading, setResendLoading] = React.useState(false)
+  const [currencySaving, setCurrencySaving] = React.useState<CurrencyCode | null>(null)
 
   const profileForm = useForm<ProfileFormValues>({
     resolver: zodResolver(profileSchema),
@@ -98,12 +105,7 @@ export default function SettingsPage() {
   const onProfileSubmit = async (data: ProfileFormValues) => {
     setProfileLoading(true)
     try {
-      const updated = await apiPost<{
-        id: string
-        email: string
-        display_name: string | null
-        email_verified: boolean
-      }>("/api/v1/auth/profile", {
+      const updated = await apiPost<AccountResponse>("/api/v1/auth/profile", {
         display_name: data.display_name.trim(),
       })
       setUser(updated)
@@ -113,6 +115,22 @@ export default function SettingsPage() {
       toast.error("Failed to update profile")
     } finally {
       setProfileLoading(false)
+    }
+  }
+
+  const onCurrencySelect = async (code: CurrencyCode) => {
+    if (currencySaving || user?.preferred_currency === code) return
+    setCurrencySaving(code)
+    try {
+      const updated = await apiPost<AccountResponse>("/api/v1/auth/profile", {
+        preferred_currency: code,
+      })
+      setUser(updated)
+      toast.success(`Display currency set to ${CURRENCIES[code].name}`)
+    } catch {
+      toast.error("Failed to save the display currency")
+    } finally {
+      setCurrencySaving(null)
     }
   }
 
@@ -398,15 +416,17 @@ export default function SettingsPage() {
                 >
                   {CURRENCY_CODES.map((code) => {
                     const currency = CURRENCIES[code]
-                    const isSelected = activeCurrency === code
+                    const isSelected = user.preferred_currency === code
+                    const isSaving = currencySaving === code
                     return (
                       <button
                         key={code}
                         type="button"
                         aria-pressed={isSelected}
-                        onClick={() => setPreferredCurrency(code)}
+                        disabled={currencySaving !== null}
+                        onClick={() => void onCurrencySelect(code)}
                         className={cn(
-                          "flex w-full items-center gap-3 border-b border-line px-4 py-2.5 text-left transition-colors last:border-b-0",
+                          "flex w-full items-center gap-3 border-b border-line px-4 py-2.5 text-left transition-colors last:border-b-0 disabled:opacity-60",
                           isSelected ? "bg-paper-2" : "hover:bg-paper-2/60"
                         )}
                       >
@@ -415,17 +435,18 @@ export default function SettingsPage() {
                         </span>
                         <span className="flex-1 text-[13px] text-ink">{currency.name}</span>
                         <span className="num text-[11px] text-muted">{code}</span>
-                        {isSelected && (
+                        {isSaving ? (
+                          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted" />
+                        ) : isSelected ? (
                           <Check className="h-4 w-4 shrink-0 text-gold-deep" strokeWidth={1.8} />
-                        )}
+                        ) : null}
                       </button>
                     )
                   })}
                 </div>
                 <p className="mt-3 max-w-md text-[12px] leading-relaxed text-muted">
-                  Bill totals are stored in the local currency on the server. The chosen
-                  currency only changes the figure you see, converted at the live rate. Saved
-                  in this browser.
+                  Saved to your account. The server converts every bill amount at its live rate, and
+                  falls back to naira when a rate is unavailable.
                 </p>
               </div>
             </section>

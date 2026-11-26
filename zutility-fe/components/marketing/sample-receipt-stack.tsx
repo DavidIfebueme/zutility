@@ -4,70 +4,21 @@ import * as React from "react"
 import { Badge } from "@/components/ui/badge"
 import { BrandTile } from "@/components/marketing/brand-tile"
 import { cn } from "@/lib/utils"
-import { useCurrency } from "@/lib/hooks/useCurrency"
-import { useFxRates } from "@/lib/hooks/useFxRates"
-import { formatLocalAmount } from "@/lib/currency"
-import type { BrandIconId } from "@/lib/constants"
-
-interface SampleOrder {
-  id: string
-  utility: string
-  detail: string
-  amountNgn: number
-  zec: string
-  brand: BrandIconId
-}
-
-const SAMPLES: SampleOrder[] = [
-  {
-    id: "8F2C-41A9",
-    utility: "MTN Airtime",
-    detail: "0803 555 0142",
-    amountNgn: 2000,
-    zec: "0.00153524",
-    brand: "mtn",
-  },
-  {
-    id: "2B7D-90C4",
-    utility: "Ikeja Electric",
-    detail: "Meter 0412 3456 789",
-    amountNgn: 10000,
-    zec: "0.00767618",
-    brand: "ikeja-electric",
-  },
-  {
-    id: "5A1E-73B8",
-    utility: "School Fees",
-    detail: "UNN · RRR 141523991664",
-    amountNgn: 52000,
-    zec: "0.03991616",
-    brand: "unn",
-  },
-  {
-    id: "C3F6-2D10",
-    utility: "DStv Compact",
-    detail: "Smartcard 7021 345 678",
-    amountNgn: 19000,
-    zec: "0.01458475",
-    brand: "dstv",
-  },
-  {
-    id: "9D4B-55E2",
-    utility: "Airtel Data",
-    detail: "10GB · 0802 555 0142",
-    amountNgn: 5000,
-    zec: "0.00383809",
-    brand: "airtel",
-  },
-]
+import { SAMPLE_ORDERS, type SampleOrder } from "@/lib/sample-orders"
+import type { DisplayText } from "@/lib/money"
 
 const STACK_DEPTH = 3
 const FLIP_MS = 620
 
-function ReceiptCard({ sample, stacked }: { sample: SampleOrder; stacked: boolean }) {
-  const currency = useCurrency()
-  const fxRates = useFxRates()
-
+function ReceiptCard({
+  sample,
+  amount,
+  stacked,
+}: {
+  sample: SampleOrder
+  amount: DisplayText
+  stacked: boolean
+}) {
   return (
     <div
       className={cn(
@@ -90,7 +41,10 @@ function ReceiptCard({ sample, stacked }: { sample: SampleOrder; stacked: boolea
             <p className="num truncate text-[13px] text-muted">{sample.detail}</p>
           </div>
           <p className="num ml-auto shrink-0 text-lg text-ink">
-            {fxRates ? formatLocalAmount(sample.amountNgn, currency, fxRates) : "—"}
+            {amount.text}
+            {amount.marker ? (
+              <span className="ml-1 text-[11px] text-muted">{amount.marker}</span>
+            ) : null}
           </p>
         </div>
 
@@ -126,7 +80,7 @@ function ReceiptCard({ sample, stacked }: { sample: SampleOrder; stacked: boolea
   )
 }
 
-export function SampleReceiptStack() {
+export function SampleReceiptStack({ amounts }: { amounts: Record<string, DisplayText> }) {
   const [active, setActive] = React.useState(0)
   const [flipping, setFlipping] = React.useState(false)
   const [paused, setPaused] = React.useState(false)
@@ -139,7 +93,7 @@ export function SampleReceiptStack() {
     const timer = window.setInterval(() => {
       setFlipping(true)
       flipTimer = window.setTimeout(() => {
-        setActive((value) => (value + 1) % SAMPLES.length)
+        setActive((value) => (value + 1) % SAMPLE_ORDERS.length)
         setFlipping(false)
       }, FLIP_MS)
     }, 4200)
@@ -158,8 +112,8 @@ export function SampleReceiptStack() {
         onMouseEnter={() => setPaused(true)}
         onMouseLeave={() => setPaused(false)}
       >
-        {SAMPLES.map((sample, index) => {
-          const offset = (index - active + SAMPLES.length) % SAMPLES.length
+        {SAMPLE_ORDERS.map((sample, index) => {
+          const offset = (index - active + SAMPLE_ORDERS.length) % SAMPLE_ORDERS.length
           const depth = Math.min(offset, STACK_DEPTH)
           const isFront = offset === 0
           const isNext = offset === 1
@@ -177,7 +131,7 @@ export function SampleReceiptStack() {
               aria-hidden={!isFront}
               className="absolute inset-x-0 top-0 will-change-transform"
               style={{
-                zIndex: SAMPLES.length - offset,
+                zIndex: SAMPLE_ORDERS.length - offset,
                 opacity: offset > STACK_DEPTH ? 0 : 1,
                 transform,
                 transformOrigin: isFront ? "left center" : "center top",
@@ -186,7 +140,7 @@ export function SampleReceiptStack() {
                 pointerEvents: isFront ? "auto" : "none",
               }}
             >
-              <ReceiptCard sample={sample} stacked={!isFront} />
+              <ReceiptCard sample={sample} amount={amounts[sample.id]} stacked={!isFront} />
             </div>
           )
         })}
@@ -194,7 +148,7 @@ export function SampleReceiptStack() {
 
       <div className="mt-3 flex items-center justify-end gap-4 px-1">
         <div className="flex items-center gap-1.5">
-          {SAMPLES.map((sample, index) => (
+          {SAMPLE_ORDERS.map((sample, index) => (
             <button
               key={sample.id}
               type="button"
