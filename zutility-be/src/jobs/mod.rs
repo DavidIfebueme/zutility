@@ -1,4 +1,5 @@
 pub mod address_pool;
+pub mod catalogue_refresher;
 pub mod rate_refresher;
 pub mod workers;
 
@@ -9,4 +10,5 @@ pub enum WorkerKind {
     Sweeper,
     RateRefresher,
     OrderTimeoutReaper,
+    CatalogueRefresher,
 }

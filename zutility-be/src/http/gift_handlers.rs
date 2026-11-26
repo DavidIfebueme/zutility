@@ -16,18 +16,18 @@ use crate::{
             GiftStatus, MAX_OUTSTANDING_GIFT_NGN, is_giftable_utility, validate_claim_window_hours,
             validate_gift_amount_ngn,
         },
-        money::Money,
+        money::{CurrencyCode, Money},
         order::{OrderStatus, OrderStatusTransition},
+        pricing, service_ref,
     },
     http::{
         auth,
         error::ApiError,
         handlers::{
-            DisplayContext, HttpState, generate_token, get_or_create_rate_snapshot,
-            slug_to_utility_type,
+            DEFAULT_COUNTRY_ISO2, DisplayContext, HttpState, generate_token,
+            get_or_create_rate_snapshot, slug_to_utility_type,
         },
         mw::AuthenticatedUser,
-        service_ref,
         types::{
             CancelOrderResponse, ClaimGiftRequest, CreateGiftRequest, CreateGiftResponse,
             CreateOrderResponse, CurrencyQuery, GiftSummary, GiftView, RotateGiftCodeResponse,
@@ -103,10 +103,17 @@ async fn validate_service_ref(
     }
 }
 
-fn normalize_fallback(utility_slug: &str, raw: Option<&str>) -> Result<Option<String>, ApiError> {
+fn normalize_fallback(
+    country_iso2: &str,
+    utility_slug: &str,
+    raw: Option<&str>,
+) -> Result<Option<String>, ApiError> {
     raw.map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(|value| service_ref::normalize(&slug_to_utility_type(utility_slug), value))
+        .map(|value| {
+            service_ref::normalize(country_iso2, &slug_to_utility_type(utility_slug), value)
+                .map_err(|error| ApiError::bad_request(error.to_string()))
+        })
         .transpose()
 }
 
@@ -171,6 +178,50 @@ async fn load_gift_by_code(state: &HttpState, code: &str) -> Result<db::GiftRow,
         .ok_or_else(|| ApiError::not_found("gift not found"))
 }
 
+async fn resolve_gift_product(
+    state: &HttpState,
+    payload: &CreateGiftRequest,
+) -> Result<db::ProductRow, ApiError> {
+    let product = db::find_product_by_country_slug(
+        &state.pool,
+        DEFAULT_COUNTRY_ISO2,
+        payload.utility_slug.trim(),
+    )
+    .await
+    .map_err(internal_err)?
+    .ok_or_else(|| ApiError::bad_request("product_unavailable"))?;
+
+    if !product.enabled || !product.country_enabled {
+        return Err(ApiError::bad_request("product_unavailable"));
+    }
+
+    if product.destination_currency != CurrencyCode::Ngn.iso() {
+        return Err(ApiError::bad_request(
+            "gifts are only available for naira products",
+        ));
+    }
+
+    let variation_amount = match payload.variation_code.as_deref() {
+        Some(code) => {
+            let variation = db::find_product_variation(&state.pool, product.id, code)
+                .await
+                .map_err(internal_err)?
+                .filter(|variation| variation.enabled)
+                .ok_or_else(|| ApiError::bad_request("that variation is not available"))?;
+            Some(variation.amount)
+        }
+        None => None,
+    };
+
+    let settlement = Money::from_ngn_whole(payload.amount_ngn)
+        .map_err(|error| ApiError::bad_request(error.to_string()))?;
+
+    pricing::validate_settlement(&product.terms(), settlement, variation_amount)
+        .map_err(|error| ApiError::bad_request(error.to_string()))?;
+
+    Ok(product)
+}
+
 #[utoipa::path(
     post,
     path = "/api/v1/gifts",
@@ -207,6 +258,16 @@ pub async fn create_gift(
     validate_claim_window_hours(payload.claim_window_hours)
         .map_err(|error| ApiError::bad_request(error.to_string()))?;
 
+    let product = resolve_gift_product(&state, &payload).await?;
+    let utility_type = product.utility_type.clone();
+    let utility_slug = product.slug.clone();
+
+    if !is_giftable_utility(&utility_type) {
+        return Err(ApiError::bad_request(
+            "gifting is not available for this utility",
+        ));
+    }
+
     let message = payload
         .message
         .as_deref()
@@ -223,11 +284,12 @@ pub async fn create_gift(
     }
 
     let fallback_service_ref = normalize_fallback(
-        payload.utility_slug.trim(),
+        &product.country_iso2,
+        &utility_slug,
         payload.fallback_service_ref.as_deref(),
     )?;
 
-    if payload.utility_type.trim() == "electricity" && fallback_service_ref.is_none() {
+    if utility_type == "electricity" && fallback_service_ref.is_none() {
         return Err(ApiError::bad_request(
             "electricity gifts require a fallback meter number",
         ));
@@ -236,8 +298,8 @@ pub async fn create_gift(
     if let Some(ref fallback) = fallback_service_ref {
         let _ = validate_service_ref(
             &state,
-            payload.utility_type.trim(),
-            payload.utility_slug.trim(),
+            &utility_type,
+            &utility_slug,
             fallback,
             "fallback",
             false,
@@ -283,10 +345,17 @@ pub async fn create_gift(
 
     let input = CreateOrderInput {
         access_token_hash,
-        utility_type: payload.utility_type.trim().to_owned(),
-        utility_slug: payload.utility_slug.trim().to_owned(),
+        utility_type: utility_type.clone(),
+        utility_slug: utility_slug.clone(),
         service_ref: fallback_service_ref.clone().unwrap_or_default(),
         amount_ngn: payload.amount_ngn,
+        country_iso2: product.country_iso2.clone(),
+        product_id: Some(product.id),
+        settlement: Money::from_ngn_whole(payload.amount_ngn)
+            .map_err(|error| ApiError::bad_request(error.to_string()))?,
+        cost_amount: Decimal::from(payload.amount_ngn),
+        inputs: std::collections::BTreeMap::new(),
+        fulfilment_kind: Some(product.fulfilment_kind.clone()),
         address_type: payload.zec_address_type.clone(),
         zec_amount,
         zec_rate_id: rate_snapshot_id,
@@ -294,9 +363,10 @@ pub async fn create_gift(
         expires_at,
         ip_hash: None,
         metadata: serde_json::json!({
-            "utility_slug": payload.utility_slug,
+            "utility_slug": utility_slug,
             "variation_code": payload.variation_code,
             "gift": true,
+            "country_iso2": product.country_iso2,
         }),
         variation_code: payload.variation_code.clone(),
     };
@@ -327,8 +397,8 @@ pub async fn create_gift(
             code_hash: gift_code_hash,
             sender_user_id: auth_user.user_id,
             order_id,
-            utility_type: payload.utility_type.trim().to_owned(),
-            utility_slug: payload.utility_slug.trim().to_owned(),
+            utility_type: utility_type.clone(),
+            utility_slug: utility_slug.clone(),
             amount_ngn: payload.amount_ngn,
             claim_window_hours,
             message,
@@ -360,7 +430,7 @@ pub async fn create_gift(
             qr_data: format!("zcash:{deposit_address}?amount={}", zec_amount.round_dp(8)),
             required_confirmations,
             address_type: payload.zec_address_type.clone(),
-            utility_slug: payload.utility_slug.trim().to_owned(),
+            utility_slug,
         },
     }))
 }
@@ -487,14 +557,22 @@ pub async fn claim_gift(
     if payload.service_ref.trim().is_empty() {
         return Err(ApiError::bad_request("service_ref is required"));
     }
-    let service_ref = crate::http::service_ref::normalize(
-        &slug_to_utility_type(&gift.utility_slug),
-        &payload.service_ref,
-    )?;
 
     let order_id = gift
         .order_id
         .ok_or_else(|| ApiError::internal("gift has no order"))?;
+
+    let order = db::get_order_by_id(&state.pool, order_id)
+        .await
+        .map_err(internal_err)?
+        .ok_or_else(|| ApiError::internal("gift order not found"))?;
+
+    let service_ref = service_ref::normalize(
+        &order.country_iso2,
+        &gift.utility_type,
+        &payload.service_ref,
+    )
+    .map_err(|error| ApiError::bad_request(error.to_string()))?;
 
     let customer_name = validate_service_ref(
         &state,
@@ -715,7 +793,7 @@ mod tests {
     #[test]
     fn rewrites_a_spaced_phone_fallback_to_the_local_form() {
         assert_eq!(
-            normalize_fallback("mtn", Some("0706 578 0853"))
+            normalize_fallback("NG", "mtn", Some("0706 578 0853"))
                 .ok()
                 .flatten()
                 .as_deref(),
@@ -726,7 +804,7 @@ mod tests {
     #[test]
     fn rejects_a_phone_fallback_that_cannot_be_delivered() {
         assert!(matches!(
-            normalize_fallback("mtn", Some("0706 578 085")),
+            normalize_fallback("NG", "mtn", Some("0706 578 085")),
             Err(ApiError::BadRequest(_))
         ));
     }
@@ -734,13 +812,16 @@ mod tests {
     #[test]
     fn leaves_a_meter_fallback_alone_and_treats_blank_as_missing() {
         assert_eq!(
-            normalize_fallback("ikeja-electric", Some(" 5401 2345 678 "))
+            normalize_fallback("NG", "ikeja-electric", Some(" 5401 2345 678 "))
                 .ok()
                 .flatten()
                 .as_deref(),
             Some("5401 2345 678")
         );
-        assert_eq!(normalize_fallback("mtn", Some("  ")).ok().flatten(), None);
-        assert_eq!(normalize_fallback("mtn", None).ok().flatten(), None);
+        assert_eq!(
+            normalize_fallback("NG", "mtn", Some("  ")).ok().flatten(),
+            None
+        );
+        assert_eq!(normalize_fallback("NG", "mtn", None).ok().flatten(), None);
     }
 }
