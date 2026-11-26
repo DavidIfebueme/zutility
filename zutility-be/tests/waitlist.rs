@@ -15,9 +15,10 @@ async fn test_pool() -> Option<PgPool> {
 }
 
 async fn prepare_schema(pool: &PgPool) {
-    if sqlx::migrate!("./migrations").run(pool).await.is_err() {
-        return;
-    }
+    sqlx::migrate!("./migrations")
+        .run(pool)
+        .await
+        .expect("test database migrations failed");
     let _ = sqlx::query("TRUNCATE TABLE waitlist_verify_tokens, waitlist_entries CASCADE")
         .execute(pool)
         .await;
