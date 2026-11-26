@@ -766,13 +766,24 @@ pub async fn store_provider_transaction_id(
     Ok(())
 }
 
-pub async fn mark_order_reversed(
-    pool: &PgPool,
+pub async fn mark_order_reversed_tx(
+    tx: &mut Transaction<'_, Postgres>,
     order_id: Uuid,
     provider_status: &str,
     failure_code: Option<&str>,
 ) -> Result<bool> {
-    let mut tx = begin_tx(pool).await?;
+    let previous: Option<String> = sqlx::query_scalar::<_, String>(
+        "SELECT status FROM orders
+         WHERE id = $1 AND status IN ('utility_dispatching', 'completed', 'failed')
+         FOR UPDATE",
+    )
+    .bind(order_id)
+    .fetch_optional(tx.as_mut())
+    .await?;
+
+    let Some(previous) = previous else {
+        return Ok(false);
+    };
 
     let rows_affected = sqlx::query(
         "UPDATE orders
@@ -780,11 +791,12 @@ pub async fn mark_order_reversed(
              flag_reason = 'dtone_reversed',
              provider_status = $2,
              failure_code = COALESCE($3, failure_code)
-         WHERE id = $1 AND status IN ('completed', 'failed')",
+         WHERE id = $1 AND status = $4",
     )
     .bind(order_id)
     .bind(provider_status)
     .bind(failure_code)
+    .bind(&previous)
     .execute(tx.as_mut())
     .await?
     .rows_affected();
@@ -792,16 +804,29 @@ pub async fn mark_order_reversed(
     if rows_affected > 0 {
         sqlx::query(
             "INSERT INTO audit_log (order_id, event, old_status, new_status, detail)
-             VALUES ($1, 'provider_reversed', 'completed', 'reversed', $2)",
+             VALUES ($1, 'provider_reversed', $2, 'reversed', $3)",
         )
         .bind(order_id)
+        .bind(&previous)
         .bind(serde_json::json!({ "provider_status": provider_status }))
         .execute(tx.as_mut())
         .await?;
     }
 
-    tx.commit().await?;
     Ok(rows_affected > 0)
+}
+
+pub async fn mark_order_reversed(
+    pool: &PgPool,
+    order_id: Uuid,
+    provider_status: &str,
+    failure_code: Option<&str>,
+) -> Result<bool> {
+    let mut tx = begin_tx(pool).await?;
+    let reversed =
+        mark_order_reversed_tx(&mut tx, order_id, provider_status, failure_code).await?;
+    tx.commit().await?;
+    Ok(reversed)
 }
 
 pub async fn record_failure(
@@ -972,7 +997,7 @@ pub async fn find_order_by_provider_reference(
                  OR provider_transaction_id = $1
                  OR vtpass_request_id = $1
              )
-           AND status IN ('utility_dispatching', 'completed', 'failed', 'reversed')
+           AND status IN ('utility_dispatching', 'completed', 'failed', 'reversed', 'flagged_for_review')
          ORDER BY created_at DESC
          LIMIT 1"
     ))

@@ -1665,6 +1665,16 @@ pub async fn webhook_dtone(
     )
     .await
     .map_err(internal_err)?;
+
+    let mut reversed = false;
+    if transaction.status == ProviderTxnStatus::Reversed
+        && outcome != db::WebhookTransitionOutcome::Replayed
+    {
+        reversed = db::mark_order_reversed_tx(&mut tx, order.id, &class_id.to_string(), None)
+            .await
+            .map_err(internal_err)?;
+    }
+
     tx.commit().await.map_err(internal_err)?;
 
     tracing::info!(
@@ -1676,7 +1686,6 @@ pub async fn webhook_dtone(
         "dtone callback processed"
     );
 
-    let mut reversed = false;
     if transaction.status == ProviderTxnStatus::Failed
         && outcome == db::WebhookTransitionOutcome::Applied
     {
@@ -1690,49 +1699,24 @@ pub async fn webhook_dtone(
             .map_err(internal_err)?;
     }
 
-    if transaction.status == ProviderTxnStatus::Reversed
-        && outcome != db::WebhookTransitionOutcome::Replayed
-    {
-        reversed = db::mark_order_reversed(&state.pool, order.id, &class_id.to_string(), None)
-            .await
-            .map_err(internal_err)?;
-
-        if !reversed {
-            reversed = db::update_order_status_cas(
-                &state.pool,
-                order.id,
-                &order.status,
-                OrderStatus::FlaggedForReview.as_db(),
-                "provider_reversed",
-                serde_json::json!({
-                    "provider": crate::integrations::dtone::PROVIDER_NAME,
-                    "provider_transaction_id": transaction.provider_transaction_id,
-                    "provider_status_class": class_id,
-                }),
-            )
-            .await
-            .map_err(internal_err)?;
-        }
-
-        if reversed && let Some(user_id) = order.user_id {
-            let _ = db::create_notification(
-                &state.pool,
-                user_id,
-                Some(order.id),
-                "order_reversed",
-                "Order Reversed",
-                &format!(
-                    "Your {} payment was reversed by the provider. Support will refund it to {}.",
-                    order.utility_slug, order.deposit_address
-                ),
-                serde_json::json!({
-                    "utility_slug": order.utility_slug,
-                    "refund_address": order.deposit_address,
-                    "provider_transaction_id": transaction.provider_transaction_id,
-                }),
-            )
-            .await;
-        }
+    if reversed && let Some(user_id) = order.user_id {
+        let _ = db::create_notification(
+            &state.pool,
+            user_id,
+            Some(order.id),
+            "order_reversed",
+            "Order Reversed",
+            &format!(
+                "Your {} payment was reversed by the provider. Support will refund it to {}.",
+                order.utility_slug, order.deposit_address
+            ),
+            serde_json::json!({
+                "utility_slug": order.utility_slug,
+                "refund_address": order.deposit_address,
+                "provider_transaction_id": transaction.provider_transaction_id,
+            }),
+        )
+        .await;
     }
 
     if outcome == db::WebhookTransitionOutcome::Applied || reversed {

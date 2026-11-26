@@ -1013,7 +1013,9 @@ async fn requery_utility_dispatch(
             .await?
             .unwrap_or_else(|| order.confirmed_at.unwrap_or(order.created_at));
 
-        if Utc::now() - started_at > chrono::Duration::minutes(120) {
+        if provider_name == DTONE_PROVIDER_NAME
+            && Utc::now() - started_at > chrono::Duration::minutes(120)
+        {
             let transitioned = db::update_order_status_cas(
                 pool,
                 order.id,
@@ -1037,6 +1039,33 @@ async fn requery_utility_dispatch(
                     serde_json::json!({ "utility_slug": order.utility_slug }),
                 );
             }
+        } else if provider_name != DTONE_PROVIDER_NAME
+            && Utc::now() - started_at
+                > chrono::Duration::hours(DTONE_RESOLUTION_TIMEOUT_HOURS)
+        {
+            let failed = db::update_order_status_cas(
+                pool,
+                order.id,
+                "utility_dispatching",
+                "failed",
+                "dispatch_timeout",
+                serde_json::json!({ "reference": reference, "hours": DTONE_RESOLUTION_TIMEOUT_HOURS }),
+            )
+            .await?;
+
+            if failed {
+                tracing::error!(order_id = %order.id, "dispatch unresolved for 24 hours, failed");
+                let _ = state
+                    .ws_hub
+                    .broadcast_event(
+                        order.id,
+                        &WsOrderEvent::Failed {
+                            reason: String::from("dispatch_timeout"),
+                        },
+                    )
+                    .await;
+            }
+            return Ok(());
         }
     }
 
