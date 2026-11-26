@@ -33,7 +33,7 @@ async fn fixture(pool: &PgPool) -> Option<Fixture> {
         .bind(format!("{user_id}@gift.test"))
         .execute(pool)
         .await
-        .ok()?;
+        .expect("gift fixture insert failed");
 
     let rate_id = Uuid::new_v4();
     sqlx::query(
@@ -45,7 +45,7 @@ async fn fixture(pool: &PgPool) -> Option<Fixture> {
     .bind(Utc::now())
     .execute(pool)
     .await
-    .ok()?;
+    .expect("gift fixture insert failed");
 
     let address = format!("ztestsapling1{}", Uuid::new_v4().simple());
     sqlx::query(
@@ -55,7 +55,7 @@ async fn fixture(pool: &PgPool) -> Option<Fixture> {
     .bind(&address)
     .execute(pool)
     .await
-    .ok()?;
+    .expect("gift fixture insert failed");
 
     let order_id = Uuid::new_v4();
     sqlx::query(
@@ -73,7 +73,7 @@ async fn fixture(pool: &PgPool) -> Option<Fixture> {
     .bind(user_id)
     .execute(pool)
     .await
-    .ok()?;
+    .expect("gift fixture insert failed");
 
     let gift_id = Uuid::new_v4();
     sqlx::query(
@@ -89,7 +89,7 @@ async fn fixture(pool: &PgPool) -> Option<Fixture> {
     .bind(Utc::now() + Duration::hours(24))
     .execute(pool)
     .await
-    .ok()?;
+    .expect("gift fixture insert failed");
 
     Some(Fixture { gift_id, user_id })
 }
