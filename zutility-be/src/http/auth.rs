@@ -127,6 +127,15 @@ pub fn hash_verification_token(token: &str) -> Result<String, String> {
     Ok(STANDARD.encode(digest))
 }
 
+pub fn hash_waitlist_token(secret: &str, token: &str) -> Result<String, String> {
+    let key = format!("{secret}:waitlist-email-token");
+    let mut mac = HmacSha256::new_from_slice(key.as_bytes())
+        .map_err(|_| String::from("invalid hmac key"))?;
+    mac.update(token.as_bytes());
+    let digest = mac.finalize().into_bytes();
+    Ok(STANDARD.encode(digest))
+}
+
 pub fn is_valid_email(email: &str) -> bool {
     if email.is_empty() {
         return false;
