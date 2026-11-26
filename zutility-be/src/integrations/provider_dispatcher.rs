@@ -3,15 +3,18 @@ use std::sync::Arc;
 use axum::http::HeaderMap;
 
 use crate::integrations::{
+    dtone::DtoneClient,
     inlomax::InlomaxClient,
     remita::RemitaClient,
     remita_collections::RemitaCollectionsClient,
     utility_provider::{
-        ProviderError, ProviderKind, RequeryResponse, UtilityProvider, UtilityPurchaseRequest,
-        UtilityPurchaseResponse, UtilityVariation, ValidateRefRequest, ValidateRefResponse,
+        ProviderError, ProviderErrorKind, ProviderKind, RequeryResponse, UtilityProvider,
+        UtilityPurchaseRequest, UtilityPurchaseResponse, UtilityVariation, ValidateRefRequest,
+        ValidateRefResponse,
     },
     vtpass::VtpassClient,
 };
+use crate::observability::MetricsRegistry;
 
 const INLOMAX_UTILITY_TYPES: &[&str] = &[
     "airtime",
@@ -30,6 +33,8 @@ pub struct ProviderDispatcher {
     vtpass: Arc<VtpassClient>,
     remita: Option<Arc<RemitaClient>>,
     remita_collections: Option<Arc<RemitaCollectionsClient>>,
+    dtone: Option<Arc<DtoneClient>>,
+    metrics: Option<Arc<MetricsRegistry>>,
 }
 
 impl ProviderDispatcher {
@@ -38,12 +43,30 @@ impl ProviderDispatcher {
         remita: Option<RemitaClient>,
         remita_collections: Option<RemitaCollectionsClient>,
         inlomax: Option<InlomaxClient>,
+        dtone: Option<DtoneClient>,
     ) -> Self {
         Self {
             inlomax: inlomax.map(Arc::new),
             vtpass: Arc::new(vtpass),
             remita: remita.map(Arc::new),
             remita_collections: remita_collections.map(Arc::new),
+            dtone: dtone.map(Arc::new),
+            metrics: None,
+        }
+    }
+
+    pub fn with_metrics(mut self, metrics: Arc<MetricsRegistry>) -> Self {
+        self.metrics = Some(metrics);
+        self
+    }
+
+    pub fn dtone(&self) -> Option<Arc<DtoneClient>> {
+        self.dtone.clone()
+    }
+
+    fn record_provider_error(&self, kind: ProviderKind) {
+        if let Some(metrics) = self.metrics.as_ref() {
+            metrics.record_provider_error(kind.as_label());
         }
     }
 
@@ -55,7 +78,7 @@ impl ProviderDispatcher {
             "school_fees" => match self.remita_collections.clone() {
                 Some(r) => Ok(r as Arc<dyn UtilityProvider>),
                 None => Err(ProviderError::new(
-                    crate::integrations::utility_provider::ProviderErrorKind::Outage,
+                    ProviderErrorKind::Outage,
                     "Remita Collections is not configured. Set REMITA_COLLECTIONS_BASE_URL and REMITA_COLLECTIONS_SECRET_KEY to enable school fees payments.",
                 )),
             },
@@ -96,10 +119,8 @@ impl ProviderDispatcher {
         let result = provider.pay(request).await;
 
         if let Err(ref error) = result {
-            if matches!(
-                error.kind,
-                crate::integrations::utility_provider::ProviderErrorKind::Outage
-            ) {
+            self.record_provider_error(provider.kind());
+            if matches!(error.kind, ProviderErrorKind::Outage) {
                 if INLOMAX_UTILITY_TYPES.contains(&utility_type) && self.inlomax.is_some() {
                     tracing::warn!(error = %error, "inlomax outage, falling back to vtpass");
                     return self.vtpass.pay(request).await;
@@ -111,10 +132,7 @@ impl ProviderDispatcher {
                     return remita.pay(request).await;
                 }
             }
-            if matches!(
-                error.kind,
-                crate::integrations::utility_provider::ProviderErrorKind::Transient
-            ) {
+            if matches!(error.kind, ProviderErrorKind::Transient) {
                 tracing::warn!(error = %error, "provider transient error, NOT falling back — will requery next cycle");
             }
         }
@@ -127,7 +145,12 @@ impl ProviderDispatcher {
         utility_type: &str,
         request_id: &str,
     ) -> Result<RequeryResponse, ProviderError> {
-        self.provider_for(utility_type)?.requery(request_id).await
+        let provider = self.provider_for(utility_type)?;
+        let result = provider.requery(request_id).await;
+        if result.is_err() {
+            self.record_provider_error(provider.kind());
+        }
+        result
     }
 
     pub fn verify_webhook(&self, utility_type: &str, headers: &HeaderMap, body: &[u8]) -> bool {

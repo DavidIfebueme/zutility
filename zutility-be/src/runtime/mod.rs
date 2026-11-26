@@ -121,7 +121,20 @@ fn start_order_orchestrator(state: HttpState, config: AppConfig, pool: PgPool) {
                 }
             };
 
-        let dispatcher = ProviderDispatcher::new(vtpass, remita, remita_collections, inlomax);
+        let dtone = match crate::integrations::dtone::DtoneClient::from_config(&config) {
+            Ok(client) => {
+                tracing::info!("dtone client initialized successfully");
+                Some(client)
+            }
+            Err(error) => {
+                tracing::warn!(error = %error, "dtone client not configured — multi-country utilities will be unavailable");
+                None
+            }
+        };
+
+        let dispatcher =
+            ProviderDispatcher::new(vtpass, remita, remita_collections, inlomax, dtone)
+                .with_metrics(state.observability.metrics());
 
         let mut ticker = interval(Duration::from_secs(25));
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -709,6 +722,7 @@ async fn dispatch_utility(
         crate::integrations::utility_provider::ProviderKind::Inlomax => {
             format!("inl-{}", order.id.as_simple())
         }
+        crate::integrations::utility_provider::ProviderKind::Dtone => order.id.to_string(),
         _ => format!("vp-{}", order.id.as_simple()),
     };
 

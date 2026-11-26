@@ -13,7 +13,20 @@ pub enum ProviderKind {
     Inlomax,
     Vtpass,
     Remita,
+    Dtone,
     Secondary,
+}
+
+impl ProviderKind {
+    pub fn as_label(self) -> &'static str {
+        match self {
+            Self::Inlomax => "inlomax",
+            Self::Vtpass => "vtpass",
+            Self::Remita => "remita",
+            Self::Dtone => "dtone",
+            Self::Secondary => "secondary",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -114,6 +127,7 @@ pub enum ProviderTxnStatus {
     Pending,
     Delivered,
     Failed,
+    Reversed,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

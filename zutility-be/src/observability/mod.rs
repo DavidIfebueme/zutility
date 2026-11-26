@@ -23,6 +23,7 @@ pub struct MetricsRegistry {
     state_transitions: std::sync::RwLock<HashMap<String, u64>>,
     auth_events: std::sync::RwLock<HashMap<String, u64>>,
     address_pool_depth: std::sync::RwLock<HashMap<String, i64>>,
+    provider_errors_by_provider: std::sync::RwLock<HashMap<String, u64>>,
 }
 
 #[derive(Debug)]
@@ -138,6 +139,7 @@ impl MetricsRegistry {
             state_transitions: std::sync::RwLock::new(HashMap::new()),
             auth_events: std::sync::RwLock::new(HashMap::new()),
             address_pool_depth: std::sync::RwLock::new(HashMap::new()),
+            provider_errors_by_provider: std::sync::RwLock::new(HashMap::new()),
         }
     }
 
@@ -171,6 +173,22 @@ impl MetricsRegistry {
     pub fn increment_provider_error(&self) {
         self.provider_error_count
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub fn record_provider_error(&self, provider: &str) {
+        if let Ok(mut map) = self.provider_errors_by_provider.write() {
+            let key = provider.to_ascii_lowercase();
+            let current = map.get(&key).copied().unwrap_or(0);
+            map.insert(key, current.saturating_add(1));
+        }
+    }
+
+    pub fn provider_error_count_for(&self, provider: &str) -> u64 {
+        self.provider_errors_by_provider
+            .read()
+            .ok()
+            .and_then(|map| map.get(&provider.to_ascii_lowercase()).copied())
+            .unwrap_or(0)
     }
 
     pub fn set_ws_active_connections(&self, value: u64) {
@@ -255,6 +273,15 @@ impl MetricsRegistry {
             }
         }
         output.push_str(&format!("provider_errors_total {provider_errors}\n"));
+        if let Ok(by_provider) = self.provider_errors_by_provider.read() {
+            let mut entries: Vec<(&String, &u64)> = by_provider.iter().collect();
+            entries.sort_by(|a, b| a.0.cmp(b.0));
+            for (provider, count) in entries {
+                output.push_str(&format!(
+                    "provider_errors_total{{provider=\"{provider}\"}} {count}\n"
+                ));
+            }
+        }
         output.push_str(&format!(
             "provider_latency_total_ms {provider_latency_total}\n"
         ));
@@ -358,11 +385,15 @@ mod tests {
 
         state.metrics().record_auth_event("refresh_replay");
         state.metrics().record_auth_event("refresh_replay");
+        state.metrics().record_provider_error("dtone");
 
         let metrics = state.metrics().render_prometheus().await;
         assert!(metrics.contains("order_creations_total"));
         assert!(metrics.contains("address_pool_depth"));
         assert!(metrics.contains("auth_events_total{event=\"refresh_replay\"} 2"));
+        assert!(metrics.contains("provider_errors_total{provider=\"dtone\"} 1"));
+        assert!(metrics.contains("provider_errors_total 0\n"));
+        assert_eq!(state.metrics().provider_error_count_for("dtone"), 1);
 
         let readiness = super::ReadinessReport {
             db: super::ProbeStatus {

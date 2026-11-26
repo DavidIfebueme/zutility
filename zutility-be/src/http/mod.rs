@@ -42,7 +42,8 @@ use gift_handlers::{cancel_gift, claim_gift, create_gift, get_gift, list_gifts, 
 use handlers::{
     HttpState, alerts, cancel_order, create_order, get_current_rate, get_order, health_live,
     health_ready, list_utilities, list_utility_variations, metrics, rotate_order_access_token,
-    stream_order, validate_utility_reference, webhook_inlomax, webhook_remita, webhook_vtpass,
+    stream_order, validate_utility_reference, webhook_dtone, webhook_inlomax, webhook_remita,
+    webhook_vtpass,
 };
 use notification_handlers::{
     get_unread_count, list_notifications, mark_all_notifications_read, mark_notification_read,
@@ -171,6 +172,10 @@ fn build_router_with_state_and_limits(state: HttpState, enable_rate_limits: bool
         .route(
             "/api/v1/webhooks/remita",
             post(webhook_remita).layer(DefaultBodyLimit::max(8 * 1024)),
+        )
+        .route(
+            "/api/v1/webhooks/dtone",
+            post(webhook_dtone).layer(DefaultBodyLimit::max(8 * 1024)),
         )
         .route("/api/v1/gifts/{code}", get(get_gift))
         .route("/api/v1/gifts/{code}/claim", post(claim_gift))
@@ -331,6 +336,15 @@ pub fn router_with_pool(pool: Option<PgPool>) -> Router {
         inlomax_api_key: None,
         inlomax_base_url: None,
         inlomax_webhook_secret: None,
+        dtone_api_key: None,
+        dtone_api_secret: None,
+        dtone_base_url: None,
+        dtone_callback_url: None,
+        dtone_callback_user: None,
+        dtone_callback_pass: None,
+        dtone_callback_ips: None,
+        catalogue_max_age_minutes: 1440,
+        catalogue_refresh_seconds: 3600,
         zcash_rpc_mode: crate::config::ZcashRpcMode::Unix,
         zcash_rpc_socket_path: String::from("/var/run/zcashd/zcashd.sock"),
         zcash_rpc_url: String::from("http://127.0.0.1:18232"),

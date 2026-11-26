@@ -214,3 +214,44 @@ fn expected_chain_matches_the_network() {
     assert_eq!(ZcashNetwork::Mainnet.expected_chain(), "main");
     assert_eq!(ZcashNetwork::Testnet.expected_chain(), "test");
 }
+
+#[test]
+fn dtone_credential_halves_must_be_set_together() {
+    let missing_secret = valid_builder()
+        .set_override("dtone_api_key", "dtone_key")
+        .expect("set override")
+        .set_override(
+            "dtone_callback_url",
+            "https://api.zutility.test/api/v1/webhooks/dtone",
+        )
+        .expect("set override")
+        .set_override("dtone_callback_user", "callback_user")
+        .expect("set override")
+        .set_override("dtone_callback_pass", "callback_pass")
+        .expect("set override")
+        .build()
+        .expect("build config");
+    let config = AppConfig::from_config(missing_secret).expect("deserialize config");
+    assert!(config.validate().is_err());
+
+    let missing_callback_pass = valid_builder()
+        .set_override("dtone_api_key", "dtone_key")
+        .expect("set override")
+        .set_override("dtone_api_secret", "dtone_secret")
+        .expect("set override")
+        .set_override(
+            "dtone_callback_url",
+            "https://api.zutility.test/api/v1/webhooks/dtone",
+        )
+        .expect("set override")
+        .set_override("dtone_callback_user", "callback_user")
+        .expect("set override")
+        .build()
+        .expect("build config");
+    let config = AppConfig::from_config(missing_callback_pass).expect("deserialize config");
+    assert!(config.validate().is_err());
+
+    let neither = valid_builder().build().expect("build config");
+    let config = AppConfig::from_config(neither).expect("deserialize config");
+    assert!(config.validate().is_ok());
+}
