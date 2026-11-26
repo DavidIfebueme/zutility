@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use chrono::{Duration, Utc};
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use uuid::Uuid;
@@ -5,11 +7,13 @@ use zutility_be::db;
 
 async fn test_pool() -> Option<PgPool> {
     let database_url = std::env::var("TEST_DATABASE_URL").ok()?;
-    PgPoolOptions::new()
-        .max_connections(24)
-        .connect(&database_url)
-        .await
-        .ok()
+    Some(
+        PgPoolOptions::new()
+            .max_connections(24)
+            .connect(&database_url)
+            .await
+            .expect("TEST_DATABASE_URL is set but the test database is unreachable"),
+    )
 }
 
 struct Fixture {
@@ -18,7 +22,10 @@ struct Fixture {
 }
 
 async fn fixture(pool: &PgPool) -> Option<Fixture> {
-    sqlx::migrate!("./migrations").run(pool).await.ok()?;
+    sqlx::migrate!("./migrations")
+        .run(pool)
+        .await
+        .expect("test database migrations failed");
 
     let user_id = Uuid::new_v4();
     sqlx::query("INSERT INTO users (id, email, password_hash) VALUES ($1, $2, 'x')")
@@ -26,7 +33,7 @@ async fn fixture(pool: &PgPool) -> Option<Fixture> {
         .bind(format!("{user_id}@gift.test"))
         .execute(pool)
         .await
-        .ok()?;
+        .expect("gift fixture insert failed");
 
     let rate_id = Uuid::new_v4();
     sqlx::query(
@@ -38,7 +45,7 @@ async fn fixture(pool: &PgPool) -> Option<Fixture> {
     .bind(Utc::now())
     .execute(pool)
     .await
-    .ok()?;
+    .expect("gift fixture insert failed");
 
     let address = format!("ztestsapling1{}", Uuid::new_v4().simple());
     sqlx::query(
@@ -48,7 +55,7 @@ async fn fixture(pool: &PgPool) -> Option<Fixture> {
     .bind(&address)
     .execute(pool)
     .await
-    .ok()?;
+    .expect("gift fixture insert failed");
 
     let order_id = Uuid::new_v4();
     sqlx::query(
@@ -66,7 +73,7 @@ async fn fixture(pool: &PgPool) -> Option<Fixture> {
     .bind(user_id)
     .execute(pool)
     .await
-    .ok()?;
+    .expect("gift fixture insert failed");
 
     let gift_id = Uuid::new_v4();
     sqlx::query(
@@ -82,7 +89,7 @@ async fn fixture(pool: &PgPool) -> Option<Fixture> {
     .bind(Utc::now() + Duration::hours(24))
     .execute(pool)
     .await
-    .ok()?;
+    .expect("gift fixture insert failed");
 
     Some(Fixture { gift_id, user_id })
 }

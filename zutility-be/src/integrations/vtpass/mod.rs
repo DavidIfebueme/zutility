@@ -525,9 +525,11 @@ impl UtilityProvider for VtpassClient {
     }
 
     fn verify_webhook_signature(&self, payload: &[u8], signature: &str) -> bool {
-        let mut mac =
+        let Ok(mut mac) =
             Hmac::<Sha256>::new_from_slice(self.webhook_hmac_secret.expose_secret().as_bytes())
-                .unwrap_or_else(|_| panic!("invalid hmac key"));
+        else {
+            return false;
+        };
         mac.update(payload);
         let expected = hex::encode(mac.finalize().into_bytes());
         expected

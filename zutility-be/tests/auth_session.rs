@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use axum::extract::State;
 use axum::http::{HeaderMap, header::SET_COOKIE};
 use axum_extra::extract::CookieJar;
@@ -16,8 +18,11 @@ async fn test_pool() -> Option<PgPool> {
         .max_connections(8)
         .connect(&database_url)
         .await
-        .ok()?;
-    sqlx::migrate!("./migrations").run(&pool).await.ok()?;
+        .expect("TEST_DATABASE_URL is set but the test database is unreachable");
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .expect("test database migrations failed");
     Some(pool)
 }
 

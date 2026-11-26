@@ -5,17 +5,20 @@ use zutility_be::db::{get_waitlist_position, latest_waitlist_token_age_seconds};
 
 async fn test_pool() -> Option<PgPool> {
     let database_url = std::env::var("TEST_DATABASE_URL").ok()?;
-    PgPoolOptions::new()
-        .max_connections(1)
-        .connect(&database_url)
-        .await
-        .ok()
+    Some(
+        PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&database_url)
+            .await
+            .expect("TEST_DATABASE_URL is set but the test database is unreachable"),
+    )
 }
 
 async fn prepare_schema(pool: &PgPool) {
-    if sqlx::migrate!("./migrations").run(pool).await.is_err() {
-        return;
-    }
+    sqlx::migrate!("./migrations")
+        .run(pool)
+        .await
+        .expect("test database migrations failed");
     let _ = sqlx::query("TRUNCATE TABLE waitlist_verify_tokens, waitlist_entries CASCADE")
         .execute(pool)
         .await;

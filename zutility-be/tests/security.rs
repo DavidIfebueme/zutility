@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use secrecy::SecretString;
 use zutility_be::http::auth;
 

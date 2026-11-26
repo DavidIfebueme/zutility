@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use zutility_be::jobs::address_pool::{AddressPoolManager, AddressPoolPolicy, PoolAlertLevel};
 
 #[test]

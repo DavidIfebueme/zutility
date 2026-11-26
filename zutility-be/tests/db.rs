@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use std::{fs, path::PathBuf};
 
 use zutility_be::domain::order::OrderStatus;

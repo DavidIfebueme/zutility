@@ -36,9 +36,9 @@ use super::{
     error::ApiError,
     service_ref,
     types::{
-        CancelOrderResponse, CreateOrderRequest, CreateOrderResponse,
-        OrderAccessTokenResponse, OrderStatusResponse, OrderTokenQuery, RateResponse,
-        UtilityItem, UtilityValidateQuery, UtilityValidateResponse, UtilityVariationItem,
+        CancelOrderResponse, CreateOrderRequest, CreateOrderResponse, OrderAccessTokenResponse,
+        OrderStatusResponse, OrderTokenQuery, RateResponse, UtilityItem, UtilityValidateQuery,
+        UtilityValidateResponse, UtilityVariationItem,
     },
 };
 
@@ -69,6 +69,7 @@ pub struct HttpState {
 }
 
 impl HttpState {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         order_token_hmac_secret: secrecy::SecretString,
         order_expiry_minutes: i64,
@@ -136,12 +137,16 @@ impl HttpState {
             &config.brevo_sender_email,
             &config.brevo_sender_name,
         ) {
-            self.email_client = Some(
-                crate::integrations::email::EmailClient::new(api_key, sender_email, sender_name),
-            );
+            self.email_client = Some(crate::integrations::email::EmailClient::new(
+                api_key,
+                sender_email,
+                sender_name,
+            ));
             tracing::info!("brevo email client configured");
         } else {
-            tracing::warn!("brevo email client not configured — verification emails will be logged instead");
+            tracing::warn!(
+                "brevo email client not configured — verification emails will be logged instead"
+            );
         }
 
         if config.admin_secret.is_some() {
@@ -189,8 +194,10 @@ pub async fn create_order(
     {
         return Err(ApiError::unauthorized("account is no longer active"));
     }
-    payload.service_ref =
-        service_ref::normalize(&slug_to_utility_type(&payload.utility_slug), &payload.service_ref)?;
+    payload.service_ref = service_ref::normalize(
+        &slug_to_utility_type(&payload.utility_slug),
+        &payload.service_ref,
+    )?;
     enforce_service_ref_velocity(&state, &payload).await?;
 
     let amount_ngn = resolve_order_amount(&state, &payload).await?;
@@ -218,7 +225,9 @@ pub async fn create_order(
         state.required_confs_transparent
     };
     if rate.zec_ngn <= Decimal::ZERO {
-        return Err(ApiError::internal("rate data unavailable — please try again in a moment"));
+        return Err(ApiError::internal(
+            "rate data unavailable — please try again in a moment",
+        ));
     }
 
     if Utc::now() - rate.updated_at > Duration::minutes(state.rate_lock_minutes) {
@@ -229,7 +238,9 @@ pub async fn create_order(
     let zec_amount = Decimal::new(amount_ngn, 0) / rate.zec_ngn;
     let expires_at = Utc::now() + Duration::minutes(state.order_expiry_minutes);
 
-    let rate_snapshot_id = get_or_create_rate_snapshot(&state.pool, &rate).await.map_err(internal_err)?;
+    let rate_snapshot_id = get_or_create_rate_snapshot(&state.pool, &rate)
+        .await
+        .map_err(internal_err)?;
 
     let input = CreateOrderInput {
         access_token_hash,
@@ -864,7 +875,9 @@ pub async fn validate_utility_reference(
     let reference = service_ref::normalize(&utility_type, &query.reference)?;
 
     if utility_type == "school_fees" && !is_rrr(&reference) {
-        return Err(ApiError::bad_request("school fees need a 12 digit Remita RRR"));
+        return Err(ApiError::bad_request(
+            "school fees need a 12 digit Remita RRR",
+        ));
     }
 
     if let Some(dispatcher) = &state.provider_dispatcher {
@@ -923,22 +936,19 @@ pub async fn list_utility_variations(
 ) -> Result<Json<Vec<UtilityVariationItem>>, ApiError> {
     let utility_type = slug_to_utility_type(&slug);
 
-    if let Some(dispatcher) = &state.provider_dispatcher {
-        match dispatcher.service_variations(&utility_type, &slug).await {
-            Ok(variations) => {
-                return Ok(Json(
-                    variations
-                        .into_iter()
-                        .map(|v| UtilityVariationItem {
-                            variation_code: v.variation_code,
-                            name: v.name,
-                            amount: v.amount,
-                        })
-                        .collect(),
-                ));
-            }
-            Err(_) => {}
-        }
+    if let Some(dispatcher) = &state.provider_dispatcher
+        && let Ok(variations) = dispatcher.service_variations(&utility_type, &slug).await
+    {
+        return Ok(Json(
+            variations
+                .into_iter()
+                .map(|v| UtilityVariationItem {
+                    variation_code: v.variation_code,
+                    name: v.name,
+                    amount: v.amount,
+                })
+                .collect(),
+        ));
     }
 
     Ok(Json(Vec::new()))
@@ -1081,27 +1091,6 @@ fn order_matches_user(order: &OrderRow, user: &crate::http::mw::AuthenticatedUse
     order.user_id == Some(user.user_id)
 }
 
-async fn authorize_order_access(
-    state: &HttpState,
-    order_id: Uuid,
-    token: &str,
-) -> Result<OrderRow, ApiError> {
-    let order = db::get_order_by_id(&state.pool, order_id)
-        .await
-        .map_err(internal_err)?
-        .ok_or_else(|| ApiError::not_found("order not found"))?;
-
-    if !auth::verify_order_token_hash(
-        &state.order_token_hmac_secret,
-        token,
-        &order.access_token_hash,
-    ) {
-        return Err(ApiError::forbidden("invalid order token"));
-    }
-
-    Ok(order)
-}
-
 fn map_status_to_event(order: &OrderRow) -> Option<WsOrderEvent> {
     match order.status().ok()? {
         OrderStatus::AwaitingPayment => None,
@@ -1187,9 +1176,7 @@ pub async fn webhook_inlomax(
     }
 
     let event = match dispatcher.provider_for("airtime") {
-        Ok(provider) => provider
-            .parse_webhook_event(&body)
-            .map_err(internal_err)?,
+        Ok(provider) => provider.parse_webhook_event(&body).map_err(internal_err)?,
         Err(_) => return Ok(StatusCode::SERVICE_UNAVAILABLE),
     };
 
@@ -1238,24 +1225,25 @@ pub async fn webhook_inlomax(
                 }
             }
         }
-        ProviderTxnStatus::Failed => {
-            match db::fail_order(&state.pool, order_id).await {
-                Ok(true) => {
-                    let _ = state
-                        .ws_hub
-                        .broadcast_event(order_id, &WsOrderEvent::Failed {
+        ProviderTxnStatus::Failed => match db::fail_order(&state.pool, order_id).await {
+            Ok(true) => {
+                let _ = state
+                    .ws_hub
+                    .broadcast_event(
+                        order_id,
+                        &WsOrderEvent::Failed {
                             reason: String::from("provider_failed_webhook"),
-                        })
-                        .await;
-                }
-                Ok(false) => {
-                    tracing::warn!(order_id = %order_id, "failure matched no dispatching order");
-                }
-                Err(error) => {
-                    tracing::warn!(order_id = %order_id, error = %error, "failure failed");
-                }
+                        },
+                    )
+                    .await;
             }
-        }
+            Ok(false) => {
+                tracing::warn!(order_id = %order_id, "failure matched no dispatching order");
+            }
+            Err(error) => {
+                tracing::warn!(order_id = %order_id, error = %error, "failure failed");
+            }
+        },
         ProviderTxnStatus::Pending => {}
     }
 
@@ -1325,24 +1313,25 @@ pub async fn webhook_vtpass(
                 }
             }
         }
-        ProviderTxnStatus::Failed => {
-            match db::fail_order(&state.pool, order_id).await {
-                Ok(true) => {
-                    let _ = state
-                        .ws_hub
-                        .broadcast_event(order_id, &WsOrderEvent::Failed {
+        ProviderTxnStatus::Failed => match db::fail_order(&state.pool, order_id).await {
+            Ok(true) => {
+                let _ = state
+                    .ws_hub
+                    .broadcast_event(
+                        order_id,
+                        &WsOrderEvent::Failed {
                             reason: String::from("provider_failed_webhook"),
-                        })
-                        .await;
-                }
-                Ok(false) => {
-                    tracing::warn!(order_id = %order_id, "failure matched no dispatching order");
-                }
-                Err(error) => {
-                    tracing::warn!(order_id = %order_id, error = %error, "failure failed");
-                }
+                        },
+                    )
+                    .await;
             }
-        }
+            Ok(false) => {
+                tracing::warn!(order_id = %order_id, "failure matched no dispatching order");
+            }
+            Err(error) => {
+                tracing::warn!(order_id = %order_id, error = %error, "failure failed");
+            }
+        },
         ProviderTxnStatus::Pending => {}
     }
 

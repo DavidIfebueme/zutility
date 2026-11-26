@@ -85,8 +85,7 @@ impl InlomaxCircuitBreaker {
     pub async fn on_failure(&self) {
         let mut state = self.state.lock().await;
         let reopen_after = |duration: &std::time::Duration| {
-            chrono::Duration::from_std(*duration)
-                .unwrap_or_else(|_| chrono::Duration::seconds(30))
+            chrono::Duration::from_std(*duration).unwrap_or_else(|_| chrono::Duration::seconds(30))
         };
         let was_probe = state.half_open_in_flight;
         state.half_open_in_flight = false;
@@ -149,12 +148,7 @@ impl InlomaxClient {
             .clone()
             .context("INLOMAX_WEBHOOK_SECRET is required when INLOMAX_API_KEY is set")?;
 
-        Self::new(
-            base_url,
-            api_key,
-            webhook_secret,
-            Duration::from_secs(30),
-        )
+        Self::new(base_url, api_key, webhook_secret, Duration::from_secs(30))
     }
 
     pub fn request_id_for_order(&self, order_id: Uuid) -> String {
@@ -185,7 +179,10 @@ impl InlomaxClient {
         let response = self
             .client
             .post(url)
-            .header("Authorization", format!("Token {}", self.api_key.expose_secret()))
+            .header(
+                "Authorization",
+                format!("Token {}", self.api_key.expose_secret()),
+            )
             .header("Content-Type", "application/json")
             .json(&payload)
             .send()
@@ -242,7 +239,10 @@ impl InlomaxClient {
         let response = self
             .client
             .get(url)
-            .header("Authorization", format!("Token {}", self.api_key.expose_secret()))
+            .header(
+                "Authorization",
+                format!("Token {}", self.api_key.expose_secret()),
+            )
             .header("Content-Type", "application/json")
             .send()
             .await
@@ -367,7 +367,10 @@ impl UtilityProvider for InlomaxClient {
     ) -> Result<Vec<UtilityVariation>, ProviderError> {
         let response = self.get_json("services").await?;
         let data = response.get("data").ok_or_else(|| {
-            ProviderError::new(ProviderErrorKind::InvalidResponse, "inlomax services missing data field")
+            ProviderError::new(
+                ProviderErrorKind::InvalidResponse,
+                "inlomax services missing data field",
+            )
         })?;
 
         let mut variations = Vec::new();
@@ -376,61 +379,98 @@ impl UtilityProvider for InlomaxClient {
             for entry in airtime {
                 if entry.get("serviceID").and_then(Value::as_str) == Some(service_id) {
                     variations.push(UtilityVariation {
-                        variation_code: entry.get("serviceID").and_then(Value::as_str).unwrap_or_default().to_owned(),
-                        name: entry.get("network").and_then(Value::as_str).unwrap_or_default().to_owned(),
+                        variation_code: entry
+                            .get("serviceID")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_owned(),
+                        name: entry
+                            .get("network")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_owned(),
                         amount: None,
                     });
                 }
             }
         }
 
-        if let Some(data_plans) = data.get("dataPlans").and_then(Value::as_array) {
-            if let Some(network) = slug_to_inlomax_network(service_id) {
-                for entry in data_plans {
-                    if entry.get("network").and_then(Value::as_str) == Some(network) {
-                        let plan_name = format!(
-                            "{} - ₦{} ({})",
-                            entry.get("dataPlan").and_then(Value::as_str).unwrap_or_default(),
-                            entry.get("amount").and_then(Value::as_str).unwrap_or_default(),
-                            entry.get("dataType").and_then(Value::as_str).unwrap_or_default(),
-                        );
-                        let amount = parse_ngn_amount(entry.get("amount").unwrap_or(&Value::Null));
-                        variations.push(UtilityVariation {
-                            variation_code: entry.get("serviceID").and_then(Value::as_str).unwrap_or_default().to_owned(),
-                            name: plan_name,
-                            amount,
-                        });
-                    }
+        if let Some(data_plans) = data.get("dataPlans").and_then(Value::as_array)
+            && let Some(network) = slug_to_inlomax_network(service_id)
+        {
+            for entry in data_plans {
+                if entry.get("network").and_then(Value::as_str) == Some(network) {
+                    let plan_name = format!(
+                        "{} - ₦{} ({})",
+                        entry
+                            .get("dataPlan")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default(),
+                        entry
+                            .get("amount")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default(),
+                        entry
+                            .get("dataType")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default(),
+                    );
+                    let amount = parse_ngn_amount(entry.get("amount").unwrap_or(&Value::Null));
+                    variations.push(UtilityVariation {
+                        variation_code: entry
+                            .get("serviceID")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_owned(),
+                        name: plan_name,
+                        amount,
+                    });
                 }
             }
         }
 
-        if let Some(cable_plans) = data.get("cablePlans").and_then(Value::as_array) {
-            if let Some(cable) = slug_to_inlomax_network(service_id) {
-                for entry in cable_plans {
-                    if entry.get("cable").and_then(Value::as_str) == Some(cable) {
-                        let amount = parse_ngn_amount(entry.get("amount").unwrap_or(&Value::Null));
-                        variations.push(UtilityVariation {
-                            variation_code: entry.get("serviceID").and_then(Value::as_str).unwrap_or_default().to_owned(),
-                            name: entry.get("cablePlan").and_then(Value::as_str).unwrap_or_default().to_owned(),
-                            amount,
-                        });
-                    }
+        if let Some(cable_plans) = data.get("cablePlans").and_then(Value::as_array)
+            && let Some(cable) = slug_to_inlomax_network(service_id)
+        {
+            for entry in cable_plans {
+                if entry.get("cable").and_then(Value::as_str) == Some(cable) {
+                    let amount = parse_ngn_amount(entry.get("amount").unwrap_or(&Value::Null));
+                    variations.push(UtilityVariation {
+                        variation_code: entry
+                            .get("serviceID")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_owned(),
+                        name: entry
+                            .get("cablePlan")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_owned(),
+                        amount,
+                    });
                 }
             }
         }
 
-        if let Some(education) = data.get("education").and_then(Value::as_array) {
-            if let Some(edu_type) = slug_to_inlomax_network(service_id) {
-                for entry in education {
-                    if entry.get("type").and_then(Value::as_str) == Some(edu_type) {
-                        let amount = parse_ngn_amount(entry.get("amount").unwrap_or(&Value::Null));
-                        variations.push(UtilityVariation {
-                            variation_code: entry.get("serviceID").and_then(Value::as_str).unwrap_or_default().to_owned(),
-                            name: entry.get("type").and_then(Value::as_str).unwrap_or_default().to_owned(),
-                            amount,
-                        });
-                    }
+        if let Some(education) = data.get("education").and_then(Value::as_array)
+            && let Some(edu_type) = slug_to_inlomax_network(service_id)
+        {
+            for entry in education {
+                if entry.get("type").and_then(Value::as_str) == Some(edu_type) {
+                    let amount = parse_ngn_amount(entry.get("amount").unwrap_or(&Value::Null));
+                    variations.push(UtilityVariation {
+                        variation_code: entry
+                            .get("serviceID")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_owned(),
+                        name: entry
+                            .get("type")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_owned(),
+                        amount,
+                    });
                 }
             }
         }
@@ -480,7 +520,10 @@ impl UtilityProvider for InlomaxClient {
             });
         };
 
-        let status = response.get("status").and_then(Value::as_str).unwrap_or_default();
+        let status = response
+            .get("status")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
         let is_valid = status == "success";
         let customer_name = response
             .get("data")
@@ -503,12 +546,23 @@ impl UtilityProvider for InlomaxClient {
         &self,
         request: &UtilityPurchaseRequest,
     ) -> Result<UtilityPurchaseResponse, ProviderError> {
-        let endpoint = utility_type_to_inlomax_endpoint(&request.metadata.get("utility_type").and_then(Value::as_str).unwrap_or(""))
-            .ok_or_else(|| ProviderError::permanent("inlomax does not support this utility type"))?;
+        let endpoint = utility_type_to_inlomax_endpoint(
+            request
+                .metadata
+                .get("utility_type")
+                .and_then(Value::as_str)
+                .unwrap_or(""),
+        )
+        .ok_or_else(|| ProviderError::permanent("inlomax does not support this utility type"))?;
 
         let request_id = self.request_id_for_order(request.order_id);
 
-        let payload = match request.metadata.get("utility_type").and_then(Value::as_str).unwrap_or("") {
+        let payload = match request
+            .metadata
+            .get("utility_type")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+        {
             "airtime" => {
                 let sid = slug_to_inlomax_service_id(&request.service_id)
                     .unwrap_or_else(|| request.service_id.clone());
@@ -520,10 +574,14 @@ impl UtilityProvider for InlomaxClient {
                 })
             }
             "data" => {
-                let sid = request.variation_code.as_deref()
+                let sid = request
+                    .variation_code
+                    .as_deref()
                     .map(String::from)
-                    .unwrap_or_else(|| slug_to_inlomax_service_id(&request.service_id)
-                        .unwrap_or_else(|| request.service_id.clone()));
+                    .unwrap_or_else(|| {
+                        slug_to_inlomax_service_id(&request.service_id)
+                            .unwrap_or_else(|| request.service_id.clone())
+                    });
                 json!({
                     "serviceID": sid,
                     "mobileNumber": request.billers_code,
@@ -531,10 +589,14 @@ impl UtilityProvider for InlomaxClient {
                 })
             }
             "dstv" | "gotv" | "startimes" => {
-                let sid = request.variation_code.as_deref()
+                let sid = request
+                    .variation_code
+                    .as_deref()
                     .map(String::from)
-                    .unwrap_or_else(|| slug_to_inlomax_service_id(&request.service_id)
-                        .unwrap_or_else(|| request.service_id.clone()));
+                    .unwrap_or_else(|| {
+                        slug_to_inlomax_service_id(&request.service_id)
+                            .unwrap_or_else(|| request.service_id.clone())
+                    });
                 json!({
                     "serviceID": sid,
                     "iucNum": request.billers_code,
@@ -565,12 +627,19 @@ impl UtilityProvider for InlomaxClient {
                     "request-id": request_id,
                 })
             }
-            _ => return Err(ProviderError::permanent("unsupported utility type for inlomax")),
+            _ => {
+                return Err(ProviderError::permanent(
+                    "unsupported utility type for inlomax",
+                ));
+            }
         };
 
         let response = self.post_json(endpoint, payload).await?;
 
-        let status_str = response.get("status").and_then(Value::as_str).unwrap_or_default();
+        let status_str = response
+            .get("status")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
         let status = Self::map_status(Some(status_str));
 
         let data = response.get("data").cloned().unwrap_or(json!({}));
@@ -594,7 +663,11 @@ impl UtilityProvider for InlomaxClient {
 
         Ok(UtilityPurchaseResponse {
             provider_reference: reference.clone(),
-            provider_request_id: if reference.is_empty() { request_id } else { reference.clone() },
+            provider_request_id: if reference.is_empty() {
+                request_id
+            } else {
+                reference.clone()
+            },
             status,
             token,
             raw: response,
@@ -607,9 +680,15 @@ impl UtilityProvider for InlomaxClient {
             .await?;
 
         let data = response.get("data").cloned().unwrap_or(json!({}));
-        let status_str = data.get("status").and_then(Value::as_str).unwrap_or_default();
+        let status_str = data
+            .get("status")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
         let status = Self::map_status(Some(status_str));
-        let token = data.get("token").and_then(Value::as_str).map(ToOwned::to_owned);
+        let token = data
+            .get("token")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned);
 
         Ok(RequeryResponse {
             provider_request_id: request_id.to_owned(),
@@ -623,11 +702,17 @@ impl UtilityProvider for InlomaxClient {
         use hmac::{Hmac, Mac};
         use sha2::Sha256;
 
-        let mut mac = Hmac::<Sha256>::new_from_slice(self.webhook_secret.expose_secret().as_bytes())
-            .unwrap_or_else(|_| panic!("invalid hmac key"));
+        let Ok(mut mac) =
+            Hmac::<Sha256>::new_from_slice(self.webhook_secret.expose_secret().as_bytes())
+        else {
+            return false;
+        };
         mac.update(payload);
         let expected = hex::encode(mac.finalize().into_bytes());
-        expected.as_bytes().ct_eq(signature.trim().as_bytes()).into()
+        expected
+            .as_bytes()
+            .ct_eq(signature.trim().as_bytes())
+            .into()
     }
 
     fn parse_webhook_event(&self, payload: &[u8]) -> Result<ProviderWebhookEvent, ProviderError> {
@@ -676,8 +761,14 @@ mod tests {
     #[test]
     fn slug_to_service_id_maps_correctly() {
         assert_eq!(slug_to_inlomax_service_id("mtn"), Some(String::from("1")));
-        assert_eq!(slug_to_inlomax_service_id("airtel"), Some(String::from("2")));
-        assert_eq!(slug_to_inlomax_service_id("ikeja-electric"), Some(String::from("1")));
+        assert_eq!(
+            slug_to_inlomax_service_id("airtel"),
+            Some(String::from("2"))
+        );
+        assert_eq!(
+            slug_to_inlomax_service_id("ikeja-electric"),
+            Some(String::from("1"))
+        );
         assert_eq!(slug_to_inlomax_service_id("unknown"), None);
     }
 
@@ -698,9 +789,18 @@ mod tests {
 
     #[test]
     fn status_mapping_works() {
-        assert_eq!(InlomaxClient::map_status(Some("success")), ProviderTxnStatus::Delivered);
-        assert_eq!(InlomaxClient::map_status(Some("processing")), ProviderTxnStatus::Pending);
-        assert_eq!(InlomaxClient::map_status(Some("failed")), ProviderTxnStatus::Failed);
+        assert_eq!(
+            InlomaxClient::map_status(Some("success")),
+            ProviderTxnStatus::Delivered
+        );
+        assert_eq!(
+            InlomaxClient::map_status(Some("processing")),
+            ProviderTxnStatus::Pending
+        );
+        assert_eq!(
+            InlomaxClient::map_status(Some("failed")),
+            ProviderTxnStatus::Failed
+        );
         assert_eq!(InlomaxClient::map_status(None), ProviderTxnStatus::Pending);
     }
 }

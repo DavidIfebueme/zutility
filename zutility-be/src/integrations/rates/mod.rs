@@ -104,6 +104,7 @@ impl RateOracle {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn refresh_from_samples(
         &self,
         samples: Vec<(String, Decimal)>,
@@ -174,9 +175,7 @@ impl RateOracle {
                 usd_egp: previous
                     .map(|value| value.usd_egp)
                     .unwrap_or(current.usd_egp),
-                updated_at: previous
-                    .map(|value| value.updated_at)
-                    .unwrap_or(fetched_at),
+                updated_at: previous.map(|value| value.updated_at).unwrap_or(fetched_at),
             }
         } else {
             current
@@ -348,10 +347,10 @@ impl RateOracle {
 
         let mut result = std::collections::HashMap::new();
         for code in &["NGN", "KES", "GHS", "ZAR", "EGP"] {
-            if let Some(val) = rates_obj.get(*code) {
-                if let Ok(parsed) = parse_decimal(val) {
-                    result.insert(String::from(*code), parsed);
-                }
+            if let Some(val) = rates_obj.get(*code)
+                && let Ok(parsed) = parse_decimal(val)
+            {
+                result.insert(String::from(*code), parsed);
             }
         }
         Ok(result)
@@ -462,7 +461,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("failed to create oracle: {error}"));
 
         let previous = CurrentRate {
-            zec_ngn: Decimal::new(100_000_0000, 4),
+            zec_ngn: Decimal::new(1_000_000_000, 4),
             zec_usd: Decimal::new(100_0000, 4),
             usd_ngn: Decimal::new(1000_0000, 4),
             usd_kes: Decimal::ZERO,

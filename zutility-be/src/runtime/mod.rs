@@ -104,19 +104,21 @@ fn start_order_orchestrator(state: HttpState, config: AppConfig, pool: PgPool) {
             }
         };
 
-        let remita_collections = match crate::integrations::remita_collections::RemitaCollectionsClient::from_config(&config) {
-            Ok(client) => {
-                tracing::info!("remita collections client initialized successfully");
-                Some(client)
-            }
-            Err(error) => {
-                tracing::warn!(error = %error, "remita collections client not configured — school fees will be unavailable");
-                None
-            }
-        };
+        let remita_collections =
+            match crate::integrations::remita_collections::RemitaCollectionsClient::from_config(
+                &config,
+            ) {
+                Ok(client) => {
+                    tracing::info!("remita collections client initialized successfully");
+                    Some(client)
+                }
+                Err(error) => {
+                    tracing::warn!(error = %error, "remita collections client not configured — school fees will be unavailable");
+                    None
+                }
+            };
 
-        let dispatcher =
-            ProviderDispatcher::new(vtpass, remita, remita_collections, inlomax);
+        let dispatcher = ProviderDispatcher::new(vtpass, remita, remita_collections, inlomax);
 
         let mut ticker = interval(Duration::from_secs(25));
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -198,10 +200,10 @@ fn start_order_orchestrator(state: HttpState, config: AppConfig, pool: PgPool) {
                 tracing::warn!(error = %error, "gift claim window expiry failed");
             }
 
-            if let Some(client) = state.zcash_client.as_ref() {
-                if let Err(error) = client.save_wallet().await {
-                    tracing::warn!(error = %error, "zingolib wallet save failed");
-                }
+            if let Some(client) = state.zcash_client.as_ref()
+                && let Err(error) = client.save_wallet().await
+            {
+                tracing::warn!(error = %error, "zingolib wallet save failed");
             }
         }
     });
@@ -294,7 +296,7 @@ async fn process_order(
     let updated_status = updated.status()?;
 
     if updated_status == OrderStatus::AwaitingClaim {
-        resolve_held_gift(&state, &updated).await?;
+        resolve_held_gift(state, &updated).await?;
         return Ok(());
     }
 
@@ -533,9 +535,7 @@ async fn detect_payment_and_progress(
     txids.sort();
     txids.dedup();
 
-    if scan_ok
-        && let Err(error) = db::mark_missing_payments(pool, order.id, &txids).await
-    {
+    if scan_ok && let Err(error) = db::mark_missing_payments(pool, order.id, &txids).await {
         tracing::warn!(order_id = %order.id, error = %error, "failed to reconcile payments");
     }
 
@@ -616,7 +616,10 @@ async fn detect_payment_and_progress(
                 order,
                 "order_flagged",
                 "Order Under Review",
-                &format!("Your {} payment is being reviewed due to an underpayment.", order.utility_slug),
+                &format!(
+                    "Your {} payment is being reviewed due to an underpayment.",
+                    order.utility_slug
+                ),
                 serde_json::json!({ "utility_slug": order.utility_slug }),
             );
         } else {
@@ -672,7 +675,10 @@ async fn detect_payment_and_progress(
                     order,
                     "payment_confirmed",
                     "Payment Confirmed",
-                    &format!("Your payment for {} has been confirmed. Processing your order...", order.utility_slug),
+                    &format!(
+                        "Your payment for {} has been confirmed. Processing your order...",
+                        order.utility_slug
+                    ),
                     serde_json::json!({ "utility_slug": order.utility_slug }),
                 );
             }
@@ -766,12 +772,11 @@ async fn dispatch_utility(
                 .await;
             } else if result.status == ProviderTxnStatus::Failed {
                 fail_order(state, pool, order.id, "provider_failed").await;
-            } else if !result.provider_request_id.is_empty() {
-                if let Err(error) =
+            } else if !result.provider_request_id.is_empty()
+                && let Err(error) =
                     db::store_provider_reference(pool, order.id, &result.provider_request_id).await
-                {
-                    tracing::warn!(order_id = %order.id, error = %error, "failed to store provider reference for requery");
-                }
+            {
+                tracing::warn!(order_id = %order.id, error = %error, "failed to store provider reference for requery");
             }
         }
         Err(error)
@@ -979,7 +984,9 @@ fn notify_order(
     let t = title.to_owned();
     let b = body.to_owned();
     tokio::spawn(async move {
-        if let Err(e) = db::create_notification(&pool, user_id, Some(order_id), &nt, &t, &b, detail).await {
+        if let Err(e) =
+            db::create_notification(&pool, user_id, Some(order_id), &nt, &t, &b, detail).await
+        {
             tracing::warn!(order_id = %order_id, error = %e, "failed to create notification");
         }
     });
@@ -1021,7 +1028,10 @@ async fn complete_order(
             &order,
             "order_completed",
             "Order Completed",
-            &format!("Your {} payment was delivered successfully!", order.utility_slug),
+            &format!(
+                "Your {} payment was delivered successfully!",
+                order.utility_slug
+            ),
             serde_json::json!({ "utility_slug": order.utility_slug }),
         );
     }
@@ -1056,7 +1066,10 @@ async fn fail_order(state: &HttpState, pool: &PgPool, order_id: Uuid, reason: &s
             &order,
             "order_failed",
             "Order Failed",
-            &format!("Your {} payment failed. Please contact support if needed.", order.utility_slug),
+            &format!(
+                "Your {} payment failed. Please contact support if needed.",
+                order.utility_slug
+            ),
             serde_json::json!({ "utility_slug": order.utility_slug, "reason": reason }),
         );
     }
@@ -1087,11 +1100,14 @@ fn start_address_pool_refill(state: HttpState, _config: AppConfig, pool: PgPool)
 
             match manager.run_shielded_refill(&pool, &*client, &network).await {
                 Ok(outcome) => {
-                    state.observability.metrics().set_address_pool_depth(
-                        "shielded",
-                        outcome.after,
-                    );
-                    if matches!(outcome.alert_level, crate::jobs::address_pool::PoolAlertLevel::Critical) {
+                    state
+                        .observability
+                        .metrics()
+                        .set_address_pool_depth("shielded", outcome.after);
+                    if matches!(
+                        outcome.alert_level,
+                        crate::jobs::address_pool::PoolAlertLevel::Critical
+                    ) {
                         tracing::error!(
                             after = outcome.after,
                             "address pool critically low after refill attempt"
@@ -1133,7 +1149,11 @@ mod tests {
 
     #[test]
     fn primary_txid_is_the_largest_note() {
-        let notes = vec![note("aa", 37_653), note("bb", 10_000_000), note("cc", 40_000)];
+        let notes = vec![
+            note("aa", 37_653),
+            note("bb", 10_000_000),
+            note("cc", 40_000),
+        ];
 
         assert_eq!(primary_txid(&notes).as_deref(), Some("bb"));
     }

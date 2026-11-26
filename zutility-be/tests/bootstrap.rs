@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use zutility_be::{config, db, domain, http, integrations, jobs, observability, ws};
 
 #[tokio::test]

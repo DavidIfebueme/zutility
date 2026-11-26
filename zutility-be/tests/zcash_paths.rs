@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use axum::{
     body::{Body, to_bytes},
     http::{Request, StatusCode},
@@ -5,14 +7,15 @@ use axum::{
 use rust_decimal::Decimal;
 use serde_json::Value;
 use tower::util::ServiceExt;
-use zutility_be::{
-    http,
-    integrations::zcash::{PaymentMatchStatus, ReceivedNote, evaluate_received_notes},
-};
+use zutility_be::integrations::zcash::{PaymentMatchStatus, ReceivedNote, evaluate_received_notes};
+
+mod support;
 
 #[tokio::test]
-async fn transparent_payment_path_uses_nine_confirmations() {
-    let app = http::router();
+async fn transparent_address_orders_are_rejected() {
+    let Some(app) = support::authed_router().await else {
+        return;
+    };
 
     let create_req = Request::builder()
         .method("POST")
@@ -24,21 +27,25 @@ async fn transparent_payment_path_uses_nine_confirmations() {
         .expect("build request");
 
     let create_res = app.oneshot(create_req).await.expect("response");
-    assert_eq!(create_res.status(), StatusCode::OK);
+    assert_eq!(create_res.status(), StatusCode::BAD_REQUEST);
 
     let body = to_bytes(create_res.into_body(), 1024 * 1024)
         .await
         .expect("read body");
     let json: Value = serde_json::from_slice(&body).expect("json parse");
-    assert_eq!(
-        json.get("required_confirmations").and_then(Value::as_u64),
-        Some(9)
-    );
+    let message = json
+        .get("error")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_lowercase();
+    assert!(message.contains("transparent"));
 }
 
 #[tokio::test]
-async fn shielded_payment_path_uses_ten_confirmations() {
-    let app = http::router();
+async fn shielded_order_records_required_confirmations() {
+    let Some(app) = support::authed_router().await else {
+        return;
+    };
 
     let create_req = Request::builder()
         .method("POST")
@@ -58,7 +65,7 @@ async fn shielded_payment_path_uses_ten_confirmations() {
     let json: Value = serde_json::from_slice(&body).expect("json parse");
     assert_eq!(
         json.get("required_confirmations").and_then(Value::as_u64),
-        Some(10)
+        Some(3)
     );
 }
 

@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use proptest::prelude::*;
 use rust_decimal::Decimal;
 use zutility_be::domain::order::{

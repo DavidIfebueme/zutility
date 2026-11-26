@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use chrono::{Duration, Utc};
 use rust_decimal::Decimal;
 use sqlx::{PgPool, postgres::PgPoolOptions};
@@ -16,14 +18,15 @@ async fn test_pool() -> Option<PgPool> {
         .max_connections(1)
         .connect(&database_url)
         .await
-        .ok()?;
+        .expect("TEST_DATABASE_URL is set but the test database is unreachable");
     Some(pool)
 }
 
 async fn prepare_schema(pool: &PgPool) {
-    if sqlx::migrate!("./migrations").run(pool).await.is_err() {
-        return;
-    }
+    sqlx::migrate!("./migrations")
+        .run(pool)
+        .await
+        .expect("test database migrations failed");
 
     let _ =
         sqlx::query("TRUNCATE TABLE audit_log, orders, deposit_addresses, rate_snapshots CASCADE")
@@ -194,6 +197,7 @@ async fn readiness_probe_decodes_select_one() -> Result<(), sqlx::Error> {
     let Some(pool) = test_pool().await else {
         return Ok(());
     };
+    prepare_schema(&pool).await;
 
     let value = sqlx::query_scalar::<_, i32>("SELECT 1")
         .fetch_one(&pool)
