@@ -89,7 +89,7 @@ fn ngn_converts_through_usd() {
     assert!(naira.is_ok());
     if let Ok(value) = naira {
         let converted =
-            value.convert_from_ngn(CurrencyCode::Xof, Decimal::from(1500), Decimal::new(6, 1));
+            value.display_in(CurrencyCode::Xof, Decimal::from(1500), Decimal::new(6, 1));
         assert_eq!(
             converted.map(|money| money.round_to_currency().to_string()),
             Some("60".to_string())
@@ -103,11 +103,11 @@ fn conversion_rejects_a_zero_rate() {
     assert!(naira.is_ok());
     if let Ok(value) = naira {
         assert_eq!(
-            value.convert_from_ngn(CurrencyCode::Xof, Decimal::ZERO, Decimal::new(6, 1)),
+            value.display_in(CurrencyCode::Xof, Decimal::ZERO, Decimal::new(6, 1)),
             None
         );
         assert_eq!(
-            value.convert_from_ngn(CurrencyCode::Xof, Decimal::from(1500), Decimal::ZERO),
+            value.display_in(CurrencyCode::Xof, Decimal::from(1500), Decimal::ZERO),
             None
         );
     }

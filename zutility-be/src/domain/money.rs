@@ -34,7 +34,7 @@ impl fmt::Display for MoneyError {
 
 impl std::error::Error for MoneyError {}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum CurrencyCode {
     Ngn,
@@ -177,7 +177,7 @@ impl Money {
             .ok_or(MoneyError::Overflow)
     }
 
-    pub fn convert_from_ngn(
+    pub fn display_in(
         self,
         target: CurrencyCode,
         usd_ngn: Decimal,

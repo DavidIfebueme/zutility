@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use axum::{
     Json,
-    extract::{Extension, Path, State},
+    extract::{Extension, Path, Query, State},
 };
 use chrono::{Duration, Utc};
 use rand::RngExt;
@@ -16,17 +16,21 @@ use crate::{
             GiftStatus, MAX_OUTSTANDING_GIFT_NGN, is_giftable_utility, validate_claim_window_hours,
             validate_gift_amount_ngn,
         },
+        money::Money,
         order::{OrderStatus, OrderStatusTransition},
     },
     http::{
         auth,
         error::ApiError,
-        handlers::{HttpState, generate_token, get_or_create_rate_snapshot, slug_to_utility_type},
+        handlers::{
+            DisplayContext, HttpState, generate_token, get_or_create_rate_snapshot,
+            slug_to_utility_type,
+        },
         mw::AuthenticatedUser,
         service_ref,
         types::{
             CancelOrderResponse, ClaimGiftRequest, CreateGiftRequest, CreateGiftResponse,
-            CreateOrderResponse, GiftSummary, GiftView, RotateGiftCodeResponse,
+            CreateOrderResponse, CurrencyQuery, GiftSummary, GiftView, RotateGiftCodeResponse,
         },
     },
     integrations::utility_provider::ValidateRefRequest,
@@ -106,7 +110,11 @@ fn normalize_fallback(utility_slug: &str, raw: Option<&str>) -> Result<Option<St
         .transpose()
 }
 
-fn build_gift_view(gift: &db::GiftRow, order: Option<&db::OrderRow>) -> Result<GiftView, ApiError> {
+fn build_gift_view(
+    gift: &db::GiftRow,
+    order: Option<&db::OrderRow>,
+    display: &DisplayContext,
+) -> Result<GiftView, ApiError> {
     let status = gift
         .status()
         .ok_or_else(|| ApiError::internal("unknown gift status"))?;
@@ -149,6 +157,7 @@ fn build_gift_view(gift: &db::GiftRow, order: Option<&db::OrderRow>) -> Result<G
         confirmations,
         required_confirmations,
         delivery_token,
+        display: display.project(Money::from_ngn_whole(gift.amount_ngn).ok()),
     })
 }
 
@@ -366,6 +375,7 @@ pub async fn create_gift(
 pub async fn list_gifts(
     State(state): State<HttpState>,
     Extension(auth_user): Extension<AuthenticatedUser>,
+    Query(query): Query<CurrencyQuery>,
 ) -> Result<Json<Vec<GiftSummary>>, ApiError> {
     let gifts = db::list_gifts_by_sender(&state.pool, auth_user.user_id)
         .await
@@ -376,6 +386,7 @@ pub async fn list_gifts(
             .map_err(internal_err)?
             .into_iter()
             .collect();
+    let display = DisplayContext::load(&state, Some(&auth_user), query.currency.as_deref()).await;
 
     let mut summaries = Vec::with_capacity(gifts.len());
     for gift in gifts {
@@ -399,6 +410,7 @@ pub async fn list_gifts(
             claim_window_hours: i64::from(gift.claim_window_hours),
             claim_expires_at: gift.claim_expires_at,
             created_at: gift.created_at,
+            display: display.project(Money::from_ngn_whole(gift.amount_ngn).ok()),
         });
     }
 
@@ -417,6 +429,7 @@ pub async fn list_gifts(
 pub async fn get_gift(
     Path(code): Path<String>,
     State(state): State<HttpState>,
+    Query(query): Query<CurrencyQuery>,
 ) -> Result<Json<GiftView>, ApiError> {
     let gift = load_gift_by_code(&state, &code).await?;
     let order = match gift.order_id {
@@ -425,8 +438,9 @@ pub async fn get_gift(
             .map_err(internal_err)?,
         None => None,
     };
+    let display = DisplayContext::load(&state, None, query.currency.as_deref()).await;
 
-    Ok(Json(build_gift_view(&gift, order.as_ref())?))
+    Ok(Json(build_gift_view(&gift, order.as_ref(), &display)?))
 }
 
 #[utoipa::path(
@@ -444,6 +458,7 @@ pub async fn get_gift(
 pub async fn claim_gift(
     Path(code): Path<String>,
     State(state): State<HttpState>,
+    Query(query): Query<CurrencyQuery>,
     Json(payload): Json<ClaimGiftRequest>,
 ) -> Result<Json<GiftView>, ApiError> {
     let gift = load_gift_by_code(&state, &code).await?;
@@ -523,9 +538,8 @@ pub async fn claim_gift(
         .map_err(internal_err)?;
 
     if locked_status == OrderStatus::AwaitingClaim {
-        let transition =
-            OrderStatusTransition::new(locked_status, OrderStatus::PaymentConfirmed)
-                .map_err(internal_err)?;
+        let transition = OrderStatusTransition::new(locked_status, OrderStatus::PaymentConfirmed)
+            .map_err(internal_err)?;
 
         db::apply_order_status_transition(
             &mut tx,
@@ -563,10 +577,12 @@ pub async fn claim_gift(
     let refreshed_order = db::get_order_by_id(&state.pool, order_id)
         .await
         .map_err(internal_err)?;
+    let display = DisplayContext::load(&state, None, query.currency.as_deref()).await;
 
     Ok(Json(build_gift_view(
         &refreshed_gift,
         refreshed_order.as_ref(),
+        &display,
     )?))
 }
 

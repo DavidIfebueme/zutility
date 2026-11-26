@@ -6,20 +6,29 @@ use axum::{
 };
 use axum_extra::extract::CookieJar;
 use secrecy::{ExposeSecret, SecretString};
+use sqlx::PgPool;
 use subtle::ConstantTimeEq;
 use uuid::Uuid;
 
 use super::auth;
+use crate::domain::money::CurrencyCode;
 
 #[derive(Debug, Clone)]
 pub struct AuthenticatedUser {
     pub user_id: Uuid,
     pub email: String,
+    pub preferred_currency: CurrencyCode,
+}
+
+#[derive(Clone)]
+pub struct AuthMiddlewareState {
+    pub pool: PgPool,
+    pub jwt_secret: SecretString,
 }
 
 pub async fn auth_middleware(
     cookie_jar: CookieJar,
-    State(jwt_secret): State<SecretString>,
+    State(state): State<AuthMiddlewareState>,
     request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
@@ -32,7 +41,7 @@ pub async fn auth_middleware(
         return Err(StatusCode::UNAUTHORIZED);
     }
 
-    let claims = auth::verify_access_jwt(access_token, &jwt_secret)
+    let claims = auth::verify_access_jwt(access_token, &state.jwt_secret)
         .map_err(|_| StatusCode::UNAUTHORIZED)?;
 
     if request.method() != axum::http::Method::GET {
@@ -56,14 +65,19 @@ pub async fn auth_middleware(
         }
     }
 
-    let user_id: Uuid = claims
-        .sub
-        .parse()
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let user_id: Uuid = claims.sub.parse().map_err(|_| StatusCode::UNAUTHORIZED)?;
+
+    let raw_currency = crate::db::find_user_preferred_currency(&state.pool, user_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    let preferred_currency =
+        CurrencyCode::from_iso(&raw_currency).ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let user = AuthenticatedUser {
         user_id,
         email: claims.email,
+        preferred_currency,
     };
 
     let mut request = request;

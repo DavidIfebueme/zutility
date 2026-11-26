@@ -6,7 +6,7 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::domain::gift::GiftStatus;
-use crate::domain::money::Money;
+use crate::domain::money::{CurrencyCode, Money};
 use crate::domain::order::OrderStatus;
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -22,6 +22,48 @@ impl MoneyDto {
             amount: money.round_to_currency().to_string(),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct DisplayMoney {
+    pub currency: String,
+    pub amount: Option<String>,
+    pub rate_available: bool,
+}
+
+impl DisplayMoney {
+    pub fn target_currency(override_iso: Option<&str>, preferred: CurrencyCode) -> CurrencyCode {
+        override_iso
+            .and_then(CurrencyCode::from_iso)
+            .unwrap_or(preferred)
+    }
+
+    pub fn new(
+        currency: CurrencyCode,
+        amount: Option<Money>,
+        rate: Option<(Decimal, Decimal)>,
+    ) -> Self {
+        let converted = match (currency, amount) {
+            (CurrencyCode::Ngn, Some(money)) => Some(money),
+            (_, Some(money)) => {
+                rate.and_then(|(usd_ngn, per_usd)| money.display_in(currency, usd_ngn, per_usd))
+            }
+            (_, None) => None,
+        };
+
+        Self {
+            currency: currency.iso().to_string(),
+            amount: converted.map(|money| money.round_to_currency().to_string()),
+            rate_available: converted.is_some(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct FxQuoteResponse {
+    pub quote: String,
+    pub per_usd: String,
+    pub fetched_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
@@ -66,6 +108,7 @@ pub struct OrderStatusResponse {
     pub expires_at: DateTime<Utc>,
     pub completed_at: Option<DateTime<Utc>>,
     pub delivery_token: Option<String>,
+    pub display: DisplayMoney,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -89,6 +132,8 @@ pub struct RateResponse {
     pub usd_egp: String,
     pub updated_at: DateTime<Utc>,
     pub valid_until: DateTime<Utc>,
+    pub fx: Vec<FxQuoteResponse>,
+    pub display: DisplayMoney,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -114,11 +159,13 @@ pub struct UtilityValidateResponse {
     pub biller_name: Option<String>,
     pub product_name: Option<String>,
     pub reference: Option<String>,
+    pub display: DisplayMoney,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct OrderTokenQuery {
     pub token: String,
+    pub currency: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -126,6 +173,12 @@ pub struct UtilityValidateQuery {
     #[serde(rename = "ref")]
     pub reference: String,
     pub meter_type: Option<String>,
+    pub currency: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CurrencyQuery {
+    pub currency: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
@@ -182,6 +235,7 @@ pub struct OrderHistoryItem {
     pub status: String,
     pub created_at: DateTime<Utc>,
     pub completed_at: Option<DateTime<Utc>>,
+    pub display: DisplayMoney,
 }
 
 #[derive(Debug, Clone)]
@@ -335,6 +389,7 @@ pub struct GiftView {
     pub confirmations: u16,
     pub required_confirmations: u16,
     pub delivery_token: Option<String>,
+    pub display: DisplayMoney,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -350,6 +405,7 @@ pub struct GiftSummary {
     pub claim_window_hours: i64,
     pub claim_expires_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
+    pub display: DisplayMoney,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]

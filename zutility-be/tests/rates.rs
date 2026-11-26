@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 use rust_decimal::Decimal;
@@ -18,10 +19,7 @@ fn refresh_from_samples_computes_median_and_ngn_conversion() {
                 (String::from("coinbase"), Decimal::new(9900, 2)),
             ],
             Decimal::new(150000, 2),
-            Some(Decimal::new(129000, 2)),
-            Some(Decimal::new(12000, 2)),
-            Some(Decimal::new(18000, 2)),
-            Some(Decimal::new(30000, 2)),
+            &BTreeMap::new(),
             Some(Decimal::new(15000000, 2)),
             None,
         )
@@ -58,10 +56,7 @@ fn refresh_holds_previous_rate_when_drift_exceeds_10_percent() {
                 (String::from("coinbase"), Decimal::new(12100, 2)),
             ],
             Decimal::new(150000, 2),
-            None,
-            None,
-            None,
-            None,
+            &BTreeMap::new(),
             None,
             Some(&previous),
         )

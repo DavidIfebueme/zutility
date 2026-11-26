@@ -20,11 +20,12 @@ use uuid::Uuid;
 use crate::{
     config::{AppConfig, ZcashNetwork},
     db::{self, CreateOrderInput, OrderRow},
+    domain::money::{CurrencyCode, Money},
     domain::order::{OrderStatus, OrderStatusTransition},
     http::auth,
     integrations::provider_dispatcher::ProviderDispatcher,
     integrations::rates::{
-        CurrentRate, SharedRateCache, default_current_rate, new_shared_rate_cache,
+        CurrentRate, FX_QUOTES, SharedRateCache, default_current_rate, new_shared_rate_cache,
     },
     integrations::remita::RemitaClient,
     integrations::utility_provider::{
@@ -40,9 +41,10 @@ use super::{
     error::ApiError,
     service_ref,
     types::{
-        CancelOrderResponse, CreateOrderRequest, CreateOrderResponse, OrderAccessTokenResponse,
-        OrderStatusResponse, OrderTokenQuery, RateResponse, UtilityItem, UtilityValidateQuery,
-        UtilityValidateResponse, UtilityVariationItem,
+        CancelOrderResponse, CreateOrderRequest, CreateOrderResponse, CurrencyQuery, DisplayMoney,
+        FxQuoteResponse, OrderAccessTokenResponse, OrderStatusResponse, OrderTokenQuery,
+        RateResponse, UtilityItem, UtilityValidateQuery, UtilityValidateResponse,
+        UtilityVariationItem,
     },
 };
 
@@ -458,6 +460,14 @@ pub async fn get_order(
 
     let status = order.status().map_err(internal_err)?;
 
+    let display = display_money(
+        &state,
+        Some(&auth_user),
+        query.currency.as_deref(),
+        Money::from_ngn_whole(order.amount_ngn).ok(),
+    )
+    .await;
+
     Ok(Json(OrderStatusResponse {
         order_id: order.id,
         status,
@@ -481,6 +491,7 @@ pub async fn get_order(
         expires_at: order.expires_at,
         completed_at: order.completed_at,
         delivery_token: order.delivery_token,
+        display,
     }))
 }
 
@@ -627,6 +638,7 @@ pub async fn stream_order(
     )
 )]
 pub async fn get_current_rate(
+    Query(query): Query<CurrencyQuery>,
     State(state): State<HttpState>,
 ) -> Result<Json<RateResponse>, ApiError> {
     let CurrentRate {
@@ -641,6 +653,30 @@ pub async fn get_current_rate(
     } = state.rate_cache.read().await.clone();
     let valid_until = updated_at + Duration::minutes(state.rate_lock_minutes);
 
+    let fx = match db::list_fx_rates(&state.pool).await {
+        Ok(rows) => rows
+            .into_iter()
+            .filter(|row| FX_QUOTES.iter().any(|code| code.iso() == row.quote))
+            .map(|row| FxQuoteResponse {
+                quote: row.quote,
+                per_usd: row.per_usd.to_string(),
+                fetched_at: row.fetched_at,
+            })
+            .collect(),
+        Err(error) => {
+            tracing::warn!(error = %error, "fx rate list read failed");
+            Vec::new()
+        }
+    };
+
+    let display = display_money(
+        &state,
+        None,
+        query.currency.as_deref(),
+        Money::new_rounded(CurrencyCode::Ngn, usd_ngn).ok(),
+    )
+    .await;
+
     Ok(Json(RateResponse {
         zec_ngn: zec_ngn.round_dp(4).to_string(),
         zec_usd: zec_usd.round_dp(4).to_string(),
@@ -651,6 +687,8 @@ pub async fn get_current_rate(
         usd_egp: usd_egp.round_dp(4).to_string(),
         updated_at,
         valid_until,
+        fx,
+        display,
     }))
 }
 
@@ -901,15 +939,25 @@ pub async fn validate_utility_reference(
         };
         match dispatcher.validate_reference(&utility_type, &request).await {
             Ok(response) => {
+                let amount_ngn = response
+                    .settlement
+                    .and_then(|settlement| settlement.to_ngn_whole().ok());
+                let display = display_money(
+                    &state,
+                    None,
+                    query.currency.as_deref(),
+                    amount_ngn.and_then(|amount| Money::from_ngn_whole(amount).ok()),
+                )
+                .await;
+
                 return Ok(Json(UtilityValidateResponse {
                     valid: response.is_valid,
                     customer_name: response.customer_name,
-                    amount_ngn: response
-                        .settlement
-                        .and_then(|settlement| settlement.to_ngn_whole().ok()),
+                    amount_ngn,
                     biller_name: response.biller_name,
                     product_name: response.product_name,
                     reference: response.reference,
+                    display,
                 }));
             }
             Err(error) if utility_type == "school_fees" => {
@@ -920,6 +968,8 @@ pub async fn validate_utility_reference(
     }
 
     let valid = !utility_type.is_empty();
+    let display = display_money(&state, None, query.currency.as_deref(), None).await;
+
     Ok(Json(UtilityValidateResponse {
         valid,
         customer_name: if valid {
@@ -931,6 +981,7 @@ pub async fn validate_utility_reference(
         biller_name: None,
         product_name: None,
         reference: None,
+        display,
     }))
 }
 
@@ -1757,6 +1808,87 @@ pub(crate) async fn get_or_create_rate_snapshot(
         fetched_at: rate.updated_at,
     };
     db::persist_rate_snapshot(pool, &input).await
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct DisplayContext {
+    currency: CurrencyCode,
+    rate: Option<(Decimal, Decimal)>,
+}
+
+impl DisplayContext {
+    pub async fn load(
+        state: &HttpState,
+        auth_user: Option<&crate::http::mw::AuthenticatedUser>,
+        override_currency: Option<&str>,
+    ) -> Self {
+        let currency = DisplayMoney::target_currency(
+            override_currency,
+            auth_user
+                .map(|user| user.preferred_currency)
+                .unwrap_or(CurrencyCode::Ngn),
+        );
+
+        if currency == CurrencyCode::Ngn {
+            return Self {
+                currency,
+                rate: None,
+            };
+        }
+
+        let window = Duration::minutes(state.rate_lock_minutes);
+        let now = Utc::now();
+
+        let bridge = match db::latest_usd_ngn(&state.pool).await {
+            Ok(value) => value,
+            Err(error) => {
+                tracing::warn!(error = %error, "display bridge rate read failed");
+                None
+            }
+        }
+        .filter(|(usd_ngn, fetched_at)| *usd_ngn > Decimal::ZERO && *fetched_at + window > now);
+
+        let Some((usd_ngn, _)) = bridge else {
+            return Self {
+                currency,
+                rate: None,
+            };
+        };
+
+        let per_usd = if currency == CurrencyCode::Usd {
+            Some(Decimal::ONE)
+        } else {
+            match db::find_fx_rate(&state.pool, currency.iso()).await {
+                Ok(value) => value
+                    .filter(|row| row.per_usd > Decimal::ZERO && row.fetched_at + window > now)
+                    .map(|row| row.per_usd),
+                Err(error) => {
+                    tracing::warn!(error = %error, "display fx rate read failed");
+                    None
+                }
+            }
+        };
+
+        Self {
+            currency,
+            rate: per_usd.map(|per_usd| (usd_ngn, per_usd)),
+        }
+    }
+
+    pub fn project(&self, amount_ngn: Option<Money>) -> DisplayMoney {
+        DisplayMoney::new(self.currency, amount_ngn, self.rate)
+    }
+}
+
+pub(crate) async fn display_money(
+    state: &HttpState,
+    auth_user: Option<&crate::http::mw::AuthenticatedUser>,
+    override_currency: Option<&str>,
+    amount_ngn: Option<Money>,
+) -> DisplayMoney {
+    DisplayContext::load(state, auth_user, override_currency)
+        .await
+        .project(amount_ngn)
 }
 
 #[cfg(test)]
