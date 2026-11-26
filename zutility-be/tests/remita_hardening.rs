@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use std::{sync::Arc, time::Duration};
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use axum::{
     Json, Router,
@@ -13,10 +13,15 @@ use secrecy::SecretString;
 use serde_json::{Value, json};
 use tokio::sync::Mutex;
 use uuid::Uuid;
-use zutility_be::integrations::{
-    remita::RemitaClient,
-    remita_collections::RemitaCollectionsClient,
-    utility_provider::{ProviderErrorKind, UtilityProvider, UtilityPurchaseRequest},
+use zutility_be::{
+    domain::money::Money,
+    integrations::{
+        remita::RemitaClient,
+        remita_collections::RemitaCollectionsClient,
+        utility_provider::{
+            ProviderContext, ProviderErrorKind, UtilityProvider, UtilityPurchaseRequest,
+        },
+    },
 };
 
 const ORDER_ID: &str = "00000000-0000-4000-8000-000000000001";
@@ -111,15 +116,27 @@ async fn spawn_server() -> (Mock, String) {
     (state, format!("http://{addr}"))
 }
 
+fn naira(amount: i64) -> Money {
+    Money::from_ngn_whole(amount).expect("naira amount")
+}
+
 fn request(amount_ngn: i64, metadata: Value) -> UtilityPurchaseRequest {
     UtilityPurchaseRequest {
         order_id: Uuid::parse_str(ORDER_ID).expect("order id"),
         request_id: String::from("req-1"),
-        service_id: String::from("school-fees"),
-        billers_code: String::from("141523991664"),
-        variation_code: None,
-        amount_ngn,
-        phone: None,
+        context: ProviderContext {
+            utility_type: String::from("school_fees"),
+            service_id: String::from("school-fees"),
+            billers_code: String::from("141523991664"),
+            variation_code: None,
+            meter_type: None,
+            phone: None,
+        },
+        cost_ngn: naira(amount_ngn),
+        settlement: naira(amount_ngn),
+        product_id: String::from("product-1"),
+        external_id: String::from("ext-1"),
+        inputs: BTreeMap::new(),
         metadata,
         zec_amount: Decimal::new(1, 0),
     }
