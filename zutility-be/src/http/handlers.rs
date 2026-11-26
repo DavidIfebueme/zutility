@@ -1532,10 +1532,7 @@ fn callback_address_allowed(
 }
 
 fn is_trusted_proxy(address: IpAddr) -> bool {
-    match address {
-        IpAddr::V4(address) => address.is_loopback() || address.is_private(),
-        IpAddr::V6(address) => address.is_loopback() || address.is_unique_local(),
-    }
+    address.is_loopback()
 }
 
 fn webhook_transition(
@@ -1547,13 +1544,17 @@ fn webhook_transition(
 ) -> Option<db::WebhookTransition> {
     let from = OrderStatus::from_db(&order.status)?;
     let transition = OrderStatusTransition::new(from, to).ok()?;
+    let provider_reference = detail
+        .get("provider_transaction_id")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned);
 
     Some(db::WebhookTransition {
         from_status: transition.from.as_db().to_owned(),
         to_status: transition.to.as_db().to_owned(),
         event: event.to_owned(),
         delivery_token,
-        provider_reference: None,
+        provider_reference,
         detail,
     })
 }
