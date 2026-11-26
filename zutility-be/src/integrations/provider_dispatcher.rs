@@ -127,10 +127,8 @@ impl ProviderDispatcher {
 
         self.record_provider_error(primary.kind());
 
-        if matches!(
-            error.kind,
-            ProviderErrorKind::Outage | ProviderErrorKind::Transient
-        ) && let Some(failover) = failover
+        if matches!(error.kind, ProviderErrorKind::Outage)
+            && let Some(failover) = failover
             && self.is_configured(failover)
             && failover != provider
         {

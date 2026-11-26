@@ -330,6 +330,7 @@ impl DtoneClient {
         let payload = match response.json::<Value>().await {
             Ok(payload) => payload,
             Err(_) if status.is_success() => {
+                self.breaker.on_success().await;
                 return Err(DtoneCall::Provider(ProviderError::new(
                     ProviderErrorKind::InvalidResponse,
                     "dtone returned a body that is not json",
@@ -339,7 +340,7 @@ impl DtoneClient {
         };
 
         if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
-            self.breaker.on_failure().await;
+            self.breaker.on_success().await;
             return Err(DtoneCall::Provider(ProviderError::new(
                 ProviderErrorKind::Unauthorized,
                 "dtone authentication failed",
@@ -355,6 +356,7 @@ impl DtoneClient {
 
         if !status.is_success() {
             let codes = error_codes(&payload);
+            self.breaker.on_success().await;
             if codes.contains(&EXTERNAL_ID_ALREADY_USED) {
                 return Err(DtoneCall::ExternalIdInUse);
             }
