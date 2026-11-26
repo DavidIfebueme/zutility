@@ -192,8 +192,9 @@ impl Money {
         if target == CurrencyCode::Ngn {
             return Some(self);
         }
-        let usd = self.amount / usd_ngn;
-        Self::new_rounded(target, usd * target_per_usd).ok()
+        let usd = self.amount.checked_div(usd_ngn)?;
+        let converted = usd.checked_mul(target_per_usd)?;
+        Self::new_rounded(target, converted).ok()
     }
 }
 
