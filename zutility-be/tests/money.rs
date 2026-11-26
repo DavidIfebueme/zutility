@@ -168,3 +168,13 @@ async fn user_currency_round_trips_through_every_query() {
         .and_then(|user| user.display_name);
     assert_eq!(preserved.as_deref(), Some("probe"));
 }
+
+#[test]
+fn conversion_returns_none_instead_of_panicking_on_an_overflowing_rate() {
+    let ngn = Money::from_ngn_whole(1000).expect("naira");
+    let tiny = Decimal::new(1, 28);
+    assert_eq!(
+        ngn.convert_from_ngn(CurrencyCode::Xof, tiny, Decimal::ONE),
+        None
+    );
+}
