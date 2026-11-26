@@ -18,7 +18,7 @@ async fn test_pool() -> Option<PgPool> {
         .max_connections(1)
         .connect(&database_url)
         .await
-        .ok()?;
+        .expect("TEST_DATABASE_URL is set but the test database is unreachable");
     Some(pool)
 }
 

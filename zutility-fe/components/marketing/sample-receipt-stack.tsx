@@ -51,7 +51,7 @@ function ReceiptCard({
         <div className="rounded-md border border-line bg-paper px-4 py-3">
           <p className="label-xs text-muted">Send exactly</p>
           <p className="num mt-1 text-2xl text-ink">{sample.zec} ZEC</p>
-          <p className="num mt-1 truncate text-[12px] text-muted">{sample.address}</p>
+          <p className="mt-1 text-[12px] text-muted">Address generated per order</p>
         </div>
 
         <dl className="space-y-2 text-[13px]">

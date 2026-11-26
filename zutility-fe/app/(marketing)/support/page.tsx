@@ -27,8 +27,8 @@ type SupportFormValues = z.infer<typeof supportSchema>
 const BEFORE = [
   "Open your order page first. It shows the live state, the deposit address, and the confirmation count.",
   "Signed in, the same order sits in your history with its receipt.",
-  "A transparent payment clears at 9 confirmations. A shielded payment clears at 10.",
-  "Blocks arrive about every 25 seconds, so the wait is roughly four minutes.",
+  "A payment clears at 3 confirmations.",
+  "Blocks arrive about every 25 seconds, so the wait is roughly a minute.",
   "If the countdown has ended, send the order ID anyway. Support can still trace the payment.",
 ]
 
