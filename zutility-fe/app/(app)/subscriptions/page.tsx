@@ -76,7 +76,7 @@ export default function SubscriptionsPage() {
             <p className="mt-2 text-[14px] text-ink">Pay a bill</p>
             <p className="mt-1 text-[13px] leading-relaxed text-ink-2">
               Airtime, data, TV, prepaid electricity, exam PINs, and school fees. Pay with shielded
-              or transparent ZEC.
+              ZEC.
             </p>
             <Button asChild className="mt-4 w-full" size="sm">
               <Link href="/pay">

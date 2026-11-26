@@ -25,6 +25,9 @@ type WaitlistFormValues = z.infer<typeof waitlistSchema>
 interface WaitlistJoinResponse {
   referral_code: string
   position: number
+  verification_pending: boolean
+  email_sent: boolean
+  created: boolean
 }
 
 interface WaitlistStats {
@@ -123,15 +126,14 @@ function WaitlistContent() {
                 <div className="border-b border-line py-4">
                   <dt className="text-[14px] font-medium text-ink">Confirm to hold the place</dt>
                   <dd className="mt-1 text-[13px] leading-relaxed text-ink-2">
-                    An unconfirmed address is not counted as verified. Open the link in the message
-                    to confirm it.
+                    An unconfirmed address does not hold a numbered place. Open the link in the
+                    message to confirm it.
                   </dd>
                 </div>
                 <div className="border-b border-line py-4">
                   <dt className="text-[14px] font-medium text-ink">Referrals move you up</dt>
                   <dd className="mt-1 text-[13px] leading-relaxed text-ink-2">
-                    Share your link after joining. Each person who joins through it helps your
-                    position.
+                    Each verified person who joins through your link moves you up one place.
                   </dd>
                 </div>
               </dl>
@@ -176,11 +178,25 @@ function WaitlistContent() {
                   <span className="flex h-10 w-10 items-center justify-center rounded-md bg-paper-2 text-green">
                     <Check className="h-5 w-5" strokeWidth={1.8} />
                   </span>
-                  <h2 className="mt-4 text-2xl text-ink">You are on the list.</h2>
+                  <h2 className="mt-4 text-2xl text-ink">
+                    {joined.verification_pending ? "You are on the list." : "You are already verified."}
+                  </h2>
                   <p className="mt-2 text-[14px] leading-relaxed text-ink-2">
-                    Check the email for the confirmation link. The place holds once that link is
-                    opened.
+                    {!joined.verification_pending
+                      ? "This email is already confirmed. Your place is held."
+                      : joined.created && joined.email_sent
+                        ? "Check the email for the confirmation link. The place holds once that link is opened."
+                        : joined.created
+                          ? "We could not send the confirmation email. Send it again from the verify page."
+                          : "This address is already on the list but not confirmed. Check the inbox, or send the link again."}
                   </p>
+                  {joined.verification_pending && (!joined.created || !joined.email_sent) && (
+                    <p className="mt-2 text-[13px]">
+                      <Link href="/waitlist/verify" className="text-gold-deep u-link">
+                        Send the confirmation email again
+                      </Link>
+                    </p>
+                  )}
 
                   <dl className="mt-6 rounded-md border border-line bg-paper">
                     <div className="flex items-baseline justify-between border-b border-line px-4 py-3">
@@ -214,7 +230,7 @@ function WaitlistContent() {
                       </Button>
                     </div>
                     <p className="mt-2 text-[12px] text-muted">
-                      Share it with anyone who wants early access.
+                      Each verified signup through this link moves you up one place.
                     </p>
                   </div>
 
