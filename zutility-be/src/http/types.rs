@@ -232,6 +232,9 @@ pub struct WaitlistResendRequest {
 pub struct WaitlistJoinResponse {
     pub referral_code: String,
     pub position: i64,
+    pub verification_pending: bool,
+    pub email_sent: bool,
+    pub created: bool,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
