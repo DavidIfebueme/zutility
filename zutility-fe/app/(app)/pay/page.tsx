@@ -21,6 +21,7 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { BrandMark } from "@/components/ui/brand-mark"
 import { CountryPicker } from "@/components/pay/country-picker"
 import { ProductFields } from "@/components/pay/product-fields"
 import { AmountControl } from "@/components/pay/amount-control"
@@ -56,6 +57,7 @@ import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { networkWarning } from "@/lib/network"
 import { INVALID_PHONE_MESSAGE, normalizePhone } from "@/lib/phone"
+import { brandIconForSlug } from "@/lib/brand-logo"
 
 const createOrderSchema = z.object({
   utility_type: z.string().min(1),
@@ -527,6 +529,7 @@ export default function PayPage() {
                 <div className="mt-3 grid gap-2 sm:grid-cols-2">
                   {filteredProducts.map((item) => {
                     const Icon = categoryIcon(activeCategoryEntry.category)
+                    const brandIcon = brandIconForSlug(item.slug)
                     const isSelected = selectedProductId === item.id
                     return (
                       <button
@@ -546,7 +549,11 @@ export default function PayPage() {
                             isSelected ? "bg-paper-3" : "bg-paper-2"
                           )}
                         >
-                          <Icon className="h-5 w-5 text-ink-2" strokeWidth={1.6} />
+                          {brandIcon ? (
+                            <BrandMark id={brandIcon} size={26} />
+                          ) : (
+                            <Icon className="h-5 w-5 text-ink-2" strokeWidth={1.6} />
+                          )}
                         </span>
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-[13px] font-medium text-ink">

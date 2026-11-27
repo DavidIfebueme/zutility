@@ -33,3 +33,13 @@ export const BRAND_MONOGRAMS: Partial<Record<BrandIconId, string>> = {
 export const BRAND_TILE_BACKGROUND: Partial<Record<BrandIconId, string>> = {
   mtn: "#ffcb05",
 }
+
+export function brandIconForSlug(slug: string): BrandIconId | null {
+  const base = slug.endsWith("-data")
+    ? slug.slice(0, -"-data".length)
+    : slug.startsWith("waec-")
+      ? "waec"
+      : slug
+  const id = base as BrandIconId
+  return BRAND_LOGOS[id] !== undefined || BRAND_MONOGRAMS[id] !== undefined ? id : null
+}
