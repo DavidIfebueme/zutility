@@ -333,6 +333,7 @@ pub fn router_with_pool(pool: Option<PgPool>) -> Router {
         remita_webhook_secret: Some(secrecy::SecretString::from(String::from("remita_webhook"))),
         remita_collections_base_url: None,
         remita_collections_secret_key: None,
+        remita_collections_allow_demo: false,
         inlomax_api_key: None,
         inlomax_base_url: None,
         inlomax_webhook_secret: None,

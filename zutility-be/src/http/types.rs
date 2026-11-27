@@ -122,6 +122,7 @@ pub struct OrderStatusResponse {
     pub delivery_token: Option<String>,
     pub failure_code: Option<String>,
     pub failure_message: Option<String>,
+    pub receipt_url: Option<String>,
     pub settlement: Option<MoneyDto>,
     pub fulfilment_kind: String,
     pub display: DisplayMoney,

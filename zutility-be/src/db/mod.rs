@@ -903,6 +903,24 @@ pub async fn mark_provider_accepted(pool: &PgPool, order_id: Uuid) -> Result<()>
     Ok(())
 }
 
+pub async fn store_order_receipt_url(
+    pool: &PgPool,
+    order_id: Uuid,
+    receipt_url: &str,
+) -> Result<()> {
+    sqlx::query(
+        "UPDATE orders
+         SET metadata = metadata || jsonb_build_object('receipt_url', $2::text)
+         WHERE id = $1",
+    )
+    .bind(order_id)
+    .bind(receipt_url)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
 pub async fn complete_flagged_school_fee_order(
     pool: &PgPool,
     order_id: Uuid,

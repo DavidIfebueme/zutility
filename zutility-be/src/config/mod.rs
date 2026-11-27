@@ -90,6 +90,8 @@ pub struct AppConfig {
     pub remita_collections_base_url: Option<String>,
     #[serde(default)]
     pub remita_collections_secret_key: Option<SecretString>,
+    #[serde(default)]
+    pub remita_collections_allow_demo: bool,
     pub inlomax_api_key: Option<SecretString>,
     pub inlomax_base_url: Option<String>,
     pub inlomax_webhook_secret: Option<SecretString>,
@@ -312,11 +314,12 @@ impl AppConfig {
         }
 
         if matches!(self.app_env, AppEnv::Prod)
+            && !self.remita_collections_allow_demo
             && let Some(ref url) = self.remita_collections_base_url
             && url.contains("remitademo")
         {
             anyhow::bail!(
-                "REMITA_COLLECTIONS_BASE_URL must not point at the demo gateway in production"
+                "REMITA_COLLECTIONS_BASE_URL points at the demo gateway in production; set REMITA_COLLECTIONS_ALLOW_DEMO=true to permit it during UAT"
             );
         }
 

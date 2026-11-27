@@ -899,6 +899,16 @@ async fn dispatch_utility(
                 tracing::warn!(order_id = %order.id, error = %error, "failed to record provider acceptance");
             }
 
+            if order.utility_type == "school_fees"
+                && let Some(receipt_url) = result
+                    .raw
+                    .get("receipt_url")
+                    .and_then(serde_json::Value::as_str)
+                && let Err(error) = db::store_order_receipt_url(pool, order.id, receipt_url).await
+            {
+                tracing::warn!(order_id = %order.id, error = %error, "failed to store the remita receipt url");
+            }
+
             if !result.provider_reference.is_empty()
                 && result.provider_reference != result.provider_request_id
                 && let Err(error) = db::store_provider_transaction_id(
@@ -1098,13 +1108,19 @@ async fn requery_utility_dispatch(
         return Ok(());
     }
 
-    let response = match &product {
-        Some(product) => {
-            dispatcher
-                .requery_for_product(&product.provider, reference)
-                .await
+    let response = if order.utility_type == "school_fees" {
+        dispatcher
+            .query_transaction("school_fees", &order.id.to_string())
+            .await
+    } else {
+        match &product {
+            Some(product) => {
+                dispatcher
+                    .requery_for_product(&product.provider, reference)
+                    .await
+            }
+            None => dispatcher.requery(&order.utility_type, reference).await,
         }
-        None => dispatcher.requery(&order.utility_type, reference).await,
     };
 
     match response {

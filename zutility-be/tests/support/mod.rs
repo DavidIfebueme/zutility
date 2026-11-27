@@ -101,6 +101,7 @@ pub fn app_config(dtone_base_url: Option<&str>, catalogue_max_age_minutes: u32) 
         remita_webhook_secret: None,
         remita_collections_base_url: None,
         remita_collections_secret_key: None,
+        remita_collections_allow_demo: false,
         inlomax_api_key: None,
         inlomax_base_url: None,
         inlomax_webhook_secret: None,

@@ -615,6 +615,11 @@ pub async fn get_order(
         delivery_token: order.delivery_token,
         failure_code: order.failure_code,
         failure_message: order.failure_message,
+        receipt_url: order
+            .metadata
+            .get("receipt_url")
+            .and_then(serde_json::Value::as_str)
+            .map(ToOwned::to_owned),
         settlement: order.settlement.map(MoneyDto::from_money),
         fulfilment_kind: order.fulfilment_kind.unwrap_or_default(),
         display,

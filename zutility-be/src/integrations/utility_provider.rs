@@ -191,6 +191,13 @@ pub trait UtilityProvider: Send + Sync {
 
     async fn requery(&self, request_id: &str) -> Result<RequeryResponse, ProviderError>;
 
+    async fn query_transaction(
+        &self,
+        transaction_key: &str,
+    ) -> Result<RequeryResponse, ProviderError> {
+        self.requery(transaction_key).await
+    }
+
     fn verify_webhook(&self, headers: &HeaderMap, body: &[u8]) -> bool;
 
     fn parse_webhook_event(&self, payload: &[u8]) -> Result<ProviderWebhookEvent, ProviderError>;

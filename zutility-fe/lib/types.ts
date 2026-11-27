@@ -52,6 +52,7 @@ export interface OrderStatusResponse {
   delivery_token: string | null
   failure_code: string | null
   failure_message: string | null
+  receipt_url: string | null
   settlement: SettlementCurrency | null
   fulfilment_kind: string
   display: DisplayMoney
