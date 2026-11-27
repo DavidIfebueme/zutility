@@ -4,7 +4,7 @@ import * as React from "react"
 import Link from "next/link"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { QRCodeSVG } from "qrcode.react"
-import { AlertTriangle, ArrowLeft, Check, Clock, Gift, Loader2, RotateCcw, Share2, TimerOff, X } from "lucide-react"
+import { AlertTriangle, ArrowLeft, Check, Clock, ExternalLink, Gift, Loader2, RotateCcw, Share2, TimerOff, X } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { CopyField } from "@/components/ui/copy-field"
@@ -591,6 +591,21 @@ function OrderPageContent() {
                     {completionToken}
                   </p>
                   <CopyField value={completionToken} className="mt-3" />
+                </div>
+              )}
+
+              {currentSnapshot?.receipt_url && (
+                <div className="rounded-md border border-line bg-paper px-4 py-3">
+                  <p className="label-xs text-muted">Remita receipt</p>
+                  <a
+                    href={currentSnapshot.receipt_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-1 inline-flex items-center gap-1.5 text-[13px] text-gold-deep underline-offset-4 hover:underline"
+                  >
+                    View the official Remita receipt
+                    <ExternalLink className="h-3.5 w-3.5" />
+                  </a>
                 </div>
               )}
 

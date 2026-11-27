@@ -56,15 +56,32 @@ impl RrrDetails {
     }
 
     pub fn transaction_status(&self) -> ProviderTxnStatus {
-        match self.status.to_ascii_lowercase().as_str() {
-            "paid" | "completed" | "successful" | "success" | "approved" => {
-                ProviderTxnStatus::Delivered
-            }
-            "failed" | "cancelled" | "canceled" | "reversed" | "expired" | "declined" => {
-                ProviderTxnStatus::Failed
-            }
-            _ => ProviderTxnStatus::Pending,
+        map_transaction_status(&self.status)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct BillerTransaction {
+    pub rrr: Option<String>,
+    pub status: String,
+    pub raw: Value,
+}
+
+impl BillerTransaction {
+    pub fn transaction_status(&self) -> ProviderTxnStatus {
+        map_transaction_status(&self.status)
+    }
+}
+
+fn map_transaction_status(status: &str) -> ProviderTxnStatus {
+    match status.to_ascii_lowercase().as_str() {
+        "paid" | "completed" | "successful" | "success" | "approved" => {
+            ProviderTxnStatus::Delivered
         }
+        "failed" | "cancelled" | "canceled" | "reversed" | "expired" | "declined" => {
+            ProviderTxnStatus::Failed
+        }
+        _ => ProviderTxnStatus::Pending,
     }
 }
 
@@ -184,6 +201,44 @@ impl RemitaCollectionsClient {
             _ => ProviderTxnStatus::Pending,
         })
     }
+
+    pub async fn transaction_state(
+        &self,
+        transaction_key: &str,
+    ) -> Result<BillerTransaction, ProviderError> {
+        let url = format!("{}/biller/query/{}", self.base_url, transaction_key);
+        let response = self
+            .client
+            .get(&url)
+            .header("secretKey", self.secret_key.expose_secret())
+            .header("Accept", "application/json")
+            .send()
+            .await
+            .map_err(|error| {
+                ProviderError::transient(format!("remita query request failed: {error}"))
+            })?;
+
+        let status = response.status();
+        let envelope: RemitaEnvelope = response.json().await.map_err(|error| {
+            ProviderError::new(
+                ProviderErrorKind::InvalidResponse,
+                format!("remita query decode failed: {error}"),
+            )
+        })?;
+
+        if !status.is_success() || envelope.status != "00" {
+            return Err(envelope_error(&envelope));
+        }
+
+        let data = envelope.data.ok_or_else(|| {
+            ProviderError::new(
+                ProviderErrorKind::InvalidResponse,
+                "remita query returned no data",
+            )
+        })?;
+
+        parse_transaction(data)
+    }
 }
 
 fn envelope_error(envelope: &RemitaEnvelope) -> ProviderError {
@@ -233,6 +288,21 @@ fn parse_rrr_details(data: Value) -> Result<RrrDetails, ProviderError> {
             .and_then(Value::as_str)
             .map(ToOwned::to_owned),
         description: string_field(&data, "description"),
+        raw: data,
+    })
+}
+
+fn parse_transaction(data: Value) -> Result<BillerTransaction, ProviderError> {
+    let status = string_field(&data, "status").ok_or_else(|| {
+        ProviderError::new(
+            ProviderErrorKind::InvalidResponse,
+            "remita query missing status",
+        )
+    })?;
+
+    Ok(BillerTransaction {
+        rrr: string_field(&data, "rrr"),
+        status,
         raw: data,
     })
 }
@@ -344,6 +414,7 @@ impl UtilityProvider for RemitaCollectionsClient {
             raw: json!({
                 "rrr": rrr,
                 "payment_identifier": payment_identifier,
+                "receipt_url": details.receipt_url,
             }),
         })
     }
@@ -356,6 +427,23 @@ impl UtilityProvider for RemitaCollectionsClient {
             status: details.transaction_status(),
             token: Some(details.rrr),
             raw: details.raw,
+        })
+    }
+
+    async fn query_transaction(
+        &self,
+        transaction_key: &str,
+    ) -> Result<RequeryResponse, ProviderError> {
+        let transaction = self.transaction_state(transaction_key).await?;
+
+        Ok(RequeryResponse {
+            provider_request_id: transaction
+                .rrr
+                .clone()
+                .unwrap_or_else(|| transaction_key.to_owned()),
+            status: transaction.transaction_status(),
+            token: transaction.rrr,
+            raw: transaction.raw,
         })
     }
 
@@ -481,5 +569,58 @@ mod tests {
         fixture["amount"] = json!(1000.5);
 
         assert!(parse_rrr_details(fixture).is_err());
+    }
+
+    fn query_fixture() -> Value {
+        json!({
+            "paymentIdentifier": "1524030577",
+            "rrr": "251524030577",
+            "amount": 300,
+            "status": "pending",
+            "metadata": {
+                "paymentDate": "",
+                "receiptUrl": "https://receipt.remitademo.net/rrr/view/abc"
+            }
+        })
+    }
+
+    #[test]
+    fn parses_query_payload() {
+        let transaction = parse_transaction(query_fixture()).expect("transaction");
+
+        assert_eq!(transaction.rrr.as_deref(), Some("251524030577"));
+        assert_eq!(transaction.status, "pending");
+        assert_eq!(transaction.transaction_status(), ProviderTxnStatus::Pending);
+    }
+
+    #[test]
+    fn maps_query_paid_to_delivered() {
+        let mut fixture = query_fixture();
+        fixture["status"] = json!("paid");
+        let transaction = parse_transaction(fixture).expect("transaction");
+
+        assert_eq!(
+            transaction.transaction_status(),
+            ProviderTxnStatus::Delivered
+        );
+    }
+
+    #[test]
+    fn maps_query_failed_to_failed() {
+        let mut fixture = query_fixture();
+        fixture["status"] = json!("failed");
+        let transaction = parse_transaction(fixture).expect("transaction");
+
+        assert_eq!(transaction.transaction_status(), ProviderTxnStatus::Failed);
+    }
+
+    #[test]
+    fn rejects_query_without_status() {
+        let mut fixture = query_fixture();
+        if let Some(object) = fixture.as_object_mut() {
+            object.remove("status");
+        }
+
+        assert!(parse_transaction(fixture).is_err());
     }
 }

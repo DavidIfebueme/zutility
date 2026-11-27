@@ -271,6 +271,19 @@ impl ProviderDispatcher {
         result
     }
 
+    pub async fn query_transaction(
+        &self,
+        utility_type: &str,
+        transaction_key: &str,
+    ) -> Result<RequeryResponse, ProviderError> {
+        let provider = self.provider_for(utility_type)?;
+        let result = provider.query_transaction(transaction_key).await;
+        if result.is_err() {
+            self.record_provider_error(provider.kind());
+        }
+        result
+    }
+
     pub fn verify_webhook(&self, utility_type: &str, headers: &HeaderMap, body: &[u8]) -> bool {
         match self.provider_for(utility_type) {
             Ok(p) => p.verify_webhook(headers, body),
