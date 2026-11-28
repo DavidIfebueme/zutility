@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <a href="https://zutility.xyz"><img alt="Live on testnet" src="https://img.shields.io/badge/status-testnet-f4b728?style=flat-square"></a>
+  <a href="https://zutility.xyz"><img alt="Live on mainnet" src="https://img.shields.io/badge/status-mainnet-f4b728?style=flat-square"></a>
   <img alt="Rust" src="https://img.shields.io/badge/Rust-2024-14130f?style=flat-square&logo=rust&logoColor=white">
   <img alt="Axum" src="https://img.shields.io/badge/Axum-0.8-14130f?style=flat-square">
   <img alt="PostgreSQL" src="https://img.shields.io/badge/PostgreSQL-16-336791?style=flat-square&logo=postgresql&logoColor=white">
@@ -21,7 +21,7 @@
 
 ## What zutility does
 
-zutility turns a bill into a single Zcash payment. You pick the service, enter the account number, and get one deposit address with one exact ZEC amount. Send that amount from any wallet, shielded or transparent, and the top-up, token, or subscription is delivered after the network confirms the payment.
+zutility turns a bill into a single Zcash payment. You pick the service, enter the account number, and get one deposit address with one exact ZEC amount. Send that amount from any Zcash wallet, and the top-up, token, or subscription is delivered after the network confirms the payment.
 
 No account approval, no identity documents, no card on file. Each order gets its own address, so a payment can only ever credit the order it was quoted for.
 
@@ -52,7 +52,7 @@ flowchart LR
 - **Order engine.** One row per order, driven by a state machine. Transitions are compare-and-set, so a restart or a double tick cannot move an order twice.
 - **Payment detection.** The orchestrator scans wallet notes once per tick and groups them by recipient address. An order is credited only by a note sent to its own address, never by a timestamp scan.
 - **Confirmations.** Counted from the block height of the note. Order state moves once the threshold is reached, not when the wallet first sees the note.
-- **Dispatch.** Provider calls are guarded so a retried tick cannot pay a bill twice. A provider rejection or a stuck dispatch flags the order for review instead of retrying forever.
+- **Dispatch.** Provider calls are guarded so a retried tick cannot pay a bill twice. A permanent provider rejection flags the order for review. An unresolved dispatch fails after 24 hours.
 - **Gifts.** A prepaid utility gift with a claim link, a claim window, and a fallback recipient if nobody claims it.
 - **Rates.** A live ZEC rate against the local currency, with snapshots, so every order stores the rate it was quoted at.
 
@@ -66,7 +66,7 @@ flowchart LR
 | Frontend | Next.js 15, React 19, TypeScript 5, Tailwind 4 |
 | State | zustand, zod at form boundaries |
 | Providers | Inlomax, VTPass, Remita Collections |
-| Payments | ZEC, shielded or transparent |
+| Payments | ZEC, shielded |
 
 ## Repository layout
 
@@ -118,6 +118,7 @@ Point it at the API:
 
 ```bash
 NEXT_PUBLIC_API_URL=http://127.0.0.1:3001
+NEXT_PUBLIC_WS_URL=ws://127.0.0.1:3001
 ```
 
 ### Environment
@@ -127,7 +128,7 @@ The backend reads its configuration from the environment. `zutility-be/.env.exam
 | Variable | Purpose |
 | --- | --- |
 | `DATABASE_URL` | Postgres connection string |
-| `JWT_SECRET`, `ORDER_TOKEN_HMAC_SECRET` | session and order token signing |
+| `JWT_SECRET`, `ORDER_TOKEN_HMAC_SECRET`, `IP_HASH_SECRET` | session signing, order tokens, and IP hashing |
 | `ZCASH_BACKEND` | `zingolib`, `rpc`, or `mock` |
 | `ZCASH_NETWORK` | `testnet` or `mainnet` |
 | `ZINGO_INDEXER_URI` | lightwalletd gRPC endpoint |
@@ -137,9 +138,15 @@ The backend reads its configuration from the environment. `zutility-be/.env.exam
 ## Tests
 
 ```bash
+# a local database for the DB-backed suites
+docker run -d --name zutility-pg-test \
+  -e POSTGRES_PASSWORD=test -e POSTGRES_DB=zutility_test \
+  -p 55432:5432 postgres:16-alpine
+
 # backend: unit, domain, config, fixtures
 cd zutility-be
-cargo test
+TEST_DATABASE_URL=postgres://postgres:test@127.0.0.1:55432/zutility_test \
+  cargo test -- --test-threads=1
 
 # frontend types and lint
 cd zutility-fe
@@ -147,11 +154,15 @@ npx tsc --noEmit
 npm run lint
 ```
 
+The DB suites share one database, so run the backend suite with `--test-threads=1`.
+
 Migrations are append-only. Add a new file rather than editing an applied one.
 
 ## Status
 
-Live on Zcash testnet at [zutility.xyz](https://zutility.xyz). Mainnet infrastructure is being brought up. School fees are pending final Remita settlement confirmation on the sandbox.
+Live on Zcash mainnet at [zutility.xyz](https://zutility.xyz). The catalogue covers 28 Nigerian products across airtime, data, TV, electricity, WAEC, and school fees.
+
+School fee payments run in UAT against Remita's demo gateway. Production Remita credentials and settlement confirmation are still open.
 
 ## Documentation
 
