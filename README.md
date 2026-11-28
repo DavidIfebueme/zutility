@@ -138,10 +138,10 @@ The backend reads its configuration from the environment. `zutility-be/.env.exam
 ## Tests
 
 ```bash
-# a local database for the DB-backed suites
+# a local, disposable database for the DB-backed suites
 docker run -d --name zutility-pg-test \
   -e POSTGRES_PASSWORD=test -e POSTGRES_DB=zutility_test \
-  -p 55432:5432 postgres:16-alpine
+  -p 127.0.0.1:55432:5432 postgres:16-alpine
 
 # backend: unit, domain, config, fixtures
 cd zutility-be
@@ -156,13 +156,13 @@ npm run lint
 
 The DB suites share one database, so run the backend suite with `--test-threads=1`.
 
+The test database is local and disposable. The `test` password exists only inside that container, the port binds to loopback, and production credentials never live in the repo.
+
 Migrations are append-only. Add a new file rather than editing an applied one.
 
 ## Status
 
 Live on Zcash mainnet at [zutility.xyz](https://zutility.xyz). The catalogue covers 28 Nigerian products across airtime, data, TV, electricity, WAEC, and school fees.
-
-School fee payments run in UAT against Remita's demo gateway. Production Remita credentials and settlement confirmation are still open.
 
 ## Documentation
 
