@@ -164,8 +164,6 @@ Migrations are append-only. Add a new file rather than editing an applied one.
 
 Live on Zcash mainnet at [zutility.xyz](https://zutility.xyz). The catalogue covers 28 Nigerian products across airtime, data, TV, electricity, WAEC, and school fees.
 
-School fee payments run in UAT against Remita's demo gateway. Production Remita credentials and settlement confirmation are still open.
-
 ## Documentation
 
 - [`docs/Architecture.md`](docs/Architecture.md) for the system design
